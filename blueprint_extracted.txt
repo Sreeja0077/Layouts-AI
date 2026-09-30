@@ -1,0 +1,1537 @@
+AI-Assisted Office Layout Generation Platform
+Deep Architecture & Implementation Blueprint
+Deterministic geometry · AI-assisted intent · Modular monolith · Open-source-first
+Prepared: September 2026
+Status: Draft architecture review for engineering leadership
+
+Contents
+1. Executive Summary
+2. Key Architectural Principles
+3. Direct Answers to the 30 Critical Questions
+4. Recommended End-to-End Architecture
+5. Frontend Architecture
+6. Konva vs PixiJS
+7. Frontend Geometry vs Backend/Shapely (Turf.js Question)
+8. BIM / RVT / IFC Architecture
+9. Canonical Floor-Plan Model
+10. Furniture Catalog & Semantic-to-Physical Mapping
+11. AI Architecture
+12. Agent vs Workflow vs Standard Services
+13. LangGraph Evaluation
+14. Clarification Engine
+15. RAG Evaluation
+16. Vector Database Evaluation
+17. AI Model / Technology Stack
+18. Layout Optimization Architecture
+19. 3–5 Candidate Generation
+20. AI Iterative Editing
+21. Versioning: Working vs Approved Revisions
+22. Approval Workflow
+23. Database Architecture
+24. API Design
+25. Async Jobs: Celery / Redis / RabbitMQ
+26. Testing Architecture
+27. Complete Folder Structure
+28. Security & Encryption
+29. Privacy & Compliance
+30. Monitoring & Observability
+31. Performance
+32. MVP Architecture
+33. Production / Scale Architecture
+34. Phased Implementation Plan
+35. Risks & Failure Modes
+36. Technologies to Avoid Initially
+37. Final Recommended Stack
+38. Architecture Diagrams
+39. Final Summary
+
+1. Executive Summary
+This document is the architecture blueprint for an enterprise office-layout generation platform used by a real-estate firm's sales and layout teams. It is written to be implementation-ready: every technology choice states the problem it solves, the alternatives considered, and the condition under which it should (or should not) be introduced.
+The governing design rule is a strict division of authority:
+AI proposes / understands
+        +
+Domain services interpret (catalog, terminology, business rules)
+        +
+Optimizer solves (placement, packing, constraint satisfaction)
+        +
+Geometry engine validates (collision, containment, clearance, egress)
+        +
+PostgreSQL/PostGIS stores authoritative state (the only source of truth)
+The LLM never outputs final coordinates and is never the last check on physical validity. It extracts intent, resolves ambiguity through a formal clarification stage, chooses planning strategies, and interprets edits as structured, semantic actions. A deterministic Python geometry/optimization stack turns those actions into exact, validated placements. Every change is versioned as an append-only revision; nothing overwrites an approved plan.
+The recommended starting architecture is a modular monolith (not microservices, not a multi-agent swarm), backed by PostgreSQL + PostGIS, Celery + RabbitMQ + Redis for async work, a single LangGraph-orchestrated AI workflow calling permission-scoped deterministic tools, and a React + Konva 2D editor. RAG and a dedicated vector database are explicitly deferred until there is a real corpus that justifies them. Section 3 gives direct, labeled answers to all 30 critical questions raised in the brief; the sections that follow justify each answer in depth.
+2. Key Architectural Principles
+Determinism owns geometry. Collision, containment, clearance, egress, and exact coordinates are always computed by Shapely/OR-Tools/PostGIS — never by an LLM, regardless of how capable the model appears.
+The AI speaks in semantics, not coordinates. LLM output is a structured intent or constraint ("place near entrance", "keep these four") that a deterministic materializer resolves into geometry.
+Every AI output is a typed, validated object. Pydantic/JSON-Schema-constrained structured output only; free-form text is never parsed downstream with regex or vibes.
+Approved state is immutable. Publishing never overwrites; it creates a new pointer to a new revision. History is permanent and auditable.
+Patches, not full snapshots, for edits. Small changes are represented as operations against a base revision, materialized lazily, snapshotted periodically for read performance.
+Human approval gates are real gates, enforced server-side by role + workflow-stage checks — never assumed from the UI alone.
+Modular monolith first. Strong internal module boundaries (domain-driven folders) give most of microservices' maintainability benefit without the operational cost; split out only what actually needs independent scaling.
+Clarify only when it changes the outcome. If a safe default exists and the requirement is materially unambiguous, proceed silently; never invent a value that would change feasibility or the client's expectations.
+Open-source and provider-agnostic by default. LiteLLM-style abstraction over the LLM provider, IfcOpenShell over proprietary BIM SDKs where possible, Postgres extensions before adding new services.
+Testability is a first-class design constraint, not an afterthought — geometry, AI, ingestion, and workflow logic are each testable in isolation, most of them without any LLM call at all.
+Explainability by construction. Because placement is rule-based and the AI's contribution is a small set of typed decisions, every suggestion can be explained by walking the same structured trail a human would.
+Introduce infrastructure only when a concrete, current problem requires it — not because it is "standard architecture" for AI systems in general.
+
+3. Direct Answers to the 30 Critical Questions
+Concise, direct answers below; each is expanded with full reasoning in the referenced section.
+#
+Question
+Direct Answer
+1
+Turf.js if backend uses Shapely?
+No, not as a dependency. Use a handful of hand-written client-side functions (area via shoelace formula, point-in-polygon) for live preview only. See §7.
+2
+Which geometry belongs frontend vs backend?
+Frontend: interaction, screen↔world conversion, stroke smoothing, live preview. Backend: everything authoritative — validation, collision, optimization. See §7.
+3
+Konva or PixiJS?
+Konva (react-konva) for MVP and likely long-term; revisit only if object counts or 3D needs grow far beyond typical office layouts. See §6.
+4
+Should we use agents?
+Yes, in the narrow sense of an LLM-driven workflow with tool calls — but not autonomous multi-agent swarms. See §12.
+5
+How many conceptual AI nodes?
+About 7: RequirementParser, ClarificationManager, CatalogResolver, PlanningStrategyGenerator, ChangeInterpreter, CandidateExplainer, plus a thin Orchestrator. See §11–13.
+6
+Use LangGraph?
+Yes, for MVP, as a checkpointed state graph — useful mainly for its built-in pause/resume persistence, wrapped behind an internal interface. See §13.
+7
+Use RAG?
+Not for MVP. Deferred until a real corpus of design standards / historical approved layouts exists worth grounding on. See §15.
+8
+What should RAG contain (if used)?
+Company planning standards, terminology glossaries, approved historical layout patterns — never live coordinates, revisions, or approval state. See §15.
+9
+Qdrant or Postgres+pgvector?
+pgvector for MVP and most of production; move to Qdrant only if the knowledge base or catalog embeddings grow to hundreds of thousands of chunks with high QPS. See §16.
+10
+What exactly should the AI do?
+Understand language, resolve ambiguity, choose strategy, interpret edits, explain results — all as structured output. See §11.
+11
+What exactly should deterministic Python do?
+Catalog resolution execution, geometry, optimization, validation, revisioning, and all coordinate math. See §11, §18.
+12
+How should AI clarification work?
+A rule-based completeness checklist plus an LLM ambiguity classifier, producing blocking vs non-blocking questions with explicit defaults. See §14.
+13
+How do semantic concepts map to furniture?
+A catalog/bundle resolver: alias/exact match first, embedding-similarity fallback, confidence threshold below which it asks. See §10.
+14
+What constructs the final structured layout?
+A custom Layout Materializer/Compiler — no off-the-shelf library does semantic-intent-to-floorplan conversion. See §18.
+15
+How are 3–5 valid layouts generated?
+Strategy templates + constrained optimization (OR-Tools CP-SAT / heuristic packing) over the free-space polygon, filtered and deduplicated. See §19.
+16
+How does the plan stay current while preserving approved history?
+Append-only revisions with explicit draft/published pointers per floor plan; approved revisions are never mutated. See §21.
+17
+How does Layout Exec see the latest Sales Exec work?
+The API always resolves the floor plan's current_working_revision_id server-side; clients never guess or cache a stale pointer. See §21.
+18
+How do revisions and patches work?
+Each revision = base revision + ordered operation list; materialized snapshots are cached and periodically persisted, always reconstructible from patches. See §21.
+19
+How should approval work?
+A 4-role sequential state machine (Sales Exec → Layout Exec → Layout Manager → Sales Manager) with server-enforced stage/role permissions. See §22.
+20
+What happens when someone edits an approved plan?
+A new draft revision is created from the approved one; the approved version is untouched until the new revision completes its own approval cycle. See §21.
+21
+BackgroundTasks, Celery, or another queue?
+Celery from day one. BackgroundTasks is insufficient for retryable, trackable, business-critical jobs like ingestion and generation. See §25.
+22
+RabbitMQ or Redis?
+RabbitMQ as the broker (durable, acknowledged delivery) plus Redis for cache/result-backend — both from the start, not staged. See §25.
+23
+Is gRPC necessary?
+No. REST + WebSocket (for job/progress updates) covers every current need. See §24.
+24
+Is batching necessary?
+Selectively: embedding generation and bulk BIM-object inserts benefit; per-request LLM calls and candidate validation should not be batched. See §25.
+25
+What security/encryption is actually needed?
+TLS everywhere, platform-managed encryption at rest, strong password hashing, RBAC + object-level ACL, audit logging — not custom application-level crypto. See §28.
+26
+What monitoring is actually needed?
+Structured logs, error tracking, and basic queue/worker metrics for MVP; full distributed tracing and AI cost dashboards later. See §30.
+27
+What privacy/compliance concerns matter?
+Personal data in voice notes/client details (India's DPDP Act framing), retention limits on raw audio, and care with any data sent to an external LLM provider. See §29.
+28
+What should NOT be built in the MVP?
+Microservices, Kubernetes, gRPC, a dedicated vector DB, RAG, multi-agent swarms, a 3D engine, and LLM-computed coordinates. See §36.
+29
+Biggest technical risks?
+BIM export quality variance, LLM structured-output reliability, concurrent-edit conflicts, and freehand-selection geometry edge cases. See §35.
+30
+Where would a naïve AI architecture fail?
+Letting the LLM emit coordinates directly, skipping the clarification gate, regenerating whole plans on tiny edits, and treating vector search as authoritative state. See §35.
+
+4. Recommended End-to-End Architecture
+A modular monolith backend with clearly separated domain modules, a pure-Python AI package (LLM orchestration only), a pure-Python geometry/optimization package (no LLM, no web framework), and a React frontend. This gives most of the maintainability benefit of microservices — enforced boundaries, independent testability — without distributed-systems overhead the team does not yet need.
+┌───────────────────────── Frontend: React + TypeScript + Vite ─────────────────────────┐
+│ Plan Viewer | Freehand Region Tool | Requirement Panel (text/voice/chat) | 2D Editor    │
+│ (Konva) | Candidate Gallery | Visual Diff | Version History | Approval Dashboard        │
+└───────────────────────────────────────┬────────────────────────────────────────────────┘
+                                          │ HTTPS REST + WebSocket (job/progress updates)
+┌───────────────────────────────────────▼────────────────────────────────────────────────┐
+│                        Backend: FastAPI modular monolith                                │
+│  auth | projects | floorplans | regions | catalog | requirements | ai | layouts |        │
+│  revisions | approvals | audit                                                           │
+└──────────────┬───────────────────────────────────────────────────┬──────────────────────┘
+               │ enqueue (RabbitMQ, durable)                        │ read/write
+┌──────────────▼──────────────────────┐         ┌────────────────────▼─────────────────────┐
+│           Celery Workers             │         │  PostgreSQL + PostGIS + pgvector          │
+│  ingest_worker   (RVT export→IFC/DXF/│         │  Redis (cache, Celery result backend)     │
+│                   PDF/image parsing) │         │  RabbitMQ (durable broker)                 │
+│  speech_worker   (faster-whisper)    │         │  Object storage (SeaweedFS/MinIO)          │
+│  ai_worker       (LangGraph graph)   │         └────────────────────────────────────────────┘
+│  geometry_worker (optimize+validate) │
+└──────────────┬───────────────────────┘
+               │
+   ┌───────────▼────────────┐      ┌─────────────────────────┐
+   │   ai/  package          │      │  geometry/ package        │
+   │   nodes, prompts,       │      │  ingest, catalog resolve,  │
+   │   schemas, tool-calls   │      │  free-space calc,          │
+   │   via LiteLLM→Ollama    │      │  optimization, rules,      │
+   │   cloud models          │      │  materializer, diff        │
+   └──────────────────────────┘      └─────────────────────────┘
+4.1 Why a Modular Monolith and Not Microservices
+The domain is a single cohesive workflow (requirement → catalog → geometry → revision → approval) with strong data coupling; splitting it into services would mean constant cross-service transactions to keep revisions and approvals consistent.
+Team size and current scale do not require independent deployability of each module; the cost (service discovery, distributed tracing, network failure handling) would exceed the benefit today.
+Module boundaries (domain/requirements, domain/catalog, domain/layout, domain/geometry, domain/optimization, domain/revisions, domain/approvals) are enforced in code (no cross-module imports except through public interfaces), so extraction later, if ever needed, is a refactor, not a rewrite.
+The one component that legitimately benefits from independent scaling early is the worker pool (geometry/optimization and AI calls are CPU/latency heavy) — and Celery already gives that without a service split.
+5. Frontend Architecture
+Concern
+Choice
+Notes
+Framework
+React + TypeScript + Vite
+Standard, fast dev loop, large ecosystem
+Client state
+Zustand
+Lightweight, avoids Redux boilerplate for editor state
+Server state / caching
+TanStack Query
+Revision/catalog/suggestion fetching, cache invalidation on mutation
+Canvas/editor engine
+react-konva (Konva.js)
+See §6 for full comparison against PixiJS
+Realtime updates
+WebSocket (native or Socket.IO)
+AI job progress, clarification prompts, long-running optimization status
+Forms/validation
+Zod + React Hook Form
+Mirrors backend Pydantic schemas on the client
+Voice capture
+Browser MediaRecorder API
+Uploads clip; transcript always shown editable before submission
+5.1 Key Screens
+Plan Viewer — read-only render of the whole published floor, entry point for region selection.
+Freehand Region Tool — arbitrary polygon capture, live area/perimeter preview, snap-to-wall assist.
+Requirement Panel — tabbed text / voice / (optional) manual item picker, plus an inline chat surface for AI clarification questions.
+Candidate Gallery — 3–5 generated layouts shown with score, seat count, violations, and a one-line strategy label.
+2D Editor — drag/rotate/resize/add/remove furniture with live client-side rule hints, server-authoritative validation on save.
+Visual Diff — overlay of added (green) / removed (red) / moved (amber) objects between two revisions.
+Version History — linear list of revisions with author, timestamp, restore action.
+Approval Dashboard — per-role queue with approve/reject + mandatory comment on reject.
+6. Konva vs PixiJS
+This is a genuine tradeoff, not a default choice — evaluated explicitly rather than assumed.
+Dimension
+Konva / react-konva
+PixiJS
+Rendering
+Canvas 2D (with an internal layer/caching model)
+WebGL/WebGPU-accelerated
+React integration
+First-class (react-konva); scene graph maps directly to React component tree
+No official React binding; typically imperative, wrapped manually
+Object model
+Retained-mode scene graph with built-in Shape/Group/Transformer nodes
+Also retained-mode, but lower-level; selection/handles are hand-built
+Selection, drag, resize, rotate handles
+Built-in Transformer node gives resize/rotate handles almost for free
+No built-in equivalent; must be custom-engineered
+Hit testing
+Built-in, per-shape
+Built-in via interaction manager, slightly more manual wiring
+Performance at scale
+Good up to roughly a few thousand interactive nodes; degrades on very high object counts or heavy real-time animation
+Excellent at tens of thousands of nodes / high-frequency redraws (WebGL batching)
+Text and dimension lines
+Native, straightforward
+Requires bitmap/SDF text handling for crispness
+Implementation effort for a CAD-like editor
+Low — most primitives needed (selection, transform, snapping) already exist
+High — selection/transform UX must be built from scratch
+Ecosystem maturity for this use case
+Widely used for exactly this kind of 2D diagram/floorplan editor
+Primarily used for games and high-performance visualizations
+[REQUIRED — MVP and near-term]  Use react-konva. A real office floor plan has, at most, low hundreds of interactive furniture objects per view — well inside Konva's comfortable performance envelope — while its built-in Transformer, React bindings, and hit-testing eliminate a large amount of custom editor engineering that would otherwise be needed for drag/rotate/resize/snap interactions. PixiJS's WebGL performance advantage only matters at object counts this domain does not realistically reach.
+[LATER — only if justified]  Revisit PixiJS if the product expands to whole-building or multi-floor simultaneous rendering with tens of thousands of BIM-derived objects on screen at once, or if a future 3D/2.5D preview mode is built (in which case a WebGL/Three.js-based renderer becomes relevant for different reasons than 2D editor performance).
+Recommended abstraction
+Introduce a thin RendererAdapter interface (render(scene), onSelect, onTransform, hitTest) even though only KonvaRenderer is implemented now. This costs little upfront and avoids coupling the editor's business logic (selection state, snapping rules, diff highlighting) to Konva's API, so a future PixiRenderer — if ever justified — is an additive implementation, not a rewrite.
+7. Frontend Geometry vs Backend/Shapely (the Turf.js Question)
+Direct answer: do not add Turf.js as a dependency for MVP. Shapely on the backend is the single authoritative geometry engine; duplicating its logic in JavaScript — even for "just previews" — creates two implementations of the same business rules that will eventually disagree (different floating-point behavior, different polygon-repair heuristics, different buffer/offset algorithms between GEOS-via-Shapely and Turf's own JS geometry kernel).
+Responsibility
+Frontend
+Backend (Shapely/PostGIS)
+Pointer/stroke capture
+Yes — the only place this can happen
+—
+Screen ↔ world coordinate conversion
+Yes
+—
+Stroke smoothing / simplification for display
+Yes, lightweight (e.g., Douglas-Peucker on raw points for rendering only)
+Re-simplified and re-validated authoritatively on submit
+Live area/perimeter/centroid while drawing
+Yes — simple shoelace-formula math, a few lines of hand-written code, no library needed
+Recomputed authoritatively on submit
+Self-intersection repair
+No — not attempted client-side
+Yes, via Shapely's make_valid
+Collision / containment / clearance
+No
+Yes — always
+Obstacle subtraction, free-space calculation
+No
+Yes
+Final validation before any state change
+No
+Yes — the only validation that counts
+[NOT RECOMMENDED — full Turf.js]  Pulling in the entire Turf.js package duplicates business logic that must remain authoritative in one place, adds bundle size, and invites subtle client/server disagreement bugs that are hard to reproduce.
+[OPTIONAL — LATER, narrowly scoped]  If the live-preview UX later needs a genuinely richer client-side operation (e.g., a real-time clearance-buffer visualization while dragging, or polygon simplification tuned differently than the naive version), import only the specific Turf module needed (@turf/buffer, @turf/simplify) rather than the full package, and treat its output as advisory/visual only — never authoritative, and never used to skip a server round-trip validation.
+In short: hand-written, minimal client-side geometry for interaction and preview; Shapely/PostGIS for every decision that actually matters. This directly avoids duplicated business logic while keeping the UI responsive.
+
+8. BIM / RVT / IFC Architecture
+8.1 Can RVT be processed with open-source tools directly?
+No — and this must be stated plainly rather than glossed over. The .rvt format is Autodesk's proprietary, versioned binary format; there is no reliable open-source parser for it, and none should be assumed to exist. Any claim otherwise in generic AI advice is incorrect.
+Path
+Feasibility
+Cost
+Notes
+A. Direct RVT processing (open source)
+Not viable
+—
+No dependable open-source RVT parser exists; do not build on this assumption.
+B. RVT → IFC via Revit's built-in exporter
+Viable, recommended
+Free (Revit seat already implied since the Layouts Team authors in Revit)
+Run by the Layouts Team, File > Export > IFC; no Autodesk cloud licensing required
+C. RVT → IFC via Autodesk Platform Services (Model Derivative API)
+Viable, but paid
+Metered, per conversion
+Only worth it if the pipeline needs to auto-convert files without a human touching Revit — not required given the Layouts Team already owns Revit
+D. RVT → DWG/DXF export
+Viable, lossy
+Free
+Loses IFC's richer semantic space/room/property data; acceptable only as a fallback for 2D-only sources
+E. Hybrid (recommended)
+—
+—
+Layouts Team exports IFC as the working format; original .rvt is retained in object storage purely as an archival provenance reference, never parsed directly
+[REQUIRED]  Treat IFC (not RVT) as the canonical open, parseable interchange format. The Layouts Team exports it using Revit's free built-in exporter.
+[LATER / OPTIONAL]  Autodesk Platform Services only if/when the organization wants to eliminate the manual export step through automation and is willing to pay for it — not needed for MVP or for correctness.
+8.2 What is lost in RVT → IFC, and what must be preserved
+Lost or degraded: some parametric family behavior (the family's editable parameters, not just its instance geometry), certain proprietary annotation/dimension styling, worksharing/phasing metadata not mapped to IFC property sets, and some MEP-specific parametric constraints.
+Preserved well (with a correct IFC4 Reference View export): wall/door/window/column geometry, room/space boundaries, basic properties, and object hierarchy.
+Must be explicitly preserved by the ingestion pipeline: the original .rvt file (archival), the IFC GlobalId of every element (for stable-ID mapping across re-exports), export timestamp and exporter/Revit version, and the project base point / survey point / unit system so world coordinates are unambiguous.
+8.3 IFC Parsing
+IfcOpenShell (LGPL) is the real, actively maintained open-source toolkit for this — it genuinely parses IFC geometry and properties in Python and is the correct choice here; it should not be confused with a hypothetical RVT parser.
+Layouts Team exports IFC from Revit (free)
+    -> upload to object storage
+    -> ingest_worker: IfcOpenShell extracts walls/doors/windows/columns/spaces/
+       properties, maps IFC units to millimetres, captures project base point
+    -> internal object IDs generated, each cross-referenced to its IFC GlobalId
+    -> Floor JSON (draft) + confidence flags -> Layouts Team verification UI
+    -> publish
+8.4 Stable IDs and Re-Ingestion / Revisions of the Source BIM File
+IFC GlobalId is stable across re-exports of the same underlying Revit element, provided the element itself was not deleted and recreated in Revit — this is the join key used to reconcile a new IFC upload against the existing internal model.
+On re-ingestion, a diff pass matches elements by GlobalId: unchanged elements keep their internal ID and any layout work built against them; changed elements (moved wall, resized room) are flagged; new elements are added; elements no longer present are flagged as removed, not silently deleted, because furniture already placed against them may need reconciliation.
+A structural change that conflicts with existing layout work (e.g., a wall that had furniture placed against it moved) surfaces as a manual reconciliation task for the Layouts Team before the new FloorPlanSourceVersion can be published — this is a deliberate human checkpoint, not an automatic merge.
+
+9. Canonical Floor-Plan Model
+A representation independent of any specific frontend renderer or AI provider. Every entity carries a stable ID, explicit units, provenance, and a fixed/movable flag.
+Entity
+Key fields
+Fixed/Movable
+FloorPlan
+id, project_id, current_published_revision_id, current_working_revision_id
+n/a — container
+FloorPlanSourceVersion
+id, floor_plan_id, source_type, file_ref, ifc_export_meta, uploaded_by
+n/a — archival
+Room / Region
+id, polygon, area, parent_floor_id, source ("ifc" | "freehand")
+Region is user-drawn, not fixed
+Wall
+id, polyline, thickness, ifc_global_id
+Fixed
+Door
+id, position, width, swing_arc, hinge_side, ifc_global_id
+Fixed (position); swing arc used as a clearance constraint
+Window
+id, polyline, sill_height, ifc_global_id
+Fixed
+Column
+id, center, size, ifc_global_id
+Fixed
+ExistingFurniture
+id, catalog_item_id, position, rotation, keep_flag
+Movable unless explicitly marked keep
+Furniture (placed)
+id, catalog_item_id, position, rotation, locked
+Movable unless locked by user or by a partial-edit scope
+Zone / SelectedRegion
+id, polygon, created_by, clipped_to_walls, usable_area
+User-drawn, session-scoped until saved
+Dimension
+id, from_point, to_point, label, source
+Annotation only
+Obstacle
+id, polygon, type (structural | fixed-equipment)
+Fixed
+Clearance
+id, owner_object_id, polygon, rule_id
+Derived, recomputed on demand
+CirculationArea
+id, polygon, min_width
+Derived from free-space + egress rules
+9.1 Storage: JSON, PostGIS, or Both
+[REQUIRED — hybrid, not either/or]  Store the rich object semantics (catalog reference, rotation, provenance, lock state, metadata) as JSONB on each row, and generate a PostGIS geometry column from the same row (trigger or application-layer write-through) purely for spatial querying — containment, intersection, nearest-neighbor, GiST-indexed. JSONB alone cannot efficiently answer "what intersects this region" at scale; PostGIS alone is awkward for arbitrary semantic metadata. Using both from the same write avoids the two ever disagreeing, since PostGIS geometry is always derived from the JSONB record, never edited independently.
+Example placed-object record:
+{
+  "id": "desk_001",
+  "type": "executive_desk",
+  "catalog_item_id": "cat_exec_desk_180",
+  "x": 5400, "y": 3200, "rotation": 90,
+  "width": 1800, "depth": 800,
+  "locked": false,
+  "source": "ai_candidate",
+  "revision_id": "rev_13_1",
+  "metadata": { "strategy": "perimeter_arrangement" }
+}
+10. Furniture Catalog & Semantic-to-Physical Mapping
+The system must never require the sales executive to manually decompose "4 executive desks" into its components. A catalog/bundle resolver handles that translation deterministically, with the LLM only supplying the raw phrase and category guess.
+EXECUTIVE_DESK_BUNDLE (catalog_item: cat_exec_desk_180)
+    ├── desk/table            (1800mm x 800mm)
+    ├── executive chair       (650mm x 650mm)
+    ├── front clearance       900mm
+    ├── rear clearance        0mm (against wall)
+    ├── side clearance        0mm
+    └── orientation rule      "faces away from wall"
+10.1 Resolution Pipeline
+Exact/alias lookup — a synonym table maps "executive desk", "exec desk", "director's table" etc. to one canonical catalog_item_id. This handles the large majority of real phrasing cheaply and deterministically.
+Fuzzy/embedding fallback — if no alias matches, an embedding-similarity search over catalog descriptions (via pgvector) proposes the closest canonical item with a confidence score.
+Confidence threshold gate — above threshold, resolve silently; below threshold, this becomes a blocking clarification ("Did you mean Professional Desk or Office Desk?") rather than a silent guess.
+"Professional desk" vs "office desk" vs "6 seater" vs "manager cabin" vs "meeting room" are all resolved the same way — through this catalog/alias/embedding pipeline, never memorized or hardcoded in a prompt.
+Example resolution output fed to the requirement/optimizer stage:
+{
+  "raw_phrase": "6 Professional Desks or Office Desks",
+  "resolved_catalog_item_id": "cat_prof_desk_140",
+  "resolution_method": "alias_exact",
+  "confidence": 0.97,
+  "quantity": 6
+}
+
+11. AI Architecture
+AI involvement is broken into discrete, typed stages — never a single end-to-end prompt. Each stage is either LLM-backed or purely deterministic; the table makes that split explicit so no geometry decision is accidentally left to the model.
+Stage
+LLM or Deterministic
+Output type
+1. Requirement understanding
+LLM
+Draft RequirementSet (unstructured phrases tagged to slots)
+2. Requirement normalization
+LLM + deterministic catalog lookup
+Normalized RequirementSet
+3. Clarification
+Rule-based checklist + LLM ambiguity classifier
+ClarifyingQuestion[] or none
+4. Catalog resolution
+Deterministic (embedding search is a retrieval op, not generation)
+Resolved catalog_item_ids
+5. Knowledge retrieval (if enabled later)
+Deterministic retrieval, LLM only consumes results
+Retrieved snippets
+6. Planning strategy generation
+LLM proposes strategy labels/constraints
+PlanningStrategy[] (semantic, not coordinates)
+7. Candidate strategy → geometry
+Deterministic optimizer/geometry engine
+LayoutSuggestion[] with coordinates
+8. Candidate evaluation/explanation
+LLM narrates deterministic metrics
+Human-readable explanation text
+9. Iterative modification (change interpreter)
+LLM parses instruction into action
+LayoutAction (semantic constraint, not coordinates)
+10. Action → geometry
+Deterministic
+Updated LayoutSuggestion / revision
+11. Context preservation
+LangGraph checkpointed state + DB references
+Workflow state
+12. Agent vs Workflow vs Standard Services
+Approach
+Explainability
+Complexity
+Fits this workflow?
+Plain request/response service pipeline
+High
+Low
+Insufficient — cannot pause for clarification and resume later, no persisted mid-flow state
+Custom state machine (hand-rolled)
+High
+Medium (you build persistence)
+Viable alternative to LangGraph; more code, zero extra dependency
+LangGraph state graph
+High
+Medium (mostly configuration)
+Recommended — same explainability, built-in checkpointing
+Single orchestrator + specialized nodes/tools (this design)
+High
+Medium
+Recommended shape regardless of graph library
+Autonomous multi-agent swarm (agents freely calling each other)
+Low
+High
+Not recommended — this workflow is a fixed pipeline with a few branch/loop points, not an open-ended multi-actor problem
+[REQUIRED — narrow "agentic" workflow]  One orchestrator drives a fixed sequence of specialized LLM-calling nodes (RequirementParser, ClarificationManager, CatalogResolver, PlanningStrategyGenerator, ChangeInterpreter, CandidateExplainer) that call permission-scoped deterministic tools. This is "agentic" only in the sense of tool-calling with structured output — not autonomous multi-agent negotiation.
+[NOT RECOMMENDED]  A multi-agent swarm architecture where agents independently decide what to do and call each other. It adds nondeterminism, cost, and debugging difficulty with no corresponding benefit for a workflow whose steps and branch points are already well understood and fixed.
+Deterministic tools exposed to the AI layer (permission-scoped, see §38.9 for the security boundary):
+CatalogTool.resolve(phrase) -> catalog_item_id, confidence
+FloorPlanTool.get_region(region_id) -> Region
+GeometryTool.free_space(region_id) -> Polygon
+LayoutOptimizationTool.generate(region, requirement) -> LayoutSuggestion[]
+ValidationTool.validate(layout) -> ValidationResult
+RevisionTool.create_draft(base_revision_id, operations) -> revision_id
+13. LangGraph Evaluation
+[USEFUL FOR MVP, not strictly required]  LangGraph is justified specifically because this workflow must pause for a clarification answer that may arrive minutes or hours later (the sales executive is with a client, may close the laptop, may resume the next day), and again pause after presenting candidates until one is selected. LangGraph's built-in checkpoint persistence handles this pause/resume cleanly. A hand-rolled state machine on top of Postgres is a legitimate alternative with identical explainability and zero extra dependency, at the cost of writing that persistence layer yourself. Recommendation: use LangGraph, but wrap it behind an internal WorkflowEngine interface so it is swappable without touching node logic.
+13.1 Workflow State
+Ephemeral, in-flight bookkeeping lives in the graph's checkpointed state; durable facts are cross-referenced by ID and live only in Postgres, never duplicated into the graph state.
+{
+  "conversation_id": "...",
+  "floor_plan_id": "...",
+  "base_revision_id": "...",
+  "working_revision_id": "...",
+  "selected_region_id": "...",
+  "user_request": "...",
+  "requirement_state": { "requirements": {...}, "assumptions": {...},
+                          "inferred": {...}, "unknown": [...] },
+  "clarifications": [ { "id": "...", "question": "...", "answer": null } ],
+  "resolved_catalog_items": [...],
+  "planning_strategies": [...],
+  "candidates": [...],
+  "selected_candidate_id": null,
+  "pending_action": null,
+  "validation_result": null
+}
+What belongs in the graph state vs the database: the graph state is a working scratchpad for one in-progress conversation/turn; the database (RequirementSet, ClarificationQuestion, LayoutSuggestion, revisions, approvals tables) is the permanent record. When a stage completes, its result is persisted to the database and the graph state holds only the ID, not a duplicate copy — this prevents the two from drifting apart.
+
+14. Clarification Engine
+USER REQUEST -> REQUIREMENT EXTRACTION (LLM) -> NORMALIZATION (catalog resolver)
+    -> COMPLETENESS CHECKLIST (deterministic, per intent type)
+    -> AMBIGUITY CLASSIFIER (LLM, structured output: blocking | non-blocking | none)
+        -> BLOCKING?  YES -> ASK (<=3 questions, each with a default) -> USER ANSWERS
+                                -> UPDATE RequirementState -> re-check
+                      NO  -> CONTINUE (apply defaults, tag as "defaulted", proceed)
+14.1 RequirementState Schema
+{
+  "zone_id": "region_07",
+  "items": [
+    { "phrase": "6 Professional Desks", "catalog_item_id": "cat_prof_desk_140",
+      "quantity": 6, "source": "explicit" },
+    { "phrase": "1 Manager Cabin", "catalog_item_id": "cat_manager_cabin",
+      "quantity": 1, "source": "explicit" }
+  ],
+  "assumptions": [
+    { "field": "aisle_width_mm", "value": 1200, "source": "company_default" }
+  ],
+  "unknown": [
+    { "field": "manager_cabin_placement_preference", "blocking": false }
+  ],
+  "clarifications": []
+}
+14.2 Working the Two Examples From the Brief
+"NOC 10 Seater Cabin Ready Cabin, 2F, convert to 6 Professional Desks or Office Desks and 1 Manager Cabin." — quantities and item types are explicit, and the region (the existing cabin) is already selected. Nothing here is blocking. The system proceeds directly, resolving "Professional Desks or Office Desks" to the same canonical catalog item (both are aliases), and generates candidates. A non-blocking question may still surface after generation only if feasibility is tight (e.g., "This fits 6 desks comfortably with 900mm clearance, or 7 with reduced clearance — proceed with 6?") — that is a feasibility notice, not a requirement-ambiguity clarification.
+"I need a meeting room here with two chairs and four executive desks." — also directly executable: quantities and types are explicit, region is selected by "here". The only latent ambiguity ("a meeting room with desks" is an unusual combination — is this really a meeting room or an open work area with a shared table?) is non-blocking, since the literal item list is unambiguous; the system proceeds and may attach a short advisory note in the explanation rather than stopping the workflow for it.
+14.3 Company Defaults Table (example)
+Field
+Default
+Source
+Main aisle width
+1200 mm
+company_default
+Secondary aisle width
+900 mm
+company_default
+Chair if type unspecified with a desk
+Standard task chair from catalog
+company_default
+Manager cabin enclosure
+Glass partition, not full wall
+company_default
+Accessibility compliance
+Always enforced, not optional
+policy_default (non-negotiable)
+Blocking clarification triggers only when a field materially affects feasibility or layout and no safe default exists — e.g., seat count genuinely unspecified ("add more seats" with no number), a fixed object that cannot be identified ("move the desk" when three desks exist and none was disambiguated by recency or selection), or a region that cannot fit the literal request at all.
+15. RAG Evaluation
+[NOT RECOMMENDED for MVP]  There is no accumulated corpus yet (design standards documents, historical approved layouts, terminology glossaries) that would make retrieval-augmented generation add value over the catalog resolver and company-defaults table already described. Introducing RAG now would mean grounding the LLM on nothing, which delivers the operational cost of a retrieval pipeline with no benefit.
+Would RAG help?
+Example content
+Verdict
+Yes, later
+Company planning/design standards documents
+OPTIONAL / LATER — once such documents exist and are maintained
+Yes, later
+Historical approved layout patterns as style references
+OPTIONAL / LATER — once enough approved layouts accumulate to be a meaningful corpus
+Yes, later
+Terminology glossary for uncommon client shorthand
+OPTIONAL — but a simple alias table (§10) already solves most of this more reliably than retrieval
+No, never
+Current object coordinates / current revision / approval state
+NOT RECOMMENDED — must remain in PostgreSQL as the single source of truth, never approximated via similarity search
+Catalog resolution's embedding-similarity fallback (§10) is a narrow, contained retrieval operation over a small, curated catalog — not general RAG — and should not be conflated with it architecturally or operationally.
+16. Vector Database Evaluation
+Option
+MVP fit
+When it becomes justified
+PostgreSQL + pgvector
+REQUIRED for MVP (if embeddings are used at all — catalog fallback matching)
+Remains sufficient through most of production scale; catalog size (hundreds to low thousands of items) and any future knowledge base of design standards (likely low thousands of chunks) both fit comfortably
+Qdrant
+OPTIONAL / LATER
+Justified only if the knowledge base or catalog grows into hundreds of thousands of vectors with high query throughput, or multi-tenant isolation at scale becomes a hard requirement
+Weaviate
+NOT RECOMMENDED initially
+Adds an operational component and its own query language for no capability this system needs yet
+Milvus
+NOT RECOMMENDED initially
+Aimed at very large-scale vector workloads well beyond this system's current or near-term data volume
+Elasticsearch/OpenSearch (hybrid keyword+vector)
+OPTIONAL / LATER
+Consider only if full-text search over documents becomes a first-class product feature, not purely for the catalog-resolution use case
+pgvector's key practical advantage here: catalog items live in Postgres already, so similarity search can be joined with normal SQL metadata filters (category, availability, region) in one query, and stays inside the same transactional boundary as everything else — no separate service to keep consistent.
+
+17. AI Model / Technology Stack
+Per the team's stated environment: Ollama cloud models accessed through LiteLLM, and faster-whisper for voice. The stack below is organized around task-based model routing rather than one model for everything.
+Task
+Model role/alias
+Notes
+Requirement extraction / classification / ambiguity detection
+llm_fast
+Lighter, cheaper model; these are extraction/classification tasks, not deep reasoning
+Planning strategy generation, change interpretation
+llm_reasoning
+Needs stronger reasoning to propose sensible strategies and resolve references ("this desk", "window side")
+Plan image/PDF understanding (if raster ingestion is used)
+llm_vision
+Verify the specific Ollama cloud model actually supports reliable vision + structured output before depending on it in production
+Catalog/knowledge embeddings
+embedding model
+Any competent open embedding model via Ollama; kept behind the same LiteLLM alias so it is swappable
+Speech-to-text
+faster-whisper (medium/large-v3)
+Not via LiteLLM — a local/self-run model, MIT licensed, run in the speech_worker
+OCR (if raster ingestion is used)
+PaddleOCR primary, Tesseract fallback
+Classical OCR, not an LLM task
+[USEFUL — LiteLLM as the gateway]  It is not strictly required (you could call Ollama's API directly), but it buys model routing by alias, provider fallback configuration, and a single point to swap providers later without touching node code — worth adopting from the start given how cheap it is to add.
+[RISK TO TRACK EXPLICITLY]  Not every model reliably produces valid structured/JSON output or supports function/tool calling at the same quality level. Before committing a given Ollama cloud model to a production node (especially ChangeInterpreter and PlanningStrategyGenerator, which must emit strict schemas), validate it against the eval suite in §26. Build the structured-output call path with a bounded retry-with-error-feedback loop (Pydantic validation failure text fed back to the model) as a standard pattern, not a special case.
+18. Layout Optimization Architecture
+This is the technical core of the system and is never delegated to the LLM. The pipeline below is designed explicitly for irregular and concave regions, not just rectangles.
+Region polygon (possibly concave/L/U-shaped)
+    - subtract fixed obstacles (walls, columns, doors' swing arcs)
+    - subtract required clearance buffers around fixed objects
+    -> Free-space polygon / MultiPolygon (Shapely)
+ 
+Candidate generation:
+  (a) Strategy templates: perimeter, two-row, clustered, cabin-near-entrance,
+      cabin-at-rear, circulation-focused — each a parameterized seed layout
+  (b) Grid-sampled anchor points inside the free-space polygon at
+      furniture-module resolution, filtered to fully-contained placements
+  (c) For item counts <~60: OR-Tools CP-SAT formulates exact placement as a
+      constraint-satisfaction problem (positions on a coarse grid, non-overlap,
+      clearance, aisle-width constraints) -> guarantees hard-constraint validity
+  (d) For larger item counts: heuristic shelf/guillotine packing adapted to the
+      free-space mask, used standalone or as a fast seed for CP-SAT refinement
+ 
+Circulation/egress check:
+  - build a navigable free-space graph (grid or visibility graph)
+  - verify every seat has a path to an exit meeting minimum aisle width
+  - reject candidates that fail
+ 
+Diversity + selection:
+  - cluster surviving candidates by (strategy tag, spatial signature)
+  - score (seats achieved, circulation ratio, power reach, symmetry)
+  - return top 3-5, one per distinct strategy cluster where possible
+Technique
+Role
+When to use
+Shapely (GEOS)
+Free-space calculation, containment, buffers, validity repair
+Always — the geometric substrate for everything else
+OR-Tools CP-SAT
+Exact constraint-satisfying placement
+Moderate item counts (roughly <60); when hard-constraint guarantees matter most
+Heuristic packing (shelf/guillotine adapted to a free-space mask)
+Fast first-pass placement / seed generation
+Large item counts, or as a quick candidate before an optional CP-SAT refinement pass
+Grid/visibility graph + shortest-path
+Egress and circulation validation
+Always, as a post-placement gate before a candidate is accepted
+The LLM's only contribution to this section is choosing which strategy templates to try and supplying semantic constraints ("manager cabin near entrance") that become optimizer objective terms or anchor-region restrictions — never numeric coordinates.
+
+19. 3–5 Candidate Generation
+Candidates must represent genuinely different planning strategies, not coordinate jitter of the same idea. Strategy templates used as seeds:
+Perimeter arrangement — furniture hugs the walls, open center for circulation.
+Two-row / back-to-back clusters — dense, common for open-plan desk banks.
+Manager cabin near entrance — cabin-first placement anchored to the entrance side, remaining desks packed into leftover free space.
+Manager cabin at rear — cabin-first placement anchored away from circulation noise.
+Central circulation-focused — wider central aisle, furniture pushed to both sides, prioritizing walking comfort over density.
+Every candidate, regardless of strategy, passes the same hard-constraint validation gate (collision, containment, clearance, egress) before being eligible for return; candidates are then deduplicated by spatial signature so the 3–5 shown are meaningfully distinct.
+{
+  "id": "cand_a1",
+  "region_id": "region_07",
+  "strategy": "manager_cabin_near_entrance",
+  "score": 0.87,
+  "metrics": { "seats_achieved": 6, "circulation_ratio": 0.29, "power_coverage": 1.0 },
+  "violations": [],
+  "objects": [
+    { "id": "desk_1", "catalog_item_id": "cat_prof_desk_140",
+      "x": 2100, "y": 1800, "rotation": 0 }
+  ]
+}
+20. AI Iterative Editing
+Edits are expressed as semantic actions with constraints, resolved by the geometry/optimization engine — never as coordinates authored by the LLM.
+User: "Move the manager cabin closer to the entrance."
+ 
+AI (ChangeInterpreter):
+{
+  "action": "MOVE_OBJECT",
+  "object_id": "manager_cabin_01",
+  "constraint": { "relationship": "NEAR", "reference": "entrance_01" }
+}
+ 
+Change Interpreter -> Constraint Interpretation -> Candidate anchor locations
+    -> Optimizer/geometry engine picks exact position satisfying the constraint
+       and all existing hard constraints -> Validation -> New revision (patch)
+20.1 Reference Resolution
+Natural references are resolved by a small, explicit resolver rather than left to model guesswork:
+"this desk" / "these four" — resolved against the last object(s) the user selected in the editor UI or most recently mentioned in the conversation (recency heuristic, with the selection explicitly passed alongside the instruction).
+"the manager cabin" — resolved by unique-type match if only one exists; if multiple, this becomes a blocking clarification rather than a guess.
+"left side" / "window side" — resolved geometrically against stored floor-plan orientation metadata (which wall segment is tagged as the window wall; screen-left is mapped to world coordinates using the current view's orientation).
+"the room near the entrance" — resolved spatially: candidate rooms/regions ranked by proximity to the entrance object, top match used unless ambiguous (two rooms nearly equidistant), in which case it becomes a clarification.
+20.2 Action Types and Scope
+Action
+Effect
+Optimizer scope
+MOVE_OBJECT
+Reposition one object under a relational constraint
+Only that object; everything else locked
+ADD_OBJECTS
+Insert new catalog items into remaining free space
+Only the new objects; existing ones locked
+REMOVE_OBJECT
+Delete an object, optionally backfill the freed space
+Only if backfill requested; otherwise no re-optimization
+RESIZE_REGION
+Grow/shrink the working region boundary
+Full region re-check against new boundary; existing placements re-validated, not automatically regenerated
+KEEP_SUBSET
+Explicit instruction to leave named objects untouched
+Sets lock=true on those objects for the current operation
+REARRANGE_SUBSET
+Re-optimize a named group only (e.g., "redo this row")
+Scoped optimizer run over the named objects' bounding sub-region only
+This scoping is deliberate: the system never regenerates the entire plan for a small edit. Only the objects referenced, or newly requested, are subject to re-optimization; everything else is explicitly locked for that operation, which keeps edits predictable and avoids surprising the user with unrelated furniture moving.
+
+21. Versioning: Working vs Approved Revisions
+This is the most business-critical mechanism in the system and is designed explicitly around the brief's worked example.
+V12 (approved, published)
+  Sales Exec creates draft -> V13 (working)
+  Sales Exec selects AI candidate 3 -> V13.1 (working)
+  Layout Executive opens the floor plan
+      -> API resolves floorplan.current_working_revision_id -> V13.1 (always correct, never guessed)
+  Layout Executive edits -> V13.2 (working)
+  Layout Manager approves V13.2 -> approval recorded against revision_id=V13.2, content_hash=H1
+  Sales Manager approves V13.2 -> floorplan.current_published_revision_id = V13.2
+  V12 remains permanently retrievable; nothing was overwritten
+ 
+  Later: someone edits the approved plan
+  New draft created from V13.2 -> V14 (working) -> ... -> approved -> V14 published
+21.1 Revision & Patch Model
+Each revision = a base_revision_id plus an ordered list of operations (ADD / REMOVE / MOVE / MODIFY / RESIZE_REGION). This is event-sourcing-lite, not full event sourcing — it is scoped to layout objects, not the whole system.
+A materialized snapshot (the fully resolved object list) is cached per revision for fast reads, but is always reconstructible by replaying operations from the nearest prior snapshot — snapshots exist for performance, not as the source of truth.
+Snapshots are taken at natural checkpoints: every N operations, and always at stage transitions (submit, approve, publish), so reconstruction never requires replaying an unbounded chain.
+Optimistic concurrency: each revision row carries a version_no; a write must supply the expected version_no (ETag-style) or receives a 409 conflict, surfaced to the client as a merge/retry prompt rather than a silent overwrite.
+Concurrent-edit conflicts (e.g., Sales Exec and Layout Exec editing at the same moment) are handled per-object where possible — two edits to different objects both apply; two edits to the same object trigger the 409 path.
+The approval-revision link is explicit and strict: an Approval row references an exact revision_id and a content hash. If the underlying revision changes after being submitted for approval, the approval is automatically invalidated and the workflow state reverts to DRAFT, requiring resubmission — this prevents anyone approving content that quietly changed underneath them.
+Rollback creates a new revision that copies an old snapshot's operations forward; history is never mutated, only extended.
+Version comparison reuses the same diff engine that powers the frontend's visual diff: two materialized snapshots are compared object-by-object (added / removed / moved beyond a distance threshold).
+21.2 How the Frontend Always Loads the Right Version
+The frontend never caches or infers "the latest revision" — every load calls the floor plan endpoint, which returns current_working_revision_id and current_published_revision_id explicitly. This single server-side pointer is what guarantees the Layout Executive sees the Sales Executive's latest work (V13.1) rather than the older approved version (V12), directly answering the brief's central versioning concern.
+22. Approval Workflow
+DRAFT (Sales Executive)
+    -> submit ->
+LAYOUT_EXECUTIVE_REVIEW (edits/finalizes)
+    -> submit ->
+LAYOUT_MANAGER_REVIEW
+    ├── REJECTED -> DRAFT (with comment; same revision chain, new working revision opened)
+    └── APPROVED ->
+SALES_MANAGER_REVIEW
+    ├── REJECTED -> DRAFT (with comment)
+    └── APPROVED ->
+PUBLISHED (current_published_revision_id updated; history preserved)
+Stage
+Actor
+Permitted actions
+On reject
+DRAFT
+Sales Executive
+Edit region/requirement, select AI candidate, request refinements, submit
+n/a
+LAYOUT_EXECUTIVE_REVIEW
+Layout Executive
+Manual edits, finalize, submit
+Returns to Sales Executive DRAFT with comment
+LAYOUT_MANAGER_REVIEW
+Layout Manager
+Approve or reject with mandatory comment
+Returns to DRAFT
+SALES_MANAGER_REVIEW
+Sales Manager
+Approve or reject with mandatory comment
+Returns to DRAFT
+PUBLISHED
+System (on final approval)
+Read-only for all roles except via a new draft
+n/a
+Every transition is enforced server-side by a combined role-check and current-stage-check middleware — the UI hiding a button is a convenience, not the control. Every transition is written to the AuditLog table (actor, stage, decision, comment, timestamp, revision_id, content_hash).
+
+23. Database Architecture
+PostgreSQL + PostGIS + JSONB + pgvector as one system, not four separate services — this avoids cross-store consistency problems for data that is fundamentally one transactional domain.
+Table
+Purpose
+Notable columns
+users / roles
+Identity and RBAC
+id, role, org_id
+project / building / floor
+Organizational hierarchy
+id, parent references
+floor_plan
+One row per manageable floor plan
+id, current_working_revision_id, current_published_revision_id
+floor_plan_source_version
+Uploaded BIM/PDF/image source, archival
+id, source_type, file_ref, ifc_export_meta
+region
+Freehand-selected working areas
+id, geom (PostGIS), polygon_json, area_m2
+furniture_catalog_item / furniture_bundle
+Catalog and bundle definitions
+id, category, dimensions, clearance_json, embedding
+requirement_set
+Captured, normalized requirement per interaction
+id, region_id, spec_json, source
+clarification_question
+AI questions and answers
+id, requirement_set_id, question_json, answer, blocking
+ai_conversation / ai_workflow_run
+LangGraph run bookkeeping, cross-referenced not duplicated
+id, status, checkpoint_ref
+layout_suggestion
+A generated or refined candidate
+id, region_id, strategy, score, metrics_json
+layout_action
+A structured semantic edit instruction
+id, action_type, object_id, constraint_json
+layout_patch / revision
+Append-only operation log + snapshot pointer
+id, base_revision_id, operations_json, version_no
+validation_result
+Deterministic rule-check outcome for a candidate/revision
+id, revision_id, violations_json
+approval
+Per-stage decision, linked to an exact revision + content hash
+id, revision_id, stage, decision, comment
+audit_log
+Immutable record of every state-changing action
+id, actor_id, action, entity_ref, at
+document / embedding
+Any future RAG source content and its vectors
+id, content, embedding (pgvector)
+Indexing: GiST indexes on all PostGIS geometry columns (region, obstacle, furniture footprints) for containment/intersection queries; GIN indexes on JSONB columns queried by key (requirement_set.spec_json, layout_patch.operations_json); standard B-tree indexes on all foreign keys and workflow status columns.
+
+24. API Design
+Endpoint
+Purpose
+POST /auth/login
+Authenticate, issue JWT
+POST /projects
+Create a project
+POST /floor-plans/{id}/source-versions
+Upload IFC/DXF/PDF/image source
+GET /floor-plans/{id}/source-versions/{vid}/status
+Ingestion job progress (polled or via WebSocket)
+GET /floor-plans/{id}
+Returns current_working_revision_id and current_published_revision_id
+POST /floor-plans/{id}/regions
+Submit a freehand-selected region
+POST /regions/{id}/requirements
+Submit a requirement (text/voice transcript)
+POST /requirements/{id}/clarifications/{qid}/answer
+Answer a clarification question, resume the workflow
+POST /requirements/{id}/generate
+Trigger AI + optimizer candidate generation (async job)
+GET /requirements/{id}/suggestions
+Retrieve generated LayoutSuggestions
+POST /suggestions/{id}/select
+Select a candidate; creates/updates the working revision
+POST /revisions/{id}/actions
+Submit a natural-language or structured edit action
+POST /revisions/{id}/manual-edit
+Save a manual drag/rotate/add/remove edit as a new patch
+GET /revisions/{id}/validate
+Run deterministic validation, return ValidationResult
+POST /revisions/{id}/submit
+Advance the approval state machine
+POST /revisions/{id}/approve
+Approve at the caller's current stage
+POST /revisions/{id}/reject
+Reject with mandatory comment, return to DRAFT
+GET /revisions/{a}/diff/{b}
+Structured diff for the visual-diff UI
+24.1 Example: Region Selection Request
+POST /floor-plans/flr_01/regions
+{
+  "polygon": { "exterior": [[1000,1000],[9000,1200],[8800,7000],[1100,6800]] },
+  "raw_stroke_points": 412
+}
+ 
+Response 201:
+{
+  "id": "region_07",
+  "area_m2": 52.4,
+  "clipped_to_walls": true,
+  "usable_area_m2": 48.1
+}
+24.2 Example: Clarification Answer
+POST /requirements/req_44/clarifications/q1/answer
+{ "answer": "Exec desk in cabin, rest open" }
+ 
+Response 200:
+{ "status": "resumed", "workflow_run_id": "run_912", "next": "generation_queued" }
+25. Async Jobs: Celery / Redis / RabbitMQ
+Precisely, what each component is: Celery is the task-execution framework (defines tasks, retries, routing); it needs a message broker to deliver tasks to workers and, optionally, a result backend to store return values. RabbitMQ and Redis can each play the broker role; Redis additionally serves well as a cache and as the result backend regardless of which broker is chosen.
+Component
+Role
+Durability
+Operational complexity
+RabbitMQ (broker)
+Durable, acknowledged task delivery
+High — messages survive broker restart if durable queues/persistent messages are configured
+Moderate — one more service to run, but mature and well-documented
+Redis (broker)
+Simple, fast task delivery
+Lower by default — task loss possible on restart unless carefully configured
+Low — often already present as a cache
+Redis (cache + Celery result backend)
+Fast key-value store for caching and task results
+Not required to be durable for this role
+Low
+[REQUIRED from the start — Celery + RabbitMQ + Redis, not staged]  BackgroundTasks (FastAPI's built-in fire-and-forget) is explicitly insufficient here: BIM ingestion, AI generation, and optimization are long-running, must survive a worker crash, must be retryable, and must report progress — none of which BackgroundTasks provides. Given that, Celery is required immediately, not something to add "later." Between brokers: this system's async jobs are business-critical (an ingestion job or a generation job silently disappearing is a real product problem, not a minor inconvenience), so RabbitMQ's durable, acknowledged delivery is the correct default from day one rather than starting with Redis-only and upgrading under pressure. Redis is used alongside it as the cache and Celery result backend — this is not redundant, the two serve different roles.
+25.1 Heavy Jobs Routed Through Celery
+BIM/IFC/DXF ingestion and geometry extraction
+PDF/image processing, OCR, scale calibration assistance
+Speech transcription (faster-whisper)
+AI workflow steps that call an LLM (kept async so the API is never blocked on model latency)
+Layout optimization (CP-SAT / heuristic packing)
+Exports (future: PDF/image export of a published layout)
+25.2 gRPC
+[NOT RECOMMENDED]  REST covers the request/response API surface and WebSocket covers real-time job-progress and clarification-prompt delivery. gRPC's benefits (binary framing, strict service contracts, streaming) matter most for high-throughput internal service-to-service calls at a scale and topology this system does not have — a modular monolith with a handful of Celery workers has no such need.
+25.3 Batching
+Candidate for batching
+Recommendation
+Why
+Embedding generation for catalog/knowledge documents
+Batch
+Bulk, offline, no per-item latency requirement
+Bulk BIM object inserts on ingestion
+Batch
+Hundreds of walls/objects per file; batched inserts are meaningfully faster
+Per-request LLM calls (requirement parsing, change interpretation)
+Do not batch
+Each is tied to one user waiting on a response; batching adds latency for no benefit
+Candidate validation
+Do not batch across candidates in a way that hides which one failed
+Explainability requires per-candidate results; validate each, then aggregate for display
+
+26. Testing Architecture
+tests/
+├── unit/          requirement extraction, clarification logic, catalog resolution,
+│                  geometry functions, revision logic, permission rules, approval
+│                  rules, patch application, validation, optimization helpers
+├── geometry/      convex/concave/L-shaped/U-shaped regions, self-intersecting
+│                  freehand strokes, invalid-polygon repair, collision, containment,
+│                  clearance, door clearance, obstacle subtraction, narrow corridors
+├── ai/            structured output conformance, clarification-question logic,
+│                  tool-call correctness, requirement regression corpus, ambiguity
+│                  detection, change interpretation, catalog resolution, prompt
+│                  regression, model/provider regression
+├── ingestion/     RVT-exported IFC fixtures, DXF, PDF, image, audio, malformed
+│                  and incomplete-metadata inputs
+├── integration/   API + database, AI workflow + tools, workers + storage,
+│                  revision system, approval system
+├── frontend/      drawing, dragging, rotation, resizing, snapping, zoom, pan,
+│                  undo/redo, candidate selection, correct-revision loading
+├── contracts/     OpenAPI schema vs generated frontend client, Pydantic schema
+│                  vs LLM structured-output schema
+├── e2e/           full scenario: upload -> select region -> requirement ->
+│                  clarification -> generate -> select -> Layout Exec edits ->
+│                  approvals -> publish
+└── fixtures/      realistic floor-plan and requirement fixtures shared across suites
+26.1 Property / Invariant Tests (Hypothesis)
+Furniture never extends outside the usable region, for any randomly generated valid region and requirement.
+Fixed furniture (keep_flag / locked) never moves across any optimizer run.
+Requested quantity is either satisfied exactly or the candidate is explicitly flagged as partial with a stated reason — never silently short.
+No candidate returned to the user contains an illegal hard-constraint collision.
+Clearance thresholds are maintained around every placed object.
+An approved revision's materialized snapshot is byte-for-byte identical no matter how many times it is reconstructed from its patch chain.
+Modifying an approved revision always produces a new revision; the approved row's content_hash never changes.
+An approval becomes invalid the instant its linked revision's content_hash changes.
+AI tests are run two ways: a recorded/replayed corpus in CI for determinism and speed, plus a smaller live-model nightly run against the actual configured Ollama cloud models to catch provider/model drift before it reaches production.
+
+27. Complete Folder Structure
+Backend, AI, geometry/optimization, and frontend are separate top-level packages with independent test trees, plus a cross-cutting top-level tests/ directory. This mirrors the domain boundaries from Sections 9–23 directly into code.
+platform/
+├── README.md
+├── docker-compose.yml
+├── Makefile
+├── .env.example
+│
+├── backend/
+│   ├── pyproject.toml
+│   ├── alembic/                       # DB migrations
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── api/                       # route definitions per resource
+│   │   ├── domain/
+│   │   │   ├── requirements/          # RequirementSet, clarification rules
+│   │   │   ├── catalog/               # catalog, bundles, alias/embedding resolver
+│   │   │   ├── layout/                # LayoutSuggestion, LayoutAction models
+│   │   │   ├── geometry/              # thin domain wrapper over geometry/ package
+│   │   │   ├── optimization/          # thin domain wrapper over geometry/ package
+│   │   │   ├── revisions/             # patch model, snapshotting, diff
+│   │   │   └── approvals/             # state machine, role/stage enforcement
+│   │   ├── ai/
+│   │   │   ├── graph/                 # LangGraph wiring, checkpoint config
+│   │   │   ├── nodes/                 # RequirementParser, ClarificationManager,
+│   │   │   │                          #   CatalogResolver, PlanningStrategyGenerator,
+│   │   │   │                          #   ChangeInterpreter, CandidateExplainer
+│   │   │   ├── prompts/               # versioned prompt templates
+│   │   │   ├── schemas/               # Pydantic structured-output models
+│   │   │   ├── tools/                 # CatalogTool, FloorPlanTool, GeometryTool,
+│   │   │   │                          #   LayoutOptimizationTool, ValidationTool,
+│   │   │   │                          #   RevisionTool (permission-scoped)
+│   │   │   ├── retrieval/             # embedding search (catalog + future RAG)
+│   │   │   └── providers/             # LiteLLM client, model alias config
+│   │   ├── bim/
+│   │   │   ├── ifc_ingest.py          # IfcOpenShell extraction
+│   │   │   ├── dxf_ingest.py
+│   │   │   ├── raster_ingest.py       # PDF/image + OCR + scale calibration
+│   │   │   └── reconciliation.py      # GlobalId diff on re-ingestion
+│   │   ├── workers/
+│   │   │   ├── celery_app.py
+│   │   │   ├── ingest_tasks.py
+│   │   │   ├── speech_tasks.py
+│   │   │   ├── ai_tasks.py
+│   │   │   └── optimization_tasks.py
+│   │   ├── persistence/               # SQLAlchemy models, PostGIS/JSONB mapping
+│   │   ├── security/                  # auth, RBAC, object-level ACL
+│   │   └── integrations/
+│   │       ├── storage.py             # object storage client
+│   │       └── llm_gateway.py         # thin LiteLLM wrapper
+│   └── tests/
+│       ├── unit/
+│       ├── integration/
+│       ├── contracts/
+│       └── fixtures/
+│
+├── geometry/                          # pure Python, no LLM, no web framework
+│   ├── pyproject.toml
+│   ├── geo_engine/
+│   │   ├── freespace.py               # obstacle/clearance subtraction
+│   │   ├── strategies/                # perimeter, two_row, clusters, cabin_first...
+│   │   ├── optimizer_cpsat.py
+│   │   ├── optimizer_heuristic.py
+│   │   ├── circulation.py             # egress/aisle graph checks
+│   │   ├── rules/                     # collision, containment, clearance, door_swing
+│   │   ├── materializer.py            # semantic intent -> final layout compiler
+│   │   └── diff.py
+│   └── tests/
+│       ├── unit/
+│       ├── geometry/                  # convex/concave/L/U-shaped, self-intersection
+│       └── fixtures/
+│
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── app/
+│       ├── api/                       # generated client from OpenAPI
+│       ├── state/                     # Zustand stores
+│       ├── editor/
+│       │   ├── canvas/                # Konva scene, RendererAdapter
+│       │   ├── selection/
+│       │   ├── snapping/
+│       │   ├── transforms/
+│       │   ├── dimensions/
+│       │   ├── measurements/
+│       │   ├── freehand/              # stroke capture, screen<->world, live preview
+│       │   └── layers/
+│       ├── layout/
+│       │   ├── objects/
+│       │   ├── suggestions/           # candidate gallery
+│       │   ├── revisions/             # version history, diff view
+│       │   └── approvals/             # approval dashboard
+│       ├── ai/
+│       │   ├── chat/                  # clarification Q&A surface
+│       │   ├── clarification/
+│       │   ├── suggestions/
+│       │   └── actions/
+│       ├── geometry/                  # minimal client-side shoelace/point-in-polygon utils
+│       └── components/
+│   └── tests/
+│       ├── unit/
+│       ├── components/
+│       └── e2e/
+│
+└── tests/                             # cross-cutting, top level
+    ├── e2e/
+    ├── contracts/
+    ├── load/
+    └── data/
+
+28. Security & Encryption
+TLS/HTTPS everywhere, including internal service calls where practical — required, not optional, even for an internal enterprise tool, because it handles client-identifiable data and commercially sensitive floor plans.
+Encryption at rest via the managed Postgres/object-storage platform's built-in encryption — sufficient for this data sensitivity level; do not build a custom application-level encryption layer on top, which mainly adds complexity and key-management risk without a corresponding real threat it uniquely addresses.
+Password hashing with argon2 or bcrypt; short-lived JWTs with refresh tokens; secrets in a manager (not .env files in production).
+RBAC for the four workflow roles plus object-level access control scoped to project/client, since multiple clients' floor plans and requirements coexist in one system and must not cross-leak between sales teams handling different accounts.
+Audit logging of every state-changing action (already modeled as the audit_log table in §23) — this is a security control as much as a compliance one, since approvals carry real business weight.
+AI tool permission boundary (detailed in §38.9): the AI layer is only ever given read + propose-scoped tool calls; it cannot directly write to the database, delete data, publish a layout, or change permissions.
+[NOT RECOMMENDED]  Custom application-level encryption schemes beyond what the database/storage platform already provides — this adds engineering and operational risk (key rotation, recovery) that is not justified by this system's actual threat model.
+29. Privacy & Compliance
+General guidance, not legal advice. Two distinct categories of sensitive data flow through this system:
+Category
+Examples
+Handling
+Personal data
+Client names/contact details spoken in voice notes, employee names on layouts
+Minimize retention of raw voice audio after transcription (configurable retention window, e.g. 30-90 days); access-controlled; deletable on request
+Commercially sensitive data
+Floor plans, layout proposals, pricing/quantities implied by furniture counts
+Access-controlled per project/client; never exposed across client boundaries; retained per business record-keeping needs
+In the Indian context, personal data processing falls under the Digital Personal Data Protection Act, 2023 framing — purpose limitation, consent where applicable, and breach notification obligations are the relevant categories to review with legal counsel; this document flags the topic rather than rendering a legal opinion.
+External AI provider data handling matters directly here: confirm and document what the Ollama cloud service's data-retention and training-use terms actually are before sending client-identifiable text through it, and prefer redacting obvious PII (client names, phone numbers) from text sent to the model where feasible.
+Data residency: if any client contractually requires India-only storage, this affects the choice of hosting region for Postgres/object storage and, separately, whether the LLM provider processes data outside that region — these are two independent constraints to check.
+Backups should follow the same access-control and encryption posture as primary storage; backup retention should have an explicit, documented policy rather than growing indefinitely by default.
+30. Monitoring & Observability
+Capability
+MVP
+Later / Production
+Structured logging (JSON)
+REQUIRED
+Add log aggregation/search at scale
+Error tracking (e.g., Sentry)
+REQUIRED
+Alerting rules, release tracking
+Queue/worker health metrics
+USEFUL FOR MVP (basic Prometheus + Grafana)
+Autoscaling triggers based on queue depth
+Distributed tracing (OpenTelemetry)
+OPTIONAL for MVP
+REQUIRED once multiple workers/services make failures hard to trace by logs alone
+AI latency/cost tracking per model/node
+OPTIONAL for MVP
+Important once model routing (§17) has multiple models in play and cost/latency tradeoffs need real data
+Geometry/optimization runtime percentiles
+USEFUL FOR MVP (log timings)
+Dashboarded, with alerts on P95 regressions
+31. Performance
+Targets below are labeled as assumptions to validate against real usage, not guarantees.
+Frontend rendering: Konva comfortably handles the expected object count per view (low hundreds); target 60fps drag/rotate interaction on a mid-range laptop [assumption].
+Coordinate transforms: kept trivial (linear screen-to-world mapping); no measurable cost expected.
+Client-side geometry (area/perimeter preview): O(n) shoelace-formula computation on stroke points, negligible cost even for a few thousand points [assumption].
+Database queries: PostGIS GiST indexes keep containment/intersection queries sub-100ms at expected catalog and object volumes [assumption, to be load-tested].
+BIM ingestion: dominated by IfcOpenShell geometry extraction time, which scales with file complexity; run as an async Celery job so it never blocks the API regardless of duration.
+Optimization runtime: bounded per request (a hard wall-clock budget, e.g., a few seconds for CP-SAT before falling back to the heuristic packer's best result) so a pathological region/requirement cannot monopolize a worker.
+AI latency: each LLM call is async and surfaced via WebSocket progress updates rather than a blocking HTTP request, since cloud model latency is variable and out of this system's direct control.
+Caching: Redis caches parsed floor JSON and catalog lookups to avoid repeated DB/geometry recomputation for read-heavy views.
+Worker scaling: separate Celery queues per job type (ingest/speech/ai/geometry) so a burst in one does not starve the others; horizontal worker scaling by queue depth once load data justifies it.
+
+32. MVP Architecture
+The minimal architecture that is still correct and safe — not a stripped-down version that skips the geometry/versioning guarantees, only a version that defers scale-oriented and speculative infrastructure.
+Component
+MVP decision
+Backend
+Modular monolith, FastAPI
+Database
+PostgreSQL + PostGIS + pgvector (single instance)
+Queue
+Celery + RabbitMQ (durable) + Redis (cache/result backend)
+Object storage
+SeaweedFS or MinIO, single node
+Frontend rendering
+React + react-konva
+AI orchestration
+LangGraph, single orchestrator + 6 specialized nodes
+LLM access
+LiteLLM -> Ollama cloud, model routing by alias (llm_fast, llm_reasoning, llm_vision)
+RAG
+None
+Vector DB
+pgvector only, for catalog resolution fallback
+Deployment
+Docker Compose, single-region
+Observability
+Structured logs + Sentry + basic Prometheus/Grafana
+Geometry/optimization
+Shapely + OR-Tools CP-SAT + heuristic packing, all in the geometry/ package
+33. Production / Scale Architecture
+What changes as the platform grows — introduced when a concrete need appears, not preemptively:
+Geometry/optimization workers become an independently scaled pool (still Celery workers, potentially on dedicated compute given their CPU profile) if generation volume grows enough to need it.
+Postgres read replicas for read-heavy views (plan viewer, catalog browsing) once write contention or read latency data justifies it.
+Qdrant introduced only if the knowledge base or catalog embeddings genuinely outgrow pgvector's comfortable range (§16).
+RAG introduced only once a real corpus of design standards / historical approved layouts exists and has been curated (§15).
+OpenTelemetry tracing across the AI workflow and geometry pipeline once multiple workers make log-only debugging insufficient.
+Horizontal API replicas behind a load balancer; autoscaling workers by per-queue depth.
+CDN for static frontend assets.
+Multi-region considered only if a specific client data-residency requirement or genuine latency need for a geographically distant office demands it — not speculatively.
+
+34. Phased Implementation Plan
+The brief's suggested phase order is largely sound; one correction is applied — the canonical model (Phase 3) and the geometry engine's core primitives (Phase 4) are developed together, since the 2D editor (Phase 5) and freehand selection (Phase 6) both depend on geometry primitives existing, not just the data model.
+Phase
+Objective
+Key deliverables
+Explicitly not built here
+0. Architecture & domain contracts
+Lock down schemas before code
+Pydantic/JSON Schema for RequirementSet, LayoutSuggestion, LayoutAction, ValidationResult; DB schema draft
+Any UI or AI calls
+1. Backend foundation
+Auth, RBAC, base DB, storage
+FastAPI skeleton, Keycloak or equivalent OIDC, Postgres+PostGIS, object storage wiring, CI/CD
+Ingestion, geometry, AI
+2. BIM/floor-plan ingestion
+Get a real floor plan into the system
+IfcOpenShell ingestion, DXF fallback, Layouts Team verification UI, publish flow
+PDF/image ingestion (can follow later), AI
+3+4. Canonical model + geometry engine core
+Data model and geometric primitives together
+Full entity model (§9), Shapely-based free-space/collision/containment/clearance primitives, PostGIS geometry sync
+Optimization, editor UI
+5. 2D editor
+Manual editing surface
+React + react-konva canvas, drag/rotate/resize/add/remove, RendererAdapter
+AI-driven generation
+6. Freehand region selection
+Arbitrary-shape zone capture
+Stroke capture, client preview math, server-side clip/validate
+—
+7. Furniture catalog
+Semantic-to-physical mapping
+Catalog schema, bundles, alias table, embedding fallback resolver
+RAG
+8. Requirement AI + clarification
+Understand and disambiguate requests
+RequirementParser, ClarificationManager nodes, RequirementState schema, company-defaults table
+Layout generation
+9. Layout optimization
+Deterministic placement engine
+Free-space calc, strategy templates, CP-SAT + heuristic packer, circulation/egress check
+Multi-candidate diversity logic (can follow immediately after)
+10. AI candidate generation (3-5 suggestions)
+Tie AI strategy choice to the optimizer
+PlanningStrategyGenerator node, candidate diversity/dedup, CandidateExplainer
+Iterative editing
+11. AI iterative modification
+Post-selection edits
+ChangeInterpreter node, reference resolver, scoped re-optimization
+—
+12. Versioning/revisions
+Patch model, snapshots, pointers
+Revision/patch tables, optimistic concurrency, diff engine
+Approval workflow
+13. Approval workflow
+4-role state machine
+Approval tables, stage/role enforcement middleware, approval dashboard UI
+—
+14. Voice input
+Speech capture
+faster-whisper integration, editable transcript UX
+—
+15. PDF/image ingestion
+Raster floor plans
+PaddleOCR/Tesseract, vision-LLM label extraction, scale calibration UI
+—
+16. Production hardening
+Observability, scale, security review
+Full test suite pass, load testing, tracing, security audit, pilot with real client data
+Speculative scale infra not yet justified by pilot data
+
+35. Risks & Failure Modes
+Risk
+Impact
+Mitigation
+Inconsistent IFC export quality from different Revit users/versions
+Missing/incorrect walls, doors, or units break downstream geometry
+Mandatory Layouts Team verification step before publish; confidence flags surfaced explicitly
+LLM structured-output reliability, especially on smaller/self-hosted models
+Malformed actions or strategies silently misinterpreted
+Strict Pydantic validation with bounded retry-with-error-feedback; nightly live-model eval suite (§26)
+Concurrent edits (Sales Exec + Layout Exec simultaneously)
+Lost updates or confusing merges
+Optimistic concurrency (version_no/ETag), per-object conflict granularity, explicit 409 surfaced to the UI
+Freehand selection producing self-intersecting or degenerate geometry
+Invalid region breaks downstream area/optimization calculations
+Server-side make_valid repair pass; reject and prompt re-draw if unrepairable
+Optimizer runtime blow-up on large or unusually shaped regions
+Slow response, worker starvation
+Hard wall-clock budget per generation request; heuristic fallback if CP-SAT times out
+Scale-calibration error on PDF/image plans
+All downstream coordinates wrong by a consistent but incorrect factor
+Mandatory two-point calibration step with a known reference distance; sanity-check against typical room sizes
+Approval-revision mismatch confusion
+A reviewer approves something that then changes
+Approval hard-linked to a revision content hash; automatic invalidation on any change (§21)
+Catalog resolution ambiguity from noisy voice transcripts
+Wrong furniture type silently substituted
+Confidence threshold gate below which the system asks rather than guesses (§10)
+36. Technologies to Avoid Initially
+Technology/pattern
+Why deferred
+Microservices
+The domain is one cohesive workflow with tight data coupling (revisions/approvals); module boundaries in a monolith deliver most of the benefit without distributed-transaction complexity
+Kubernetes
+Docker Compose is sufficient at current scale; Kubernetes' operational overhead is not yet justified
+gRPC
+REST + WebSocket already cover every current communication need (§25.2)
+Dedicated vector database (Qdrant/Weaviate/Milvus)
+pgvector covers current and near-term catalog/knowledge volume (§16)
+Complex event-driven architecture (full event sourcing, event bus)
+The lighter patch/revision model (§21) gives auditability and versioning without a general-purpose event bus
+Multi-agent swarm
+This workflow is a fixed pipeline with known branch points, not an open-ended multi-actor problem (§12)
+3D engine
+The product is a 2D floor-plan editor; 3D adds significant engineering cost with no current requirement
+OCR/vision pipeline for MVP
+Not needed until PDF/image ingestion is prioritized (Phase 15); IFC/DXF ingestion covers the primary source format
+RAG
+No corpus yet exists to ground it on (§15)
+LLM-generated exact coordinates
+Violates the core architectural principle (§1, §2); geometry must remain deterministic
+Application-level custom encryption
+Platform-managed encryption at rest is sufficient for this data sensitivity level (§28)
+Speculative multi-region infrastructure
+Introduce only when a specific client requirement or measured latency problem demands it (§33)
+
+37. Final Recommended Stack
+Category
+Technology
+Why
+MVP or Later
+Alternatives considered
+Frontend framework
+React + TypeScript + Vite
+Ecosystem, dev speed
+MVP
+Vue, Svelte
+Rendering
+react-konva (Konva.js)
+Built-in transform handles, React-native, sufficient perf (§6)
+MVP
+PixiJS (later, if ever)
+State management
+Zustand + TanStack Query
+Lightweight, clear client/server state split
+MVP
+Redux, MobX
+Frontend geometry
+Hand-written shoelace/point-in-polygon utils
+Avoids duplicating Shapely's authority (§7)
+MVP
+Turf.js (narrow modules, later only)
+Backend framework
+FastAPI (modular monolith)
+Async, Pydantic-native, fast dev loop
+MVP
+Django, Flask
+Structured data/validation
+Pydantic v2
+Schema for API, LLM output, domain models
+MVP
+Marshmallow, attrs+cattrs
+Database
+PostgreSQL
+Mature, relational integrity for revisions/approvals
+MVP
+MySQL (weaker spatial support)
+Spatial database
+PostGIS extension
+Native polygon queries, GiST indexing
+MVP
+Storing geometry only as JSON (insufficient for spatial queries)
+Vector retrieval
+pgvector
+One less service, transactional consistency (§16)
+MVP
+Qdrant (later, at scale)
+AI orchestration
+LangGraph
+Checkpointed pause/resume for clarification (§13)
+MVP
+Hand-rolled state machine
+LLM access
+LiteLLM -> Ollama cloud models
+Provider abstraction, model routing by alias
+MVP
+Direct provider SDK calls
+Speech-to-text
+faster-whisper
+MIT, fast, accurate enough for domain vocabulary
+MVP
+Reference OpenAI Whisper (slower)
+OCR
+PaddleOCR (+ Tesseract fallback)
+Strong on architectural dimension text
+Later (Phase 15)
+Tesseract alone
+BIM ingestion path
+Revit built-in IFC export (free) + IfcOpenShell parsing
+No Autodesk licensing required; real, maintained parser
+MVP
+Autodesk Platform Services (paid, later if automation is wanted)
+Geometry engine
+Shapely (GEOS)
+Authoritative 2D geometry operations
+MVP
+JSTS, CGAL (heavier than needed)
+Optimization
+OR-Tools CP-SAT + heuristic packing
+Exact constraint satisfaction + fast fallback for scale
+MVP
+Pure heuristic only (weaker guarantees)
+Async task queue
+Celery
+Retries, progress tracking, crash recovery
+MVP
+RQ, Dramatiq, Arq
+Message broker
+RabbitMQ
+Durable, acknowledged delivery for business-critical jobs
+MVP
+Redis-only broker (less durable)
+Cache / result backend
+Redis
+Fast cache and Celery result storage
+MVP
+Memcached (no result-backend support)
+Object storage
+SeaweedFS or MinIO
+S3-compatible, self-hostable
+MVP
+Direct cloud object storage if already standardized on one
+Authentication
+Keycloak (OIDC)
+SSO, roles, JWT issuance out of the box
+MVP
+Custom auth (more maintenance)
+Observability (MVP)
+Structured logs + Sentry + Prometheus/Grafana
+Covers debugging and error visibility without overhead
+MVP
+—
+Observability (later)
+OpenTelemetry tracing, AI cost/latency dashboards
+Needed once multiple workers/models make log-only debugging insufficient
+Later
+—
+Testing
+pytest, Hypothesis, Vitest, React Testing Library, Playwright
+Property-based geometry testing plus standard unit/e2e coverage
+MVP
+—
+CI/CD
+GitHub Actions (or equivalent) + Docker Compose deploy
+Simple, sufficient for MVP scale
+MVP
+Full GitOps/ArgoCD (later, with Kubernetes)
+Deployment
+Docker Compose, single region
+Matches current scale
+MVP
+Kubernetes (later, if justified)
+
+38. Architecture Diagrams
+Rendered as labeled flow diagrams here since this document format does not execute Mermaid; the structure and content match what Mermaid diagrams of the same names would show.
+38.1 Overall System Architecture
+React (Konva editor) --HTTPS/WebSocket--> FastAPI modular monolith
+FastAPI --enqueue--> Celery (RabbitMQ broker, Redis cache/result backend)
+Celery workers --> ai/ package (LangGraph, LiteLLM->Ollama cloud)
+Celery workers --> geometry/ package (Shapely, OR-Tools)
+FastAPI + Workers <--> PostgreSQL+PostGIS+pgvector, Object Storage
+38.2 AI Workflow
+Orchestrator (LangGraph)
+  -> RequirementParser -> CatalogResolver -> ClarificationManager
+       -> (loop until unblocked) -> PlanningStrategyGenerator
+       -> [deterministic optimizer/geometry, outside the LLM]
+       -> CandidateExplainer -> (user selects) -> ChangeInterpreter (on later edits)
+38.3 Requirement Clarification Flow
+Requirement -> Normalize -> Completeness checklist -> Ambiguity classifier
+   -> blocking? --yes--> Ask (<=3 Qs, each with a default) -> Answer -> re-check
+              --no--> apply defaults (tagged) -> continue
+38.4 Layout Generation Flow
+Region + RequirementState + Catalog
+  -> Free-space calculation (Shapely)
+  -> Strategy templates + anchor sampling
+  -> CP-SAT / heuristic placement
+  -> Circulation/egress validation
+  -> Dedup + score -> Top 3-5 candidates -> Frontend gallery
+38.5 Floor-Plan Versioning
+Approved V12 --draft--> V13 --AI select--> V13.1 --Layout Exec edit--> V13.2
+   --Layout Mgr approve--> --Sales Mgr approve--> Published V13.2
+   (V12 retained permanently; edit-after-publish creates V14, same pattern)
+38.6 Approval Workflow
+DRAFT(Sales Exec) -> LAYOUT_EXEC_REVIEW -> LAYOUT_MANAGER_REVIEW
+   -> SALES_MANAGER_REVIEW -> PUBLISHED
+   (any rejection -> DRAFT, with mandatory comment, same revision chain)
+38.7 End-to-End Data Flow
+Ingestion -> Freehand region -> Requirement -> Clarification -> Planning
+  -> Candidate generation -> Geometry validation -> Selection -> Draft revision
+  -> Layout Exec review -> Iterative edit (AI or manual) -> Approval -> Publish
+38.8 Frontend/Backend Geometry Split
+Frontend (interaction only): stroke capture, screen<->world, live preview math
+Backend (authoritative, always): validity repair, collision, containment,
+   clearance, obstacle subtraction, optimization, final validation
+38.9 AI Tool Security Boundary
+AI MAY call (read + propose-scoped):
+  READ_FLOOR_PLAN, READ_REGION, READ_CATALOG, SEARCH_KNOWLEDGE,
+  CREATE_LAYOUT_CANDIDATES, VALIDATE_LAYOUT, CREATE_DRAFT_REVISION, PROPOSE_CHANGE
+ 
+AI MUST NOT call:
+  WRITE_DATABASE (raw), DELETE_APPROVED_LAYOUT, PUBLISH_LAYOUT, CHANGE_PERMISSION
+ 
+Enforcement: tool functions exposed to the LLM are a narrow, explicit allowlist;
+there is no generic "execute query" or "write object" tool in that surface at all.
+
+39. Final Summary
+The architecture is built around one non-negotiable boundary: the AI understands and proposes, deterministic Python decides geometry. Everything else in this document follows from protecting that boundary — structured outputs instead of free text, a materializer/compiler between semantic intent and coordinates, permission-scoped AI tools, append-only revisions with explicit working/published pointers, and a server-enforced multi-role approval chain.
+The recommended starting stack deliberately avoids fashionable but premature infrastructure: no microservices, no Kubernetes, no multi-agent swarm, no RAG, no dedicated vector database. It instead invests early in the things that are hard to retrofit — the canonical data model, the deterministic geometry/optimization core, the revision/patch system, and the approval state machine — because correctness and auditability in those layers are the actual foundation of a system a real-estate firm can trust for client-facing work.
+The 39 sections above, together with the folder structure in §27 and the phased plan in §34, are intended to be detailed enough for an engineering team to begin Phase 0 directly from this document.
