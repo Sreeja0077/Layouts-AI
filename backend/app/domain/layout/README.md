@@ -1,14 +1,15 @@
-# Layout & Suggestion Models
+# Layout Domain Module
 
 ## 📌 Purpose & Overview
-Data structures representing LayoutSuggestions, candidate metrics, scoring formulas, and semantic LayoutActions.
+Defines LayoutSuggestion, PlacedObject, LayoutAction, and Revision domain models.
 
 ## 🏗️ Architectural Role
 - **Domain Layer:** `backend/app/domain/layout`
 - **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
 
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
+## 📁 Files & Responsibilities
+- [`schemas.py`](file:///d:/Layouts%20AI/backend/app/domain/layout/schemas.py): Pydantic v2 schemas (`LayoutSuggestion`, `PlacedObject`, `CirculationPath`, `LayoutMetrics`, `LayoutAction`, `ActionType`, `Polygon2D`, `BoundingBox2D`).
+  - **Why needed:** Defines the exact coordinate and metric payload structure for candidate layout proposals and structured semantic edit instructions (`LayoutAction`).
 
 ## 🔒 Security & Quality Invariants
 - All state-changing operations are audited and validated.
@@ -16,4 +17,4 @@ This directory contains modular components structured according to the *AI-Assis
 - No direct LLM access to authoritative database writes or final coordinate math.
 
 ---
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+*Maintained continuously across development tasks.*

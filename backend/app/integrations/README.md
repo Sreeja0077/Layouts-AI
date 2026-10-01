@@ -1,19 +1,19 @@
-# External Service Integrations
+# Integrations Module
 
 ## 📌 Purpose & Overview
-Clients for S3-compatible object storage (SeaweedFS/MinIO) and external API gateways.
+Manages external service clients (Object Storage, LLM gateway, email/notification dispatchers).
 
 ## 🏗️ Architectural Role
 - **Domain Layer:** `backend/app/integrations`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
+- **System Authority:** External API abstraction layer; decouples core application code from specific vendor implementations.
 
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
+## 📁 Files & Responsibilities
+- [`storage.py`](file:///d:/Layouts%20AI/backend/app/integrations/storage.py): Object Storage client interface (`ObjectStorageClient`, `storage_client`).
+  - **Why needed:** Provides S3/MinIO/SeaweedFS file storage for uploaded BIM IFC files, 2D CAD DXF drawings, PDF blueprints, and floor plan images, with local disk fallback for dev testing.
 
 ## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
+- Direct database binary storage is forbidden; all heavy files must pass through Object Storage.
+- Presigned URLs are time-limited to prevent unauthorized file access.
 
 ---
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+*Maintained continuously across development tasks.*

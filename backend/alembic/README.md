@@ -1,19 +1,23 @@
-# Database Migrations (Alembic)
+# Alembic Database Migrations
 
 ## 📌 Purpose & Overview
-Alembic migration scripts for managing PostgreSQL schema changes, PostGIS extension enablement, and table versioning.
+Manages version-controlled schema migrations for PostgreSQL + PostGIS database tables.
 
 ## 🏗️ Architectural Role
 - **Domain Layer:** `backend/alembic`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
+- **System Authority:** Schema evolution authority for database tables, spatial indexes, and extensions (`postgis`, `vector`).
 
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
+## 📁 Files & Responsibilities
+- [`schema_draft.sql`](file:///d:/Layouts%20AI/backend/alembic/schema_draft.sql): Raw PostgreSQL + PostGIS DDL reference script.
+  - **Why needed:** Provides a single, clean SQL reference script for database initialization.
+- [`env.py`](file:///d:/Layouts%20AI/backend/alembic/env.py): Migration execution context.
+  - **Why needed:** Connects Alembic runner to SQLAlchemy `Base.metadata` and environment connection strings.
+- [`versions/001_initial_postgis_schema.py`](file:///d:/Layouts%20AI/backend/alembic/versions/001_initial_postgis_schema.py): Initial database migration script.
+  - **Why needed:** Enables PostGIS & pgvector extensions and sets up initial transactional schema revisions.
 
 ## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
+- Migrations must always run within database transactions.
+- Schema changes are tracked in version control before applying to production.
 
 ---
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+*Maintained continuously across development tasks.*

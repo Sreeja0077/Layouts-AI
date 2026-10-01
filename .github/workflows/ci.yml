@@ -1,0 +1,50 @@
+name: CI/CD Pipeline - Layouts AI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Backend Unit Tests & Code Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v3
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install System & Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn pydantic pyjwt httpx sqlalchemy
+
+      - name: Run Domain Schemas Unit Test
+        run: |
+          python backend/tests/unit/test_domain_schemas.py
+
+      - name: Run Database ORM Metadata Unit Test
+        run: |
+          python backend/tests/unit/test_db_schema.py
+
+      - name: Run FastAPI Main API Unit Test
+        run: |
+          python backend/tests/unit/test_main_api.py
+
+      - name: Run Security & RBAC Unit Test
+        run: |
+          python backend/tests/unit/test_security_rbac.py
+
+      - name: Run Database Connection Unit Test
+        run: |
+          python backend/tests/unit/test_database_connection.py
+
+      - name: Run Object Storage Client Unit Test
+        run: |
+          python backend/tests/unit/test_storage.py
