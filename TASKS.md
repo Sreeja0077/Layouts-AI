@@ -33,12 +33,12 @@
 ### Phase 1: Backend Foundation
 - [x] **Task 1.1:** Setup FastAPI application skeleton in `backend/app/main.py`. *(Completed: 2026-09-30 11:26:50+05:30)*
 - [x] **Task 1.2:** Configure Keycloak OIDC / JWT authentication and RBAC middleware. *(Completed: 2026-09-30 11:44:15+05:30)*
-- [ ] **Task 1.3:** Setup PostgreSQL + PostGIS database connection & Alembic migration framework. *(Pending CI run verification)*
+- [x] **Task 1.3:** Setup PostgreSQL + PostGIS database connection & Alembic migration framework. *(Completed: 2026-10-01 14:57:31+05:30)*
 - [x] **Task 1.4:** Integrate S3-compatible Object Storage client (SeaweedFS / MinIO). *(Completed: 2026-09-30 13:10:05+05:30)*
 - [x] **Task 1.5:** Configure Docker Compose & GitHub Actions CI/CD. *(Completed: 2026-09-30 13:24:45+05:30)*
 
 ### Phase 2: BIM & Floor-Plan Ingestion Engine
-- [x] **Task 2.1:** Implement Revit IFC parser using `IfcOpenShell` in `backend/app/bim/ifc_ingest.py`. *(Completed: 2026-09-30 13:37:05+05:30)*
+- [x] **Task 2.1:** Implement Revit IFC parser using `IfcOpenShell` in `backend/app/bim/ifc_ingest.py`. *(Completed: 2026-10-01 15:24:32+05:30)*
 - [x] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-09-30 13:49:05+05:30)*
 - [x] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry. *(Completed: 2026-09-30 14:06:20+05:30)*
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
@@ -405,10 +405,34 @@
   3. Removed `CREATE EXTENSION "vector"` and `embedding VECTOR(1536)` column DDL from `backend/alembic/versions/001_initial_postgis_schema.py`.
   4. Updated [`backend/tests/integration/verify_postgres_schema.py`](file:///d:/Layouts%20AI/backend/tests/integration/verify_postgres_schema.py) to verify MVP PostgreSQL + PostGIS schema (`uuid-ossp`, `postgis`, 13 tables, `regions.polygon_geom` geometry, and actual migration index access methods `idx_regions_geom` GIST, `idx_req_spec_json` GIN, `idx_rev_ops_json` GIN, `idx_suggestions_floor_plan` btree, `idx_approvals_revision` btree, `idx_catalog_category` btree).
   5. Configured `.github/workflows/ci.yml` to execute live `alembic upgrade head` and schema verification against `postgis/postgis:16-3.4` container.
-- **Status:** `PENDING CI COMMIT & PUSH VERIFICATION`
+- **Status:** `SUCCESS (GitHub Actions CI Run Passed)`
+
+### [2026-10-01] Task 2.1 Execution - Real Revit IFC Floor-Plan Ingestion Engine
+- **Action:** Rebuilt `IFCIngestor` in `backend/app/bim/ifc_ingest.py` using authoritative `IfcOpenShell` parsing pipeline, 3D geometry mesh extraction (`ifcopenshell.geom`), 2D footprint projection via Shapely `convex_hull`, length unit detection (`FOOT` -> `0.3048m`), GlobalId preservation, and explicit error handling without mock or placeholder fallbacks. Added `ifcopenshell` to `backend/requirements.txt` and `.github/workflows/ci.yml`. Updated `backend/app/bim/README.md`.
+- **Status:** `SUCCESS`
+- **Files Created/Updated:**
+  - [`backend/app/bim/ifc_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/ifc_ingest.py) (Authoritative Revit IFC parsing engine using IfcOpenShell & Shapely 2D footprint projection)
+  - [`backend/tests/unit/test_ifc_ingest.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_ifc_ingest.py) (Unit & regression test suite verifying real fixture, geometry variation, unit normalization, and explicit error handling)
+  - [`backend/requirements.txt`](file:///d:/Layouts%20AI/backend/requirements.txt) (Declared backend dependencies including `ifcopenshell>=0.7.0`)
+  - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added `ifcopenshell` dependency to GitHub CI workflow)
+  - [`backend/app/bim/README.md`](file:///d:/Layouts%20AI/backend/app/bim/README.md) (Updated BIM module documentation for Task 2.1)
+- **Test Execution #23:** `python backend/tests/unit/test_ifc_ingest.py`
+- **Status:** `SUCCESS`
+- **Output:**
+  - `[Real IFC Ingestion Test] File: 4420 Ashland Rev 2.ifc`
+  - `[Real IFC Ingestion Test] Total Elements Extracted: 306`
+  - `[Real IFC Ingestion Test] Walls: 225 | Doors: 21 | Windows: 30 | Columns: 18 | Spaces: 12`
+  - `[Real IFC Ingestion Test] Declared Unit: FOOT | Scale Factor to Meters: 0.3048`
+  - `REAL IFC FILE PARSING VERIFIED SUCCESSFULLY!`
+  - `VERIFIED GEOMETRY VARIATION: 147 unique footprints found across 225 walls.`
+  - `VERIFIED EXPLICIT FileNotFoundError FOR MISSING FILE!`
+  - `VERIFIED EXPLICIT ValueError FOR MALFORMED FILE!`
+  - `ALL REVIT IFC INGESTION TESTS PASSED SUCCESSFULLY!`
+- **Details:** Extracted 306 total structural elements from real fixture `docs/4420 Ashland Rev 2.ifc`. Verified 147 unique 2D polygon footprints across 225 walls, proving actual geometry extraction without static placeholder coordinates. Verified explicit `FileNotFoundError` and `ValueError` handling.
 
 ---
 *Maintained continuously across all development steps.*
+
 
 
 
