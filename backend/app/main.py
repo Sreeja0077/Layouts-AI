@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1 import api_v1_router
+from app.persistence.database import check_db_health
 
 
 def create_application() -> FastAPI:
@@ -49,8 +50,17 @@ def create_application() -> FastAPI:
 
     @app.get("/readyz", tags=["System Health"], status_code=status.HTTP_200_OK)
     async def readiness_check() -> JSONResponse:
-        """Readiness probe endpoint."""
-        return JSONResponse(content={"status": "READY", "database": "CONNECTED"})
+        """Readiness probe endpoint evaluating database connectivity."""
+        is_db_ready = check_db_health()
+        if is_db_ready:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"status": "READY", "database": "CONNECTED"},
+            )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "NOT_READY", "database": "DISCONNECTED"},
+        )
 
     # Include API v1 routes
     app.include_router(api_v1_router, prefix="/api")
@@ -62,4 +72,4 @@ app = create_application()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
