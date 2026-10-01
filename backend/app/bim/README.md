@@ -8,11 +8,11 @@ Parses Revit IFC files (`.ifc`), 2D DXF CAD drawings (`.dxf`), and raster assets
 - **System Authority:** Ingests raw client architectural assets and extracts structural boundaries (`IfcWall`, `IfcDoor`, `IfcWindow`, `IfcColumn`, `IfcSpace`, 2D CAD Polylines) required by PostGIS and Shapely geometry optimization engines.
 
 ## 📁 Files & Responsibilities
-- [`ifc_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/ifc_ingest.py): Authoritative Revit IFC floor plan geometry parser (`IFCIngestor`, `IFCParsedFloorPlan`, `ExtractedElement`).
+- [`ifc_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/ifc_ingest.py): Authoritative Revit IFC floor plan geometry parser (`IFCIngestor`, `IFCParsedFloorPlan`, `ExtractedElement`, `GeometryStatus`).
   - **Parser Engine:** Uses `IfcOpenShell` as the authoritative parser.
   - **Interchange Format:** IFC (ISO-10303-21 STEP) is the canonical parseable interchange format for Revit exports. Direct native `.rvt` parsing is not implemented.
-  - **Geometry Extraction:** Computes real 2D footprint polygon boundaries using `ifcopenshell.geom` 3D mesh projection and Shapely convex hull / bounding algorithms. Never generates static fake/mock placeholder coordinates.
-  - **GlobalId Preservation:** Preserves original IFC `GlobalId` (`ifc_global_id`) on all elements for stable cross-export reconciliation.
+  - **Zero-Fabricated Geometry Policy:** Computes real 2D footprint polygon boundaries using `ifcopenshell.geom` 3D mesh projection and Shapely convex hull algorithms. Failed shape extractions return empty boundary arrays (`boundary_vertices = []`) with `geometry_status = GeometryStatus.FAILED` and machine-readable `geometry_error` details instead of invented placement rectangles.
+  - **GlobalId Preservation:** Preserves original IFC `GlobalId` (`ifc_global_id` and `global_id`) on all elements for stable cross-export reconciliation.
   - **Unit Normalization:** Detects project length unit declarations (`FOOT`, `MILLI`, `METRE`) and normalizes all 2D coordinates into meters (`m`) with scale metadata.
   - **Error Handling:** Raises explicit `FileNotFoundError`, `ImportError`, and `ValueError` exceptions without silent exception swallowing or mock fallbacks in production.
 - [`dxf_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/dxf_ingest.py): 2D AutoCAD DXF CAD drawing parser (`DXFIngestor`, `DXFParsedFloorPlan`, `DXFEntity`).

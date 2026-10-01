@@ -3,10 +3,14 @@ Revit IFC (Industry Foundation Classes) Floor Plan Ingestion Engine.
 Extracts structural elements (IfcWall, IfcDoor, IfcWindow, IfcColumn, IfcSpace)
 and calculates 2D footprint polygon geometry using IfcOpenShell and Shapely.
 Preserves original IFC GlobalIds, unit normalization, property sets, and source metadata.
+Enforces strict zero-fabricated-geometry policy: failed shape extractions return empty
+boundaries with explicit error/warning statuses instead of mock rectangles.
 """
 
+import math
 import os
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +39,13 @@ except ImportError:
     HAS_SHAPELY = False
 
 
+class GeometryStatus(str, Enum):
+    """Status of geometry extraction for a BIM entity."""
+    VALID = "VALID"
+    FAILED = "FAILED"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
 class ExtractedElement(BaseModel):
     """Extracted structural or spatial element from BIM model."""
     model_config = ConfigDict(extra="forbid")
@@ -44,7 +55,9 @@ class ExtractedElement(BaseModel):
     global_id: str = Field(..., description="IFC GlobalUniqueId for backward compatibility")
     element_type: str = Field(..., description="IFC entity type (e.g., 'IfcWall', 'IfcDoor', 'IfcSpace')")
     name: str = Field(..., description="Element name or label")
-    boundary_vertices: List[List[float]] = Field(..., description="2D footprint vertices [[x0, y0], [x1, y1], ...]")
+    geometry_status: GeometryStatus = Field(default=GeometryStatus.VALID, description="Status of geometry extraction")
+    boundary_vertices: List[List[float]] = Field(default_factory=list, description="2D footprint vertices [[x0, y0], ...]")
+    geometry_error: Optional[str] = Field(default=None, description="Error details if geometry extraction failed")
     properties: Dict[str, Any] = Field(default_factory=dict, description="Extracted BIM properties")
     source_metadata: Dict[str, Any] = Field(default_factory=dict, description="Element provenance and unit metadata")
 
@@ -56,6 +69,8 @@ class IFCParsedFloorPlan(BaseModel):
     file_name: str
     source_format: str = Field(default="IFC", description="IFC schema version (e.g. IFC4)")
     total_elements_count: int
+    valid_geometry_count: int = Field(default=0, description="Count of elements with valid 2D geometry")
+    failed_geometry_count: int = Field(default=0, description="Count of elements where geometry extraction failed")
     walls: List[ExtractedElement] = Field(default_factory=list)
     doors: List[ExtractedElement] = Field(default_factory=list)
     windows: List[ExtractedElement] = Field(default_factory=list)
@@ -71,7 +86,7 @@ class IFCIngestor:
     def parse_file(self, file_path_or_name: str) -> IFCParsedFloorPlan:
         """
         Parse an IFC file using IfcOpenShell and extract structural spatial elements.
-        Never uses fake, mock, or placeholder geometry in production.
+        Never uses fake, mock, or fabricated placeholder geometry in production.
         """
         path = Path(file_path_or_name)
 
@@ -125,12 +140,17 @@ class IFCIngestor:
         columns = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in column_entities]
         spaces = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in space_entities]
 
-        total = len(walls) + len(doors) + len(windows) + len(columns) + len(spaces)
+        all_elements = walls + doors + windows + columns + spaces
+        total = len(all_elements)
+        valid_count = sum(1 for e in all_elements if e.geometry_status == GeometryStatus.VALID)
+        failed_count = sum(1 for e in all_elements if e.geometry_status != GeometryStatus.VALID)
 
         return IFCParsedFloorPlan(
             file_name=file_name,
             source_format=project_meta.get("source_format", "IFC"),
             total_elements_count=total,
+            valid_geometry_count=valid_count,
+            failed_geometry_count=failed_count,
             walls=walls,
             doors=doors,
             windows=windows,
@@ -148,8 +168,8 @@ class IFCIngestor:
         warnings: List[str],
         file_name: str,
     ) -> ExtractedElement:
-        """Helper converting IfcOpenShell entity to ExtractedElement with real geometry."""
-        boundary, properties = self._extract_entity_footprint_and_properties(
+        """Helper converting IfcOpenShell entity to ExtractedElement with real geometry or explicit failure status."""
+        boundary, geom_status, geom_err, properties = self._extract_entity_footprint_and_properties(
             entity, scale_to_meters, geom_settings, warnings
         )
 
@@ -168,7 +188,9 @@ class IFCIngestor:
             global_id=global_id,
             element_type=entity.is_a(),
             name=name,
+            geometry_status=geom_status,
             boundary_vertices=boundary,
+            geometry_error=geom_err,
             properties=properties,
             source_metadata=element_metadata,
         )
@@ -179,13 +201,15 @@ class IFCIngestor:
         scale_to_meters: float,
         geom_settings: Any,
         warnings: List[str],
-    ) -> Tuple[List[List[float]], Dict[str, Any]]:
+    ) -> Tuple[List[List[float]], GeometryStatus, Optional[str], Dict[str, Any]]:
         """
         Extract real 2D boundary vertices (in meters) and properties for an IFC entity.
-        Never returns static placeholder coordinates.
+        NEVER fabricates fallback coordinates or placement rectangles if geometry is unavailable.
         """
         props: Dict[str, Any] = {}
         boundary: List[List[float]] = []
+        geom_status: GeometryStatus = GeometryStatus.FAILED
+        geom_err: Optional[str] = None
 
         global_id = getattr(entity, "GlobalId", "unknown")
         props["ifc_type"] = entity.is_a()
@@ -195,7 +219,7 @@ class IFCIngestor:
         if hasattr(entity, "PredefinedType"):
             props["predefined_type"] = str(getattr(entity, "PredefinedType"))
 
-        # Pset extraction
+        # Property set extraction
         try:
             if hasattr(ifcopenshell, "util") and hasattr(ifcopenshell.util, "element"):
                 psets = ifcopenshell.util.element.get_psets(entity)
@@ -207,10 +231,10 @@ class IFCIngestor:
                                     props[f"{pset_name}.{k}"] = (
                                         str(v) if not isinstance(v, (int, float, bool)) else v
                                     )
-        except Exception:
-            pass
+        except Exception as pset_err:
+            warnings.append(f"Property set extraction warning for GlobalId={global_id}: {str(pset_err)}")
 
-        # Shape geometry extraction via IfcOpenShell shape engine
+        # Primary shape geometry extraction via IfcOpenShell shape engine
         if geom_settings is not None and HAS_IFCOPENSHELL_GEOM and ifcopenshell_geom is not None:
             try:
                 shape = ifcopenshell_geom.create_shape(geom_settings, entity)
@@ -220,79 +244,67 @@ class IFCIngestor:
                     for i in range(0, len(verts), 3):
                         x = verts[i] * scale_to_meters
                         y = verts[i + 1] * scale_to_meters
-                        pts_2d.append((x, y))
+                        if not math.isnan(x) and not math.isnan(y) and not math.isinf(x) and not math.isinf(y):
+                            pts_2d.append((x, y))
 
                     if HAS_SHAPELY and len(pts_2d) >= 3:
                         mp = MultiPoint(pts_2d)
                         hull = mp.convex_hull
-                        if isinstance(hull, Polygon) and not hull.is_empty:
+                        if isinstance(hull, Polygon) and not hull.is_empty and hull.area > 1e-6:
                             coords = list(hull.exterior.coords)
                             if coords and len(coords) > 1 and coords[0] == coords[-1]:
                                 coords = coords[:-1]
                             boundary = [[round(p[0], 4), round(p[1], 4)] for p in coords]
+                            geom_status = GeometryStatus.VALID
                         elif hasattr(hull, "bounds"):
                             minx, miny, maxx, maxy = hull.bounds
+                            if (maxx - minx) > 1e-4 or (maxy - miny) > 1e-4:
+                                boundary = [
+                                    [round(minx, 4), round(miny, 4)],
+                                    [round(maxx, 4), round(miny, 4)],
+                                    [round(maxx, 4), round(maxy, 4)],
+                                    [round(minx, 4), round(maxy, 4)],
+                                ]
+                                geom_status = GeometryStatus.VALID
+                            else:
+                                geom_err = "IFC_DEGENERATE_GEOMETRY: Vertices yielded zero-area 2D footprint"
+                        else:
+                            geom_err = "IFC_GEOMETRY_CONVEX_HULL_FAILED: Unable to construct valid 2D polygon"
+                    elif len(pts_2d) >= 3:
+                        xs = [p[0] for p in pts_2d]
+                        ys = [p[1] for p in pts_2d]
+                        minx, maxx = min(xs), max(xs)
+                        miny, maxy = min(ys), max(ys)
+                        if (maxx - minx) > 1e-4 or (maxy - miny) > 1e-4:
                             boundary = [
                                 [round(minx, 4), round(miny, 4)],
                                 [round(maxx, 4), round(miny, 4)],
                                 [round(maxx, 4), round(maxy, 4)],
                                 [round(minx, 4), round(maxy, 4)],
                             ]
+                            geom_status = GeometryStatus.VALID
+                        else:
+                            geom_err = "IFC_DEGENERATE_GEOMETRY: Vertices yielded zero-area 2D footprint"
                     else:
-                        xs = [p[0] for p in pts_2d]
-                        ys = [p[1] for p in pts_2d]
-                        minx, maxx = min(xs), max(xs)
-                        miny, maxy = min(ys), max(ys)
-                        boundary = [
-                            [round(minx, 4), round(miny, 4)],
-                            [round(maxx, 4), round(miny, 4)],
-                            [round(maxx, 4), round(maxy, 4)],
-                            [round(minx, 4), round(maxy, 4)],
-                        ]
+                        geom_err = "IFC_INSUFFICIENT_VERTICES: Less than 3 valid 2D vertices extracted"
+                else:
+                    geom_err = "IFC_SHAPE_EMPTY_VERTICES: No 3D vertices returned by geometry engine"
             except Exception as shape_err:
+                geom_err = f"IFC_SHAPE_CREATION_FAILED: {str(shape_err)}"
                 warnings.append(
-                    f"Shape creation non-fatal warning for {entity.is_a()} GlobalId={global_id}: {str(shape_err)}"
+                    f"Shape creation warning for {entity.is_a()} GlobalId={global_id}: {str(shape_err)}"
                 )
+        else:
+            geom_err = "IFC_GEOM_ENGINE_UNAVAILABLE: IfcOpenShell geometry creation module unavailable"
 
-        # Fallback 2D placement projection if 3D shape creation was empty or warning
-        if not boundary:
-            boundary = self._extract_boundary_from_placement(entity, scale_to_meters, warnings)
+        # Strict zero-fabricated-geometry enforcement:
+        # If geometry is not valid, boundary must be empty [] and status must be FAILED/UNAVAILABLE.
+        if geom_status != GeometryStatus.VALID:
+            boundary = []
+            if not geom_err:
+                geom_err = "IFC_GEOMETRY_UNAVAILABLE"
 
-        return boundary, props
-
-    def _extract_boundary_from_placement(
-        self, entity: Any, scale_to_meters: float, warnings: List[str]
-    ) -> List[List[float]]:
-        """
-        Extract 2D footprint boundary using entity ObjectPlacement coordinates.
-        Ensures unique coordinates per element without hardcoded placeholders.
-        """
-        px, py = 0.0, 0.0
-        try:
-            placement = getattr(entity, "ObjectPlacement", None)
-            if placement and hasattr(placement, "RelativePlacement"):
-                rel = placement.RelativePlacement
-                if hasattr(rel, "Location"):
-                    loc = rel.Location
-                    if hasattr(loc, "Coordinates"):
-                        coords = loc.Coordinates
-                        if len(coords) >= 2:
-                            px = float(coords[0]) * scale_to_meters
-                            py = float(coords[1]) * scale_to_meters
-        except Exception:
-            pass
-
-        # Dynamic dimension based on entity ID and type to guarantee variation
-        elem_id = getattr(entity, "id", lambda: 1)()
-        width = round(0.5 + (elem_id % 7) * 0.2, 4)
-        depth = round(0.2 + (elem_id % 5) * 0.1, 4)
-
-        return [
-            [round(px, 4), round(py, 4)],
-            [round(px + width, 4), round(py, 4)],
-            [round(px + width, 4), round(py + depth, 4)],
-            [round(px, 4), round(py + depth, 4)],
-        ]
+        return boundary, geom_status, geom_err, props
 
     def _detect_length_unit_scale(self, ifc_file: Any) -> Tuple[str, float]:
         """Detect declared length unit system and unit scale factor to meters."""
