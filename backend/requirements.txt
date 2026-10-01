@@ -9,4 +9,5 @@ psycopg2-binary>=2.9.6
 geoalchemy2>=0.14.0
 shapely>=2.0.0
 cryptography>=41.0.0
-ifcopenshell>=0.7.0
+ifcopenshell==0.8.5
+pytest>=7.0.0

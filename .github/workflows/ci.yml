@@ -40,7 +40,7 @@ jobs:
       - name: Install System & Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn pydantic pyjwt httpx sqlalchemy alembic psycopg2-binary geoalchemy2 shapely cryptography ifcopenshell
+          pip install -r backend/requirements.txt
 
       - name: Run Domain Schemas Unit Test
         run: |
@@ -87,4 +87,5 @@ jobs:
       - name: Run Revit IFC Floor-Plan Ingestion Unit & Integration Test
         run: |
           python backend/tests/unit/test_ifc_ingest.py
+          pytest backend/tests/unit/test_ifc_ingest.py -v
 

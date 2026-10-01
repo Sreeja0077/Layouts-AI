@@ -41,44 +41,6 @@ except ImportError:
     HAS_SHAPELY = False
 
 
-class _NoKeyErrorDict(dict):
-    """Dict wrapper preventing KeyError during ifcopenshell file object destruction."""
-    def __delitem__(self, key: Any) -> None:
-        try:
-            super().__delitem__(key)
-        except KeyError:
-            pass
-
-    def pop(self, key: Any, default: Any = None) -> Any:
-        return super().pop(key, default)
-
-
-if HAS_IFCOPENSHELL:
-    try:
-        import ifcopenshell.file
-        if hasattr(ifcopenshell.file, "file_dict"):
-            ifcopenshell.file.file_dict = _NoKeyErrorDict(ifcopenshell.file.file_dict)
-
-        for _attr_name in dir(ifcopenshell.file):
-            _attr = getattr(ifcopenshell.file, _attr_name)
-            if isinstance(_attr, type) and hasattr(_attr, "__del__"):
-                _orig_del = _attr.__del__
-                def _make_safe_del(old_del: Any) -> Any:
-                    def _safe_del(self_obj: Any) -> None:
-                        try:
-                            old_del(self_obj)
-                        except Exception:
-                            pass
-                    return _safe_del
-                try:
-                    _attr.__del__ = _make_safe_del(_orig_del)
-                except (AttributeError, TypeError):
-                    pass
-    except Exception:
-        pass
-
-
-
 
 class GeometryStatus(str, Enum):
     """Status of geometry extraction for a BIM entity."""
