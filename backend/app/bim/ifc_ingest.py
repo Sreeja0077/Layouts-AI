@@ -54,43 +54,56 @@ class GeometryType(str, Enum):
     MULTIPOLYGON = "MultiPolygon"
 
 
-def shapely_to_geojson_coords(
+class Geometry2D(BaseModel):
+    """Typed GeoJSON-compatible 2D footprint geometry representation."""
+    model_config = ConfigDict(extra="forbid")
+
+    type: GeometryType = Field(..., description="Shapely/GeoJSON geometry type ('Polygon' or 'MultiPolygon')")
+    coordinates: Union[List[List[List[float]]], List[List[List[List[float]]]]] = Field(
+        ..., description="GeoJSON coordinates: List[Ring] for Polygon, or List[PolygonRings] for MultiPolygon"
+    )
+
+
+def shapely_to_geometry_model(
     geom: Any, decimals: int = 4
-) -> Tuple[str, Any, List[List[float]]]:
+) -> Tuple[GeometryType, Union[List[List[List[float]]], List[List[List[List[float]]]]], List[List[float]]]:
     """
-    Convert a Shapely Polygon or MultiPolygon to (geometry_type, geometry_coordinates, boundary_vertices_compat).
-    Preserves outer rings, holes (interior rings), and MultiPolygon components.
+    Convert a Shapely Polygon or MultiPolygon to (GeometryType, GeoJSON coordinates, boundary_vertices_compat).
+    Preserves exterior rings, interior holes, and MultiPolygon components.
+
+    For simple Polygon without holes:
+      boundary_vertices contains the exterior ring [[x0, y0], ...] for backward compatibility.
+    For MultiPolygon or Polygon with interior holes:
+      boundary_vertices is [] to enforce reliance on authoritative geometry_coordinates/geometry.
     """
     if geom.geom_type == "Polygon":
         ext_coords = [[round(p[0], decimals), round(p[1], decimals)] for p in geom.exterior.coords]
-        ext_compat = ext_coords[:-1] if (len(ext_coords) > 1 and ext_coords[0] == ext_coords[-1]) else ext_coords
-
         rings = [ext_coords]
+        has_holes = len(geom.interiors) > 0
+
         for interior in geom.interiors:
             hole_coords = [[round(p[0], decimals), round(p[1], decimals)] for p in interior.coords]
             rings.append(hole_coords)
 
-        return GeometryType.POLYGON.value, rings, ext_compat
+        if not has_holes:
+            ext_compat = ext_coords[:-1] if (len(ext_coords) > 1 and ext_coords[0] == ext_coords[-1]) else ext_coords
+        else:
+            ext_compat = []
+
+        return GeometryType.POLYGON, rings, ext_compat
 
     elif geom.geom_type == "MultiPolygon":
         multi_coords = []
-        largest_compat: List[List[float]] = []
-        max_area = -1.0
-
         for poly in geom.geoms:
             ext_coords = [[round(p[0], decimals), round(p[1], decimals)] for p in poly.exterior.coords]
-            ext_compat = ext_coords[:-1] if (len(ext_coords) > 1 and ext_coords[0] == ext_coords[-1]) else ext_coords
-            if poly.area > max_area:
-                max_area = poly.area
-                largest_compat = ext_compat
-
             rings = [ext_coords]
             for interior in poly.interiors:
                 hole_coords = [[round(p[0], decimals), round(p[1], decimals)] for p in interior.coords]
                 rings.append(hole_coords)
             multi_coords.append(rings)
 
-        return GeometryType.MULTIPOLYGON.value, multi_coords, largest_compat
+        # MultiPolygon returns boundary_vertices = [] to prevent lossy non-authoritative representations
+        return GeometryType.MULTIPOLYGON, multi_coords, []
 
     else:
         raise ValueError(f"Unsupported geometry type for 2D footprint: {geom.geom_type}")
@@ -101,7 +114,7 @@ def project_shape_to_2d_footprint(
     faces: Sequence[int],
     scale_to_meters: float = 1.0,
     decimals: int = 4,
-) -> Tuple[Optional[str], Optional[Any], List[List[float]], GeometryStatus, Optional[str]]:
+) -> Tuple[Optional[GeometryType], Optional[Union[List[List[List[float]]], List[List[List[List[float]]]]]], List[List[float]], GeometryStatus, Optional[str]]:
     """
     Authoritative 3D mesh face to 2D floor plan footprint projector.
     Projects 3D triangulated mesh faces from IfcOpenShell shape geometry to the 2D XY plane,
@@ -150,7 +163,7 @@ def project_shape_to_2d_footprint(
                 poly = poly.buffer(0)
             if not poly.is_empty and poly.area > 1e-7:
                 triangles.append(poly)
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             continue
 
     if not triangles:
@@ -175,10 +188,13 @@ def project_shape_to_2d_footprint(
         if unioned.is_empty or unioned.area < 1e-6:
             return None, None, [], GeometryStatus.FAILED, "IFC_DEGENERATE_GEOMETRY: Unioned 2D footprint has effective zero area"
 
-        geom_type, coords, boundary_compat = shapely_to_geojson_coords(unioned, decimals=decimals)
-        return geom_type, coords, boundary_compat, GeometryStatus.VALID, None
+        if unioned.geom_type not in ("Polygon", "MultiPolygon"):
+            return None, None, [], GeometryStatus.FAILED, f"IFC_DEGENERATE_GEOMETRY: Unioned geometry type '{unioned.geom_type}' is not polygonal"
 
-    except Exception as exc:
+        g_type, coords, boundary_compat = shapely_to_geometry_model(unioned, decimals=decimals)
+        return g_type, coords, boundary_compat, GeometryStatus.VALID, None
+
+    except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
         return None, None, [], GeometryStatus.FAILED, f"IFC_GEOMETRY_UNION_FAILED: {str(exc)}"
 
 
@@ -192,9 +208,12 @@ class ExtractedElement(BaseModel):
     element_type: str = Field(..., description="IFC entity type (e.g., 'IfcWall', 'IfcDoor', 'IfcSpace')")
     name: str = Field(..., description="Element name or label")
     geometry_status: GeometryStatus = Field(default=GeometryStatus.VALID, description="Status of geometry extraction")
-    geometry_type: Optional[str] = Field(default=None, description="Shapely/GeoJSON geometry type ('Polygon' or 'MultiPolygon')")
-    geometry_coordinates: Optional[Any] = Field(default=None, description="GeoJSON-style coordinates structure (Polygon or MultiPolygon)")
-    boundary_vertices: List[List[float]] = Field(default_factory=list, description="2D footprint exterior boundary vertices [[x0, y0], ...]")
+    geometry_type: Optional[GeometryType] = Field(default=None, description="Shapely/GeoJSON geometry type ('Polygon' or 'MultiPolygon')")
+    geometry_coordinates: Optional[Union[List[List[List[float]]], List[List[List[List[float]]]]]] = Field(
+        default=None, description="GeoJSON-style coordinates structure (Polygon or MultiPolygon)"
+    )
+    geometry: Optional[Geometry2D] = Field(default=None, description="Typed GeoJSON-style 2D geometry container")
+    boundary_vertices: List[List[float]] = Field(default_factory=list, description="2D footprint exterior boundary vertices [[x0, y0], ...] for simple Polygon compatibility only")
     geometry_error: Optional[str] = Field(default=None, description="Error details if geometry extraction failed")
     properties: Dict[str, Any] = Field(default_factory=dict, description="Extracted BIM properties")
     source_metadata: Dict[str, Any] = Field(default_factory=dict, description="Element provenance and unit metadata")
@@ -327,7 +346,11 @@ class IFCIngestor:
             entity, scale_to_meters, geom_settings, warnings
         )
 
-        global_id = getattr(entity, "GlobalId", f"ifc_guid_{entity.id()}")
+        global_id = getattr(entity, "GlobalId", None)
+        if not global_id:
+            global_id = "MISSING_GLOBAL_ID"
+            warnings.append(f"MISSING_GLOBAL_ID: Element type {entity.is_a()} id={entity.id()} lacks standard IFC GlobalId.")
+
         name = getattr(entity, "Name", None) or entity.is_a()
 
         element_metadata = {
@@ -335,6 +358,10 @@ class IFCIngestor:
             "ifc_id": entity.id(),
             "ifc_global_id": global_id,
         }
+
+        geometry_obj = None
+        if geom_status == GeometryStatus.VALID and geom_type and geom_coords is not None:
+            geometry_obj = Geometry2D(type=geom_type, coordinates=geom_coords)
 
         return ExtractedElement(
             internal_id=f"{entity.is_a().lower()}_{entity.id()}",
@@ -345,6 +372,7 @@ class IFCIngestor:
             geometry_status=geom_status,
             geometry_type=geom_type,
             geometry_coordinates=geom_coords,
+            geometry=geometry_obj,
             boundary_vertices=boundary,
             geometry_error=geom_err,
             properties=properties,
@@ -357,14 +385,14 @@ class IFCIngestor:
         scale_to_meters: float,
         geom_settings: Any,
         warnings: List[str],
-    ) -> Tuple[Optional[str], Optional[Any], List[List[float]], GeometryStatus, Optional[str], Dict[str, Any]]:
+    ) -> Tuple[Optional[GeometryType], Optional[Union[List[List[List[float]]], List[List[List[List[float]]]]]], List[List[float]], GeometryStatus, Optional[str], Dict[str, Any]]:
         """
         Extract real 2D boundary vertices (in meters) and properties for an IFC entity.
         NEVER fabricates fallback coordinates or placement rectangles if geometry is unavailable.
         """
         props: Dict[str, Any] = {}
         boundary: List[List[float]] = []
-        geom_type: Optional[str] = None
+        geom_type: Optional[GeometryType] = None
         geom_coords: Optional[Any] = None
         geom_status: GeometryStatus = GeometryStatus.FAILED
         geom_err: Optional[str] = None

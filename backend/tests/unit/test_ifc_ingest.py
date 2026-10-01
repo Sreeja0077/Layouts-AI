@@ -6,6 +6,7 @@ holes and MultiPolygon topology, GlobalId preservation, unit normalization,
 and strict zero-fabricated-geometry enforcement.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from app.bim.ifc_ingest import (
     IFCIngestor,
     IFCParsedFloorPlan,
     ExtractedElement,
+    Geometry2D,
     GeometryStatus,
     GeometryType,
     project_shape_to_2d_footprint,
@@ -52,17 +54,11 @@ def test_concave_l_shape_mesh_projection():
 
     # Create 3D mesh extruded in Z from Z=0 to Z=3
     verts_3d = []
-    # Z=0 vertices (0..5)
     for x, y in verts_2d:
         verts_3d.extend([x, y, 0.0])
-    # Z=3 vertices (6..11)
     for x, y in verts_2d:
         verts_3d.extend([x, y, 3.0])
 
-    # Triangulate top face (Z=3, indices 6..11):
-    # Split L-shape into 2 rectangles:
-    # R1: (6, 7, 8, 9) -> triangles (6,7,8) and (6,8,9)
-    # R2: (6, 9, 10, 11) -> triangles (6,9,10) and (6,10,11)
     faces = [
         # Top face triangles
         6, 7, 8,
@@ -90,17 +86,21 @@ def test_concave_l_shape_mesh_projection():
     )
 
     assert status == GeometryStatus.VALID, f"Projection failed: {err}"
-    assert geom_type == GeometryType.POLYGON.value
+    assert geom_type == GeometryType.POLYGON
     assert geom_coords is not None
 
     poly = Polygon(boundary_compat)
     assert poly.is_valid
     assert abs(poly.area - 16.0) < 1e-3, f"Expected L-shape area 16.0, got {poly.area}"
 
-    # Verify concavity: convex hull area is 24.0, while actual poly area is 16.0!
+    # Verify concavity: convex hull area is 20.0, bounding box area is 24.0, while actual poly area is 16.0!
     hull = poly.convex_hull
-    assert abs(hull.area - 24.0) < 1e-3, "Convex hull area should be 24.0"
-    assert poly.area < hull.area, "Concave geometry area MUST be less than its convex hull!"
+    assert abs(hull.area - 20.0) < 1e-3, f"Convex hull area should be 20.0, got {hull.area}"
+    minx, miny, maxx, maxy = poly.bounds
+    bbox_area = (maxx - minx) * (maxy - miny)
+    assert abs(bbox_area - 24.0) < 1e-3, f"Bounding box area should be 24.0, got {bbox_area}"
+    assert poly.area < hull.area < bbox_area, "Concave geometry area (16.0) MUST be less than convex hull (20.0) and bounding box (24.0)!"
+
 
     # Verify inward corner (2.0, 2.0) is preserved in boundary
     has_inward_corner = any(abs(v[0] - 2.0) < 1e-3 and abs(v[1] - 2.0) < 1e-3 for v in boundary_compat)
@@ -112,11 +112,10 @@ def test_concave_l_shape_mesh_projection():
 def test_multipart_and_hole_mesh_projection():
     """
     Focused Unit Test for Multipart & Hole Footprint Projections:
-    Proves that disconnected mesh faces result in MultiPolygon and hollow meshes produce interior holes.
+    Proves that disconnected mesh faces result in MultiPolygon (with boundary_vertices = [])
+    and hollow meshes produce interior holes.
     """
     # 1. Disconnected Components -> MultiPolygon
-    # Square 1: [0,0] to [1,1] (area 1.0)
-    # Square 2: [5,5] to [6,6] (area 1.0)
     verts_disjoint = [
         0,0,0, 1,0,0, 1,1,0, 0,1,0,  # Square 1 (indices 0..3)
         5,5,0, 6,5,0, 6,6,0, 5,6,0,  # Square 2 (indices 4..7)
@@ -133,13 +132,11 @@ def test_multipart_and_hole_mesh_projection():
     )
 
     assert status == GeometryStatus.VALID, f"Disjoint projection failed: {err}"
-    assert geom_type == GeometryType.MULTIPOLYGON.value
+    assert geom_type == GeometryType.MULTIPOLYGON
     assert isinstance(geom_coords, list) and len(geom_coords) == 2, "MultiPolygon coords must contain 2 component polygons"
+    assert boundary_compat == [], "MultiPolygon MUST return empty boundary_vertices [] to prevent lossy non-authoritative representations"
 
     # 2. Polygon with interior hole
-    # Outer square: [0,0] to [4,4] (area 16.0)
-    # Inner hole square: [1,1] to [3,3] (area 4.0)
-    # Ring area = 12.0
     verts_ring = [
         # Outer square (0..3)
         0,0,0, 4,0,0, 4,4,0, 0,4,0,
@@ -164,8 +161,9 @@ def test_multipart_and_hole_mesh_projection():
     )
 
     assert status == GeometryStatus.VALID, f"Hole projection failed: {err}"
-    assert geom_type == GeometryType.POLYGON.value
+    assert geom_type == GeometryType.POLYGON
     assert isinstance(geom_coords, list) and len(geom_coords) == 2, "Polygon coords with hole must contain outer ring and 1 interior hole ring"
+    assert boundary_compat == [], "Polygon with holes MUST return empty boundary_vertices [] to prevent lossy non-authoritative representations"
 
     print("MULTIPART AND HOLE MESH PROJECTION TEST PASSED: MultiPolygon and interior holes preserved!")
 
@@ -198,7 +196,7 @@ def test_real_ifc_ingest_parsing():
     assert len(result.columns) == 18
     assert len(result.spaces) == 12
 
-    # 2. Verify element GlobalIds, geometry status, and 2D footprint boundaries
+    # 2. Verify element GlobalIds, geometry status, typed Geometry2D, and boundaries
     all_elements = result.walls + result.doors + result.windows + result.columns + result.spaces
     valid_wall_areas = []
 
@@ -209,23 +207,23 @@ def test_real_ifc_ingest_parsing():
         assert elem.internal_id.startswith(elem.element_type.lower()), f"Invalid internal_id {elem.internal_id}"
 
         if elem.geometry_status == GeometryStatus.VALID:
-            assert elem.geometry_type in (GeometryType.POLYGON.value, GeometryType.MULTIPOLYGON.value)
+            assert elem.geometry_type in (GeometryType.POLYGON, GeometryType.MULTIPOLYGON)
             assert elem.geometry_coordinates is not None
-            assert len(elem.boundary_vertices) >= 3, (
-                f"Valid element {elem.ifc_global_id} must have at least 3 boundary vertices!"
-            )
-            for vertex in elem.boundary_vertices:
-                assert len(vertex) == 2, f"Vertex {vertex} must be a 2D [x, y] coordinate!"
+            assert elem.geometry is not None
+            assert elem.geometry.type == elem.geometry_type
+            assert elem.geometry.coordinates == elem.geometry_coordinates
 
-            poly = Polygon(elem.boundary_vertices)
-            assert poly.area > 0.0, f"Valid geometry for {elem.ifc_global_id} produced zero-area polygon!"
-            if elem.element_type in ["IfcWall", "IfcWallStandardCase"]:
-                valid_wall_areas.append(poly.area)
+            if elem.geometry_type == GeometryType.POLYGON and len(elem.boundary_vertices) >= 3:
+                poly = Polygon(elem.boundary_vertices)
+                assert poly.area > 0.0, f"Valid geometry for {elem.ifc_global_id} produced zero-area polygon!"
+                if elem.element_type in ["IfcWall", "IfcWallStandardCase"]:
+                    valid_wall_areas.append(poly.area)
         else:
             # Failed geometry elements MUST have empty boundary_vertices []
             assert elem.boundary_vertices == [], f"Failed element {elem.ifc_global_id} must have empty boundary_vertices!"
             assert elem.geometry_type is None
             assert elem.geometry_coordinates is None
+            assert elem.geometry is None
             assert elem.geometry_error is not None, f"Failed element {elem.ifc_global_id} missing geometry_error!"
 
     # 3. Quantitative metrics check across walls
@@ -242,7 +240,34 @@ def test_real_ifc_ingest_parsing():
     print(f"REAL IFC FILE PARSING VERIFIED: {result.valid_geometry_count} valid elements, {len(unique_areas)} distinct wall areas.")
 
 
-def test_forced_geometry_failure_regression(monkeypatch):
+def test_pydantic_serialization():
+    """
+    Verify clean Pydantic JSON serialization:
+    Calls model_dump() and model_dump_json() and asserts JSON validity.
+    """
+    ingestor = IFCIngestor()
+    result = ingestor.parse_file(str(REAL_IFC_FILE))
+
+    dump_dict = result.model_dump()
+    assert dump_dict["total_elements_count"] == 306
+
+    json_str = result.model_dump_json()
+    assert isinstance(json_str, str) and len(json_str) > 1000
+
+    parsed_back = json.loads(json_str)
+    assert parsed_back["file_name"] == REAL_IFC_FILE.name
+    assert len(parsed_back["walls"]) == 225
+
+    # Inspect first wall's typed geometry container in JSON
+    wall_json = parsed_back["walls"][0]
+    assert wall_json["geometry_status"] == "VALID"
+    assert wall_json["geometry"]["type"] in ("Polygon", "MultiPolygon")
+    assert isinstance(wall_json["geometry"]["coordinates"], list)
+
+    print("PYDANTIC JSON SERIALIZATION TEST PASSED: Clean JSON serialization verified!")
+
+
+def test_forced_geometry_failure_regression(monkeypatch=None):
     """
     Mandatory Regression Test:
     Forces IfcOpenShell shape generation to fail for an element and verifies:
@@ -258,28 +283,40 @@ def test_forced_geometry_failure_regression(monkeypatch):
     def mock_create_shape(settings, entity):
         raise RuntimeError("Simulated geometry engine crash for regression test")
 
-    if ifc_mod.HAS_IFCOPENSHELL_GEOM and ifc_mod.ifcopenshell_geom is not None:
-        monkeypatch.setattr(ifc_mod.ifcopenshell_geom, "create_shape", mock_create_shape)
+    original_create_shape = getattr(ifc_mod.ifcopenshell_geom, "create_shape", None)
 
-    ingestor = IFCIngestor()
-    result = ingestor.parse_file(str(REAL_IFC_FILE))
+    try:
+        if monkeypatch is not None:
+            if ifc_mod.HAS_IFCOPENSHELL_GEOM and ifc_mod.ifcopenshell_geom is not None:
+                monkeypatch.setattr(ifc_mod.ifcopenshell_geom, "create_shape", mock_create_shape)
+        elif ifc_mod.HAS_IFCOPENSHELL_GEOM and ifc_mod.ifcopenshell_geom is not None:
+            ifc_mod.ifcopenshell_geom.create_shape = mock_create_shape
 
-    assert result.total_elements_count == 306
-    assert result.valid_geometry_count == 0, "All geometry extractions should fail when shape creation crashes!"
-    assert result.failed_geometry_count == 306
-    assert len(result.extraction_warnings) > 0
+        ingestor = IFCIngestor()
+        result = ingestor.parse_file(str(REAL_IFC_FILE))
 
-    wall = result.walls[0]
-    assert wall.geometry_status == GeometryStatus.FAILED
-    assert wall.boundary_vertices == [], "Forced failure MUST result in empty boundary_vertices [], never a fake rectangle!"
-    assert wall.geometry_type is None
-    assert wall.geometry_coordinates is None
-    assert wall.geometry_error is not None
-    assert "IFC_SHAPE_CREATION_FAILED" in wall.geometry_error
-    assert wall.ifc_global_id and len(wall.ifc_global_id) > 0
-    assert wall.internal_id.startswith("ifcwall")
+        assert result.total_elements_count == 306
+        assert result.valid_geometry_count == 0, "All geometry extractions should fail when shape creation crashes!"
+        assert result.failed_geometry_count == 306
+        assert len(result.extraction_warnings) > 0
 
-    print("FORCED GEOMETRY FAILURE REGRESSION TEST PASSED: Zero fake geometry created!")
+        wall = result.walls[0]
+        assert wall.geometry_status == GeometryStatus.FAILED
+        assert wall.boundary_vertices == [], "Forced failure MUST result in empty boundary_vertices [], never a fake rectangle!"
+        assert wall.geometry_type is None
+        assert wall.geometry_coordinates is None
+        assert wall.geometry is None
+        assert wall.geometry_error is not None
+        assert "IFC_SHAPE_CREATION_FAILED" in wall.geometry_error
+        assert wall.ifc_global_id and len(wall.ifc_global_id) > 0
+        assert wall.internal_id.startswith("ifcwall")
+
+        print("FORCED GEOMETRY FAILURE REGRESSION TEST PASSED: Zero fake geometry created!")
+
+    finally:
+        if monkeypatch is None and ifc_mod.HAS_IFCOPENSHELL_GEOM and ifc_mod.ifcopenshell_geom is not None and original_create_shape is not None:
+            ifc_mod.ifcopenshell_geom.create_shape = original_create_shape
+
 
 
 def test_missing_file_raises_explicit_error():
@@ -312,6 +349,8 @@ if __name__ == "__main__":
     test_concave_l_shape_mesh_projection()
     test_multipart_and_hole_mesh_projection()
     test_real_ifc_ingest_parsing()
+    test_pydantic_serialization()
+    test_forced_geometry_failure_regression()
     test_missing_file_raises_explicit_error()
     test_malformed_file_raises_explicit_error()
     print("\nALL REVIT IFC INGESTION TESTS PASSED SUCCESSFULLY!")
