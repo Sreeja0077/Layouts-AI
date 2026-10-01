@@ -33,7 +33,7 @@
 ### Phase 1: Backend Foundation
 - [x] **Task 1.1:** Setup FastAPI application skeleton in `backend/app/main.py`. *(Completed: 2026-09-30 11:26:50+05:30)*
 - [x] **Task 1.2:** Configure Keycloak OIDC / JWT authentication and RBAC middleware. *(Completed: 2026-09-30 11:44:15+05:30)*
-- [x] **Task 1.3:** Setup PostgreSQL + PostGIS + pgvector database connection & Alembic migration framework. *(Completed: 2026-09-30 12:03:15+05:30)*
+- [ ] **Task 1.3:** Setup PostgreSQL + PostGIS + pgvector database connection & Alembic migration framework. *(Pending CI run verification)*
 - [x] **Task 1.4:** Integrate S3-compatible Object Storage client (SeaweedFS / MinIO). *(Completed: 2026-09-30 13:10:05+05:30)*
 - [x] **Task 1.5:** Configure Docker Compose & GitHub Actions CI/CD. *(Completed: 2026-09-30 13:24:45+05:30)*
 
@@ -379,7 +379,7 @@
 
 ### [2026-10-01] Task 1.3 Execution - PostgreSQL + PostGIS + pgvector Database & Alembic Foundation
 - **Action:** Reconciled 13 ORM models in `backend/app/persistence/models.py`, created complete DDL migration `backend/alembic/versions/001_initial_postgis_schema.py`, removed silent fallback to SQLite in `database.py`, added PostgreSQL integration tests, updated CI pipeline with PostGIS 16 service container. Installed `psycopg2` driver.
-- **Status:** `SUCCESS`
+- **Status:** `SUCCESS (Local Verification Passed)`
 - **Files Created/Updated:**
   - [`backend/app/persistence/database.py`](file:///d:/Layouts%20AI/backend/app/persistence/database.py) (Authoritative PostgreSQL connection engine with strict DB driver check)
   - [`backend/app/persistence/models.py`](file:///d:/Layouts%20AI/backend/app/persistence/models.py) (Complete 13 application tables mapped to SQLAlchemy ORM with PostGIS geometry & pgvector types)
@@ -396,8 +396,18 @@
   - `ALL FASTAPI MAIN API TESTS PASSED SUCCESSFULLY!`
   - `ALL 20 REAL OIDC KEYCLOAK RSA JWT & RBAC TESTS PASSED SUCCESSFULLY!`
   - `ALL 20 LAYOUT VALIDATION RULES TESTS PASSED SUCCESSFULLY!`
-- **Details:** Verified PostgreSQL authoritative database configuration, installation of `psycopg2-2.9.13`, explicit isolation mode for unit tests, and passing suite of 13 ORM schemas, FastAPI API skeleton, Keycloak JWT security, and 20 deterministic geometry layout validation rules.
+
+### [2026-10-01] Task 1.3 CI Fix - PostgreSQL Driver Realignment & Real Migration Verification
+- **Issue / CI Failure:** GitHub CI Run #6 on commit `9a432ba4` failed with `ModuleNotFoundError: No module named 'psycopg'`.
+- **Root Cause:** Ambiguous `postgresql://` URI scheme caused SQLAlchemy 2.0+ to attempt loading `psycopg` (psycopg3 dialect) instead of installed `psycopg2-binary`.
+- **Action & Resolution:**
+  1. Updated database connection URLs to explicit `postgresql+psycopg2://` scheme across `backend/app/persistence/database.py`, `backend/alembic.ini`, `docker-compose.yml`, `.env.example`, `test_postgres_integration.py`, and `.github/workflows/ci.yml`.
+  2. Created [`backend/tests/integration/verify_postgres_schema.py`](file:///d:/Layouts%20AI/backend/tests/integration/verify_postgres_schema.py) to explicitly verify `uuid-ossp`, `postgis`, `vector` extensions, 13 application tables, `regions.polygon_geom` PostGIS geometry, `furniture_catalog_items.embedding` VECTOR(1536), and GIST/GIN indexes.
+  3. Added `alembic upgrade head` and schema verification execution steps to GitHub Actions CI workflow against live `postgis/postgis:16-3.4` service container.
+  4. Refactored `test_postgres_integration.py` to create and test engines dynamically without relying on stale module-level global state.
+- **Status:** `PENDING CI COMMIT & PUSH VERIFICATION`
 
 ---
 *Maintained continuously across all development steps.*
+
 

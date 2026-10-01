@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 # Database connection URL (defaults to PostgreSQL 16 container)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres_secure_password@localhost:5432/layouts_ai"
+    "postgresql+psycopg2://postgres:postgres_secure_password@localhost:5432/layouts_ai"
 )
 
 

@@ -10,6 +10,8 @@ jobs:
   test:
     name: Backend Unit Tests & Database Foundation
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres_secure_password@localhost:5432/layouts_ai
 
     services:
       postgres:
@@ -63,6 +65,16 @@ jobs:
       - name: Run PostgreSQL Integration Unit Test
         run: |
           python backend/tests/integration/test_postgres_integration.py
+
+      - name: Run Real PostgreSQL Alembic Migrations
+        run: |
+          cd backend
+          alembic upgrade head
+          alembic current
+
+      - name: Verify Live PostgreSQL Extensions, 13 Tables & Indexes
+        run: |
+          python backend/tests/integration/verify_postgres_schema.py
 
       - name: Run FreeSpace Unit Test
         run: |

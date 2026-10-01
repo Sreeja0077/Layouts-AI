@@ -64,7 +64,7 @@ services:
     container_name: layouts_backend_api
     restart: always
     environment:
-      DATABASE_URL: postgresql://postgres:postgres_secure_password@postgres_db:5432/layouts_ai
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres_secure_password@postgres_db:5432/layouts_ai
       STORAGE_ENDPOINT_URL: http://minio_storage:9000
       STORAGE_ACCESS_KEY: minioadmin
       STORAGE_SECRET_KEY: minioadminpassword
