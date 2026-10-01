@@ -1,7 +1,9 @@
 """
 SQLAlchemy ORM models for PostgreSQL + PostGIS database entities.
-Defines entity mappings for projects, floor plans, regions, catalog items, requirements, revisions, and approvals.
-Supports cross-dialect JSON and UUID handling for PostgreSQL (JSONB) and SQLite testing.
+Defines entity mappings for Users, Projects, FloorPlans, FloorPlanSourceVersions, Regions,
+FurnitureCatalogItems, RequirementSets, ClarificationQuestions, LayoutSuggestions, Revisions,
+ValidationResults, Approvals, and AuditLogs.
+Reconciled with schema_draft.sql & blueprint architecture.
 """
 
 import uuid
@@ -23,9 +25,22 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# Cross-dialect JSON type: uses JSONB on PostgreSQL, standard JSON on SQLite/others
+# Cross-dialect JSON and UUID types
 JSONType = JSON().with_variant(JSONB, "postgresql")
 UUIDType = String(36).with_variant(PG_UUID(as_uuid=True), "postgresql")
+
+# PostGIS Geometry and pgvector Vector types
+try:
+    from geoalchemy2 import Geometry
+    GeometryType = Geometry(geometry_type="POLYGON", srid=0, spatial_index=False).with_variant(JSONType, "sqlite")
+except (ImportError, Exception):
+    GeometryType = JSONType
+
+try:
+    from pgvector.sqlalchemy import Vector
+    VectorType = Vector(1536).with_variant(JSONType, "sqlite")
+except (ImportError, Exception):
+    VectorType = JSONType
 
 
 class Base(DeclarativeBase):
@@ -43,6 +58,7 @@ class User(Base):
     org_id: Mapped[str] = mapped_column(UUIDType, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class Project(Base):
@@ -53,6 +69,7 @@ class Project(Base):
     client_name: Mapped[Optional[str]] = mapped_column(String(255))
     org_id: Mapped[str] = mapped_column(UUIDType, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     floor_plans: Mapped[List["FloorPlan"]] = relationship("FloorPlan", back_populates="project", cascade="all, delete-orphan")
 
@@ -69,9 +86,26 @@ class FloorPlan(Base):
     current_working_revision_id: Mapped[Optional[str]] = mapped_column(UUIDType)
     current_published_revision_id: Mapped[Optional[str]] = mapped_column(UUIDType)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     project: Mapped["Project"] = relationship("Project", back_populates="floor_plans")
     regions: Mapped[List["Region"]] = relationship("Region", back_populates="floor_plan", cascade="all, delete-orphan")
+    source_versions: Mapped[List["FloorPlanSourceVersionModel"]] = relationship("FloorPlanSourceVersionModel", back_populates="floor_plan", cascade="all, delete-orphan")
+
+
+class FloorPlanSourceVersionModel(Base):
+    __tablename__ = "floor_plan_source_versions"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
+    floor_plan_id: Mapped[str] = mapped_column(UUIDType, ForeignKey("floor_plans.id", ondelete="CASCADE"), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    ifc_export_metadata: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    uploaded_by: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    floor_plan: Mapped["FloorPlan"] = relationship("FloorPlan", back_populates="source_versions")
 
 
 class Region(Base):
@@ -80,11 +114,26 @@ class Region(Base):
     id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
     floor_plan_id: Mapped[str] = mapped_column(UUIDType, ForeignKey("floor_plans.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), default="Selected Region")
+    polygon_geom: Mapped[Any] = mapped_column(GeometryType, nullable=False)
     polygon_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, nullable=False)
     area_sqm: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     floor_plan: Mapped["FloorPlan"] = relationship("FloorPlan", back_populates="regions")
+
+
+class FurnitureCatalogItemModel(Base):
+    __tablename__ = "furniture_catalog_items"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    width_m: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False)
+    height_m: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False)
+    clearance_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    aliases: Mapped[List[Any]] = mapped_column(JSONType, default=list)
+    embedding: Mapped[Optional[Any]] = mapped_column(VectorType)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class RequirementSetModel(Base):
@@ -96,6 +145,22 @@ class RequirementSetModel(Base):
     status: Mapped[str] = mapped_column(String(50), default="DRAFT")
     spec_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    clarification_questions: Mapped[List["ClarificationQuestionModel"]] = relationship("ClarificationQuestionModel", back_populates="requirement_set", cascade="all, delete-orphan")
+
+
+class ClarificationQuestionModel(Base):
+    __tablename__ = "clarification_questions"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
+    requirement_set_id: Mapped[str] = mapped_column(UUIDType, ForeignKey("requirement_sets.id", ondelete="CASCADE"), nullable=False)
+    question_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, nullable=False)
+    user_answer: Mapped[Optional[str]] = mapped_column(Text)
+    is_blocking: Mapped[bool] = mapped_column(Boolean, default=True)
+    answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    requirement_set: Mapped["RequirementSetModel"] = relationship("RequirementSetModel", back_populates="clarification_questions")
 
 
 class LayoutSuggestionModel(Base):
@@ -125,6 +190,17 @@ class Revision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class ValidationResultModel(Base):
+    __tablename__ = "validation_results"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
+    revision_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("revisions.id", ondelete="CASCADE"))
+    suggestion_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("layout_suggestions.id", ondelete="CASCADE"))
+    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    violations_json: Mapped[List[Any]] = mapped_column(JSONType, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class Approval(Base):
     __tablename__ = "approvals"
 
@@ -136,4 +212,15 @@ class Approval(Base):
     comment: Mapped[Optional[str]] = mapped_column(Text)
     actor_id: Mapped[str] = mapped_column(UUIDType, ForeignKey("users.id"), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AuditLogModel(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=lambda: str(uuid.uuid4()))
+    actor_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    details_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

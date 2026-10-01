@@ -1,34 +1,44 @@
 """
 Database connection, session management, and dependency injection.
-Supports PostgreSQL + PostGIS connections with fallback to SQLite in-memory for testing environments.
+PostgreSQL + PostGIS is the authoritative application source of truth.
+Explicit SQLite engine creation is reserved strictly for isolated unit tests when DATABASE_URL starts with 'sqlite://'.
 """
 
 import os
 from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from app.persistence.models import Base
 
-# Database connection URL (defaults to PostgreSQL, supports SQLite fallback for testing)
+# Database connection URL (defaults to PostgreSQL 16 container)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/layouts_ai"
+    "postgresql://postgres:postgres_secure_password@localhost:5432/layouts_ai"
 )
 
 
 def init_database_engine():
-    """Initialize SQLAlchemy engine with graceful fallback for offline unit testing."""
-    if DATABASE_URL.startswith("sqlite"):
-        return create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    """
+    Initialize SQLAlchemy engine.
+    Authoritative PostgreSQL engine with pool_pre_ping enabled.
+    Explicit SQLite support is active only when DATABASE_URL starts with 'sqlite://'.
+    No silent fallback to SQLite occurs if PostgreSQL or driver is unavailable.
+    """
+    url = os.getenv("DATABASE_URL", DATABASE_URL)
+    if url.startswith("sqlite"):
+        return create_engine(url, connect_args={"check_same_thread": False})
 
+    # Authoritative PostgreSQL engine
     try:
-        eng = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
-        # Probe DBAPI driver availability (e.g. psycopg2)
-        _ = eng.dialect.dbapi
-        return eng
-    except Exception:
-        # Fallback to SQLite in-memory if PostgreSQL driver (psycopg2) or server is unavailable
-        return create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        return create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_size=10,
+            max_overflow=20,
+        )
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise RuntimeError(
+            f"PostgreSQL DBAPI driver (psycopg2) is missing or broken: {str(exc)}"
+        ) from exc
 
 
 engine = init_database_engine()

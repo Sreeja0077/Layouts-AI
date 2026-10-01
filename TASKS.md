@@ -377,5 +377,27 @@
 - **Output:** `ALL 20 LAYOUT VALIDATION RULES TESTS PASSED SUCCESSFULLY!`
 - **Details:** Verified valid layout score pass (1.00 score in 17.4ms), hard collision & door swing detection (6 hard violations), out-of-bounds containment detection, and soft design penalties (is_valid=True, score=0.85).
 
+### [2026-10-01] Task 1.3 Execution - PostgreSQL + PostGIS + pgvector Database & Alembic Foundation
+- **Action:** Reconciled 13 ORM models in `backend/app/persistence/models.py`, created complete DDL migration `backend/alembic/versions/001_initial_postgis_schema.py`, removed silent fallback to SQLite in `database.py`, added PostgreSQL integration tests, updated CI pipeline with PostGIS 16 service container. Installed `psycopg2` driver.
+- **Status:** `SUCCESS`
+- **Files Created/Updated:**
+  - [`backend/app/persistence/database.py`](file:///d:/Layouts%20AI/backend/app/persistence/database.py) (Authoritative PostgreSQL connection engine with strict DB driver check)
+  - [`backend/app/persistence/models.py`](file:///d:/Layouts%20AI/backend/app/persistence/models.py) (Complete 13 application tables mapped to SQLAlchemy ORM with PostGIS geometry & pgvector types)
+  - [`backend/alembic/versions/001_initial_postgis_schema.py`](file:///d:/Layouts%20AI/backend/alembic/versions/001_initial_postgis_schema.py) (Alembic DDL creating extensions, 13 tables, FK constraints, GIST/GIN spatial indexes)
+  - [`backend/tests/integration/test_postgres_integration.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_postgres_integration.py) (PostgreSQL real connection & explicit SQLite validation suite)
+  - [`backend/tests/unit/test_db_schema.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_db_schema.py) (Unit test verifying 13 tables in SQLAlchemy metadata)
+  - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (CI pipeline with `postgis/postgis:16-3.4` service container)
+- **Test Execution #22:** `python backend/tests/unit/test_db_schema.py`, `python backend/tests/unit/test_database_connection.py`, `python backend/tests/unit/test_main_api.py`, `python backend/tests/unit/test_security_rbac.py`, `python backend/tests/unit/test_rules_engine.py`
+- **Status:** `SUCCESS`
+- **Output:**
+  - `Verified 13 ORM tables in SQLAlchemy metadata: ['approvals', 'audit_logs', 'clarification_questions', 'floor_plan_source_versions', 'floor_plans', 'furniture_catalog_items', 'layout_suggestions', 'projects', 'regions', 'requirement_sets', 'revisions', 'users', 'validation_results']`
+  - `ALL DATABASE ORM SCHEMA TESTS PASSED SUCCESSFULLY!`
+  - `ALL DATABASE CONNECTION & SESSION TESTS PASSED SUCCESSFULLY!`
+  - `ALL FASTAPI MAIN API TESTS PASSED SUCCESSFULLY!`
+  - `ALL 20 REAL OIDC KEYCLOAK RSA JWT & RBAC TESTS PASSED SUCCESSFULLY!`
+  - `ALL 20 LAYOUT VALIDATION RULES TESTS PASSED SUCCESSFULLY!`
+- **Details:** Verified PostgreSQL authoritative database configuration, installation of `psycopg2-2.9.13`, explicit isolation mode for unit tests, and passing suite of 13 ORM schemas, FastAPI API skeleton, Keycloak JWT security, and 20 deterministic geometry layout validation rules.
+
 ---
 *Maintained continuously across all development steps.*
+
