@@ -408,10 +408,11 @@
 - **Status:** `SUCCESS (GitHub Actions CI Run Passed)`
 
 ### [2026-10-01] Task 2.1 Execution - Real Revit IFC Floor-Plan Ingestion Engine
-- **Action:** Rebuilt `IFCIngestor` in `backend/app/bim/ifc_ingest.py` using authoritative `IfcOpenShell` parsing pipeline, 3D geometry mesh extraction (`ifcopenshell.geom`), 2D footprint projection via Shapely `convex_hull`, length unit detection (`FOOT` -> `0.3048m`), GlobalId preservation, and strict zero-fabricated-geometry policy (`GeometryStatus.VALID` vs `GeometryStatus.FAILED`). Removed all placeholder bounding boxes and dynamic placement fallbacks. Added `ifcopenshell` to `backend/requirements.txt` and `.github/workflows/ci.yml`. Updated `backend/app/bim/README.md`.
+- **Action:** Rebuilt `IFCIngestor` in `backend/app/bim/ifc_ingest.py` using authoritative `IfcOpenShell` parsing pipeline, 3D geometry mesh face extraction (`ifcopenshell.geom`), 2D footprint projection via 3D triangulated face XY projection and Shapely `unary_union` (preserving exact concavities, interior holes, and `Polygon`/`MultiPolygon` topologies), length unit detection (`FOOT` -> `0.3048m`), GlobalId preservation, and strict zero-fabricated-geometry policy (`GeometryStatus.VALID` vs `GeometryStatus.FAILED`). Removed all placeholder bounding boxes and dynamic placement fallbacks. Added `ifcopenshell` to `backend/requirements.txt` and `.github/workflows/ci.yml`. Updated `backend/app/bim/README.md`.
 - **Status:** `SUCCESS`
 - **Files Created/Updated:**
-  - [`backend/app/bim/ifc_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/ifc_ingest.py) (Authoritative Revit IFC parsing engine using IfcOpenShell, Shapely 2D footprint projection, and GeometryStatus)
+  - [`backend/app/bim/ifc_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/ifc_ingest.py) (Authoritative Revit IFC parsing engine using IfcOpenShell, Shapely 2D face projection, and GeometryStatus)
+
   - [`backend/tests/unit/test_ifc_ingest.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_ifc_ingest.py) (Unit & regression test suite verifying real fixture, quantitative geometry metrics, unit normalization, explicit error handling, and forced geometry failure regression)
   - [`backend/requirements.txt`](file:///d:/Layouts%20AI/backend/requirements.txt) (Declared backend dependencies including `ifcopenshell>=0.7.0`)
   - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added `ifcopenshell` dependency to GitHub CI workflow)

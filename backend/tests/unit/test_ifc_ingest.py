@@ -319,6 +319,36 @@ def test_forced_geometry_failure_regression(monkeypatch=None):
 
 
 
+def test_repeated_ifc_parsing_and_no_retained_references():
+    """
+    Focused Regression Test:
+    Parses the real IFC fixture multiple times sequentially in one process.
+    Verifies identical element counts, geometry status, and that no retained
+    IfcOpenShell file/entity object references survive in returned models.
+    """
+    ingestor = IFCIngestor()
+
+    for i in range(3):
+        result = ingestor.parse_file(str(REAL_IFC_FILE))
+
+        assert result.total_elements_count == 306
+        assert result.valid_geometry_count == 306
+        assert result.failed_geometry_count == 0
+        assert len(result.walls) == 225
+        assert len(result.doors) == 21
+        assert len(result.windows) == 30
+        assert len(result.columns) == 18
+        assert len(result.spaces) == 12
+
+        # Verify returned data contains no raw IfcOpenShell or C++ instances
+        all_elements = result.walls + result.doors + result.windows + result.columns + result.spaces
+        for elem in all_elements:
+            for val in list(elem.properties.values()) + list(elem.source_metadata.values()):
+                assert not str(type(val)).startswith("<class 'ifcopenshell"), f"Retained IfcOpenShell object reference found: {type(val)}"
+
+    print("REPEATED PARSING REGRESSION TEST PASSED: 3 sequential parses clean with zero retained references!")
+
+
 def test_missing_file_raises_explicit_error():
     """Verify that a missing file path raises explicit FileNotFoundError."""
     ingestor = IFCIngestor()
@@ -350,8 +380,10 @@ if __name__ == "__main__":
     test_multipart_and_hole_mesh_projection()
     test_real_ifc_ingest_parsing()
     test_pydantic_serialization()
+    test_repeated_ifc_parsing_and_no_retained_references()
     test_forced_geometry_failure_regression()
     test_missing_file_raises_explicit_error()
     test_malformed_file_raises_explicit_error()
     print("\nALL REVIT IFC INGESTION TESTS PASSED SUCCESSFULLY!")
+
 
