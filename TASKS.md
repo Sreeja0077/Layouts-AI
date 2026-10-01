@@ -179,6 +179,10 @@
 - **Status:** `SUCCESS`
 - **Output:** `ALL FASTAPI MAIN API TESTS PASSED SUCCESSFULLY!`
 - **Details:** `/healthz`, `/readyz`, `/api/v1/projects/`, and `/api/v1/layouts/generate` endpoints verified and operational.
+- **Test Execution #22 (Verification & Test Expansion):** `python backend/tests/unit/test_main_api.py`
+- **Status:** `SUCCESS`
+- **Output:** `ALL FASTAPI MAIN API TESTS PASSED SUCCESSFULLY!`
+- **Details:** Verified 12 Task 1.1 acceptance criteria: app factory, `/healthz`, dynamic database readiness (`/readyz`), OpenAPI schema (`/openapi.json`), Swagger UI (`/docs`), ReDoc (`/redoc`), CORS headers, global exception handler 500 status, and API v1 route mounting.
 
 ### [2026-09-30] Task 1.2 Execution - Keycloak OIDC / JWT Auth & RBAC Setup
 - **Action:** Created security package (`config.py`, `auth.py`, `rbac.py`), folder README documentation, and RBAC endpoint protection guards.
