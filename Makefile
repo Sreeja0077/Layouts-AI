@@ -3,7 +3,7 @@
 help:
 	@echo "AI-Assisted Office Layout Generation Platform"
 	@echo "Available commands:"
-	@echo "  make up        - Start infrastructure containers (Postgres, Redis, RabbitMQ, MinIO)"
+	@echo "  make up        - Start infrastructure containers (Postgres, Redis)"
 	@echo "  make down      - Stop infrastructure containers"
 	@echo "  make test      - Run tests across backend, geometry, and frontend"
 	@echo "  make lint      - Run linters and code formatting checks"

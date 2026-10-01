@@ -15,8 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency specifications
-COPY pyproject.toml README.md /app/
+# Copy dependency specifications & install requirements
+COPY requirements.txt README.md /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
 COPY app /app/app

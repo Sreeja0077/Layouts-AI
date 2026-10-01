@@ -1,4 +1,3 @@
-"""External service integrations package (Object storage, LLM gateway)."""
-from app.integrations.storage import ObjectStorageClient, storage_client
+"""External service integrations package (LLM gateway, Keycloak OIDC)."""
 
-__all__ = ["ObjectStorageClient", "storage_client"]
+__all__: list[str] = []

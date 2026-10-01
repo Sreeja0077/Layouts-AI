@@ -16,7 +16,6 @@ def test_docker_compose_file_structure():
     content = docker_compose_path.read_text(encoding="utf-8")
     assert "postgis/postgis:16-3.4" in content, "PostgreSQL+PostGIS container missing in docker-compose.yml"
     assert "redis:7-alpine" in content, "Redis container missing in docker-compose.yml"
-    assert "minio/minio" in content, "MinIO container missing in docker-compose.yml"
     assert "backend_api" in content, "Backend API service missing in docker-compose.yml"
 
 

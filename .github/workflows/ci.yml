@@ -83,7 +83,3 @@ jobs:
       - name: Run Layout Validation Rules Engine Unit Test
         run: |
           python backend/tests/unit/test_rules_engine.py
-
-      - name: Run Object Storage Client Unit Test
-        run: |
-          python backend/tests/unit/test_storage.py

@@ -34,7 +34,6 @@
 - [x] **Task 1.1:** Setup FastAPI application skeleton in `backend/app/main.py`. *(Completed: 2026-09-30 11:26:50+05:30)*
 - [x] **Task 1.2:** Configure Keycloak OIDC / JWT authentication and RBAC middleware. *(Completed: 2026-09-30 11:44:15+05:30)*
 - [x] **Task 1.3:** Setup PostgreSQL + PostGIS database connection & Alembic migration framework. *(Completed: 2026-10-01 14:57:31+05:30)*
-- [x] **Task 1.4:** Integrate S3-compatible Object Storage client (SeaweedFS / MinIO). *(Completed: 2026-09-30 13:10:05+05:30)*
 - [x] **Task 1.5:** Configure Docker Compose & GitHub Actions CI/CD. *(Completed: 2026-09-30 13:24:45+05:30)*
 
 ### Phase 2: BIM & Floor-Plan Ingestion Engine
@@ -429,10 +428,20 @@
   - `VERIFIED EXPLICIT FileNotFoundError FOR MISSING FILE!`
   - `VERIFIED EXPLICIT ValueError FOR MALFORMED FILE!`
   - `ALL REVIT IFC INGESTION TESTS PASSED SUCCESSFULLY!`
-- **Details:** Extracted 306 total structural elements from real fixture `docs/4420 Ashland Rev 2.ifc` with 100% valid 2D footprint geometries (0 failed). Verified 55 distinct polygon footprint areas across walls. Verified forced geometry failure regression test proving failed shape creation returns empty `[]` boundary with `GeometryStatus.FAILED` instead of fake placement rectangles.
+### [2026-10-01] Architecture Realignment - Removal of Obsolete Object Storage Task (Task 1.4)
+- **Architectural Decision:** External S3 / MinIO / SeaweedFS object storage is NOT required for the current MVP platform. Task 1.4 has been completely removed from the active task plan. No replacement Task 1.4 or local-storage task is introduced.
+- **Action & Resolution:**
+  1. Removed `backend/app/integrations/storage.py` and `backend/tests/unit/test_storage.py`.
+  2. Removed `ObjectStorageClient` exports from `backend/app/integrations/__init__.py` and updated `backend/app/integrations/README.md`.
+  3. Removed `minio_storage` service, `minio_data` volume, and storage environment variables from `docker-compose.yml`, `.env.example`, and `backend/Dockerfile`.
+  4. Updated `backend/tests/unit/test_docker_config.py` to assert active infrastructure (PostgreSQL+PostGIS, Redis, backend API).
+  5. Removed `test_storage.py` step from `.github/workflows/ci.yml`.
+  6. Updated `Makefile` help text to reflect active containers (PostgreSQL, Redis).
+- **Status:** `SUCCESS`
 
 ---
 *Maintained continuously across all development steps.*
+
 
 
 
