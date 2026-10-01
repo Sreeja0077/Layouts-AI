@@ -1,5 +1,5 @@
 """
-Verification script for real PostgreSQL + PostGIS + pgvector database migration and schema.
+Verification script for real PostgreSQL + PostGIS database migration and schema (MVP).
 Executed in CI pipeline against live PostgreSQL service after 'alembic upgrade head'.
 """
 
@@ -24,15 +24,15 @@ def verify_postgres_schema():
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
     with engine.connect() as conn:
-        # 1. Verify PostgreSQL Extensions
+        # 1. Verify PostgreSQL Extensions (uuid-ossp, postgis)
         ext_result = conn.execute(text("SELECT extname FROM pg_extension")).fetchall()
         extensions = [row[0] for row in ext_result]
         print(f"Installed PostgreSQL extensions: {extensions}")
 
-        required_extensions = ["uuid-ossp", "postgis", "vector"]
+        required_extensions = ["uuid-ossp", "postgis"]
         for ext in required_extensions:
             assert ext in extensions, f"Required extension '{ext}' missing in PostgreSQL!"
-        print("Verified extensions: uuid-ossp, postgis, vector")
+        print("Verified extensions: uuid-ossp, postgis")
 
         # 2. Verify 13 Application Tables
         tbl_result = conn.execute(
@@ -71,26 +71,35 @@ def verify_postgres_schema():
         assert col_result[0] == "geometry", f"Expected udt_name 'geometry', got '{col_result[0]}'"
         print("Verified 'regions.polygon_geom' exists as PostGIS geometry.")
 
-        # 4. Verify furniture_catalog_items.embedding column & vector type
-        vec_result = conn.execute(
-            text(
-                "SELECT udt_name FROM information_schema.columns "
-                "WHERE table_name = 'furniture_catalog_items' AND column_name = 'embedding'"
-            )
-        ).fetchone()
-        assert vec_result is not None, "Column 'furniture_catalog_items.embedding' missing!"
-        assert vec_result[0] == "vector", f"Expected udt_name 'vector', got '{vec_result[0]}'"
-        print("Verified 'furniture_catalog_items.embedding' exists as pgvector VECTOR(1536).")
+        # 4. Verify Migration Indexes & Access Methods
+        idx_query = text("""
+            SELECT i.relname AS index_name, am.amname AS access_method
+            FROM pg_index x
+            JOIN pg_class i ON i.oid = x.indexrelid
+            JOIN pg_am am ON i.relam = am.oid
+            JOIN pg_namespace n ON n.oid = i.relnamespace
+            WHERE n.nspname = 'public';
+        """)
+        idx_results = conn.execute(idx_query).fetchall()
+        index_map = {row[0]: row[1] for row in idx_results}
+        print(f"Verified {len(index_map)} indexes in public schema.")
 
-        # 5. Verify Indexes
-        idx_result = conn.execute(
-            text("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
-        ).fetchall()
-        indexes = [row[0] for row in idx_result]
-        print(f"Verified indexes in database ({len(indexes)} found).")
-        assert "idx_regions_polygon_geom" in indexes, "Spatial index 'idx_regions_polygon_geom' missing!"
-        assert "idx_furniture_aliases" in indexes, "GIN index 'idx_furniture_aliases' missing!"
-        print("Verified GIST spatial & GIN indexes.")
+        expected_indexes = {
+            "idx_regions_geom": "gist",
+            "idx_req_spec_json": "gin",
+            "idx_rev_ops_json": "gin",
+            "idx_suggestions_floor_plan": "btree",
+            "idx_approvals_revision": "btree",
+            "idx_catalog_category": "btree",
+        }
+
+        for idx_name, expected_am in expected_indexes.items():
+            assert idx_name in index_map, f"Expected index '{idx_name}' missing!"
+            actual_am = index_map[idx_name]
+            assert actual_am == expected_am, (
+                f"Index '{idx_name}' expected method '{expected_am}', got '{actual_am}'"
+            )
+            print(f"Verified index '{idx_name}' ({expected_am.upper()})")
 
     print("ALL REAL POSTGRESQL MIGRATION & SCHEMA VERIFICATIONS PASSED SUCCESSFULLY!")
 

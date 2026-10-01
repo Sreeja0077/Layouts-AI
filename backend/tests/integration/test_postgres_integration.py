@@ -1,9 +1,9 @@
 """
-Integration and Unit Test Suite for PostgreSQL + PostGIS + pgvector database foundation (Task 1.3).
+Integration and Unit Test Suite for PostgreSQL + PostGIS database foundation (Task 1.3).
 Verifies:
 1. PostgreSQL engine initialization without silent fallback to SQLite.
 2. Explicit SQLite support when DATABASE_URL explicitly starts with 'sqlite://'.
-3. Real PostgreSQL connection, extensions (uuid-ossp, postgis, vector), and 13 application tables when available.
+3. Real PostgreSQL connection, extensions (uuid-ossp, postgis), and 13 application tables when available.
 """
 
 import os

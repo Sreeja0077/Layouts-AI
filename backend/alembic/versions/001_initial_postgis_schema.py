@@ -20,7 +20,6 @@ def upgrade() -> None:
     # 1. Enable required PostgreSQL extensions
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
     op.execute('CREATE EXTENSION IF NOT EXISTS "postgis"')
-    op.execute('CREATE EXTENSION IF NOT EXISTS "vector"')
 
     # 2. Create users table
     op.create_table(
@@ -86,7 +85,7 @@ def upgrade() -> None:
         )
     ''')
 
-    # 7. Create furniture_catalog_items table with pgvector embedding
+    # 7. Create furniture_catalog_items table
     op.execute('''
         CREATE TABLE IF NOT EXISTS furniture_catalog_items (
             id VARCHAR(100) PRIMARY KEY,
@@ -96,7 +95,6 @@ def upgrade() -> None:
             height_m NUMERIC(6, 3) NOT NULL,
             clearance_json JSONB NOT NULL DEFAULT '{"front": 0.8, "back": 0.5, "sides": 0.2}'::jsonb,
             aliases JSONB DEFAULT '[]'::jsonb,
-            embedding VECTOR(1536),
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
     ''')

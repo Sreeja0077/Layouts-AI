@@ -14,7 +14,7 @@
 | **Backend Core** | FastAPI Modular Monolith | FastAPI, Pydantic v2, Python 3.11+ | 🟡 Pending | Skeleton folder structure initialized |
 | **Geometry Engine** | Deterministic Math & Rules | Shapely (GEOS), OR-Tools CP-SAT | 🟡 Pending | `geometry/` standalone package setup |
 | **AI Orchestrator** | Intent & Strategy Pipeline | LangGraph, LiteLLM, Ollama Cloud | 🟡 Pending | Node definitions & graph schemas defined |
-| **Database & Spatial** | Source of Truth & Spatial | PostgreSQL 16, PostGIS, pgvector | 🟡 Pending | Migrations & schema specs mapped |
+| **Database & Spatial** | Source of Truth & Spatial | PostgreSQL 16, PostGIS | 🟡 Pending | Migrations & schema specs mapped |
 | **Async Task Workers** | Heavy Ingestion & Optimization | Celery, RabbitMQ, Redis | 🟡 Pending | Worker task queues configured |
 | **2D Canvas Editor** | Interactive Layout UI | React, react-konva, Zustand | 🟡 Pending | Frontend architecture initialized |
 | **BIM Ingestion** | Revit/IFC Extraction | IfcOpenShell | 🟡 Pending | IFC export parsing pipeline planned |
@@ -33,7 +33,7 @@
 ### Phase 1: Backend Foundation
 - [x] **Task 1.1:** Setup FastAPI application skeleton in `backend/app/main.py`. *(Completed: 2026-09-30 11:26:50+05:30)*
 - [x] **Task 1.2:** Configure Keycloak OIDC / JWT authentication and RBAC middleware. *(Completed: 2026-09-30 11:44:15+05:30)*
-- [ ] **Task 1.3:** Setup PostgreSQL + PostGIS + pgvector database connection & Alembic migration framework. *(Pending CI run verification)*
+- [ ] **Task 1.3:** Setup PostgreSQL + PostGIS database connection & Alembic migration framework. *(Pending CI run verification)*
 - [x] **Task 1.4:** Integrate S3-compatible Object Storage client (SeaweedFS / MinIO). *(Completed: 2026-09-30 13:10:05+05:30)*
 - [x] **Task 1.5:** Configure Docker Compose & GitHub Actions CI/CD. *(Completed: 2026-09-30 13:24:45+05:30)*
 
@@ -397,17 +397,18 @@
   - `ALL 20 REAL OIDC KEYCLOAK RSA JWT & RBAC TESTS PASSED SUCCESSFULLY!`
   - `ALL 20 LAYOUT VALIDATION RULES TESTS PASSED SUCCESSFULLY!`
 
-### [2026-10-01] Task 1.3 CI Fix - PostgreSQL Driver Realignment & Real Migration Verification
-- **Issue / CI Failure:** GitHub CI Run #6 on commit `9a432ba4` failed with `ModuleNotFoundError: No module named 'psycopg'`.
-- **Root Cause:** Ambiguous `postgresql://` URI scheme caused SQLAlchemy 2.0+ to attempt loading `psycopg` (psycopg3 dialect) instead of installed `psycopg2-binary`.
+### [2026-10-01] Task 1.3 Architecture Realignment - MVP Scope Correction (Deferred pgvector)
+- **Architectural Decision:** Per official architecture blueprint, RAG/embedding vector storage is NOT required for MVP and is deferred until a real corpus exists. PostgreSQL 16 + PostGIS 3.4 + Alembic + `psycopg2` are the sole required database foundation for Task 1.3.
 - **Action & Resolution:**
   1. Updated database connection URLs to explicit `postgresql+psycopg2://` scheme across `backend/app/persistence/database.py`, `backend/alembic.ini`, `docker-compose.yml`, `.env.example`, `test_postgres_integration.py`, and `.github/workflows/ci.yml`.
-  2. Created [`backend/tests/integration/verify_postgres_schema.py`](file:///d:/Layouts%20AI/backend/tests/integration/verify_postgres_schema.py) to explicitly verify `uuid-ossp`, `postgis`, `vector` extensions, 13 application tables, `regions.polygon_geom` PostGIS geometry, `furniture_catalog_items.embedding` VECTOR(1536), and GIST/GIN indexes.
-  3. Added `alembic upgrade head` and schema verification execution steps to GitHub Actions CI workflow against live `postgis/postgis:16-3.4` service container.
-  4. Refactored `test_postgres_integration.py` to create and test engines dynamically without relying on stale module-level global state.
+  2. Removed unused `pgvector` dependency, `Vector` ORM type, and `embedding` column from `FurnitureCatalogItemModel` in `backend/app/persistence/models.py`.
+  3. Removed `CREATE EXTENSION "vector"` and `embedding VECTOR(1536)` column DDL from `backend/alembic/versions/001_initial_postgis_schema.py`.
+  4. Updated [`backend/tests/integration/verify_postgres_schema.py`](file:///d:/Layouts%20AI/backend/tests/integration/verify_postgres_schema.py) to verify MVP PostgreSQL + PostGIS schema (`uuid-ossp`, `postgis`, 13 tables, `regions.polygon_geom` geometry, and actual migration index access methods `idx_regions_geom` GIST, `idx_req_spec_json` GIN, `idx_rev_ops_json` GIN, `idx_suggestions_floor_plan` btree, `idx_approvals_revision` btree, `idx_catalog_category` btree).
+  5. Configured `.github/workflows/ci.yml` to execute live `alembic upgrade head` and schema verification against `postgis/postgis:16-3.4` container.
 - **Status:** `PENDING CI COMMIT & PUSH VERIFICATION`
 
 ---
 *Maintained continuously across all development steps.*
+
 
 

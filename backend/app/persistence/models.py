@@ -29,18 +29,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 JSONType = JSON().with_variant(JSONB, "postgresql")
 UUIDType = String(36).with_variant(PG_UUID(as_uuid=True), "postgresql")
 
-# PostGIS Geometry and pgvector Vector types
+# PostGIS Geometry type
 try:
     from geoalchemy2 import Geometry
     GeometryType = Geometry(geometry_type="POLYGON", srid=0, spatial_index=False).with_variant(JSONType, "sqlite")
 except (ImportError, Exception):
     GeometryType = JSONType
-
-try:
-    from pgvector.sqlalchemy import Vector
-    VectorType = Vector(1536).with_variant(JSONType, "sqlite")
-except (ImportError, Exception):
-    VectorType = JSONType
 
 
 class Base(DeclarativeBase):
@@ -132,7 +126,6 @@ class FurnitureCatalogItemModel(Base):
     height_m: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False)
     clearance_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
     aliases: Mapped[List[Any]] = mapped_column(JSONType, default=list)
-    embedding: Mapped[Optional[Any]] = mapped_column(VectorType)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
