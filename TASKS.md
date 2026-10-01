@@ -11,13 +11,14 @@
 
 | Component | Architecture Role | Target Tech Stack | Status | Health / Verification |
 | :--- | :--- | :--- | :---: | :--- |
-| **Backend Core** | FastAPI Modular Monolith | FastAPI, Pydantic v2, Python 3.11+ | 🟡 Pending | Skeleton folder structure initialized |
-| **Geometry Engine** | Deterministic Math & Rules | Shapely (GEOS), OR-Tools CP-SAT | 🟡 Pending | `geometry/` standalone package setup |
+| **Backend Core** | FastAPI Modular Monolith | FastAPI, Pydantic v2, Python 3.11+ | 🟢 Active | Main API, Keycloak Auth & Docker/CI operational |
+| **Geometry Engine** | Deterministic Math & Rules | Shapely (GEOS), OR-Tools CP-SAT | 🟢 Active | FreeSpace subtraction & 20 Layout Rules active |
 | **AI Orchestrator** | Intent & Strategy Pipeline | LangGraph, LiteLLM, Ollama Cloud | 🟡 Pending | Node definitions & graph schemas defined |
-| **Database & Spatial** | Source of Truth & Spatial | PostgreSQL 16, PostGIS | 🟡 Pending | Migrations & schema specs mapped |
+| **Database & Spatial** | Source of Truth & Spatial | PostgreSQL 16, PostGIS | 🟢 Active | PostgreSQL 16 + PostGIS 3.4 & Alembic migrations verified |
 | **Async Task Workers** | Heavy Ingestion & Optimization | Celery, RabbitMQ, Redis | 🟡 Pending | Worker task queues configured |
 | **2D Canvas Editor** | Interactive Layout UI | React, react-konva, Zustand | 🟡 Pending | Frontend architecture initialized |
-| **BIM Ingestion** | Revit/IFC Extraction | IfcOpenShell | 🟡 Pending | IFC export parsing pipeline planned |
+| **BIM Ingestion** | Revit/IFC Extraction | IfcOpenShell | 🟢 Active | Authoritative 3D mesh face projection & zero-fabricated geometry engine active |
+
 
 ---
 

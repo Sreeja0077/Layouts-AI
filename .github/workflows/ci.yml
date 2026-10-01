@@ -83,3 +83,8 @@ jobs:
       - name: Run Layout Validation Rules Engine Unit Test
         run: |
           python backend/tests/unit/test_rules_engine.py
+
+      - name: Run Revit IFC Floor-Plan Ingestion Unit & Integration Test
+        run: |
+          python backend/tests/unit/test_ifc_ingest.py
+
