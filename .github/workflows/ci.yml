@@ -89,3 +89,8 @@ jobs:
           python backend/tests/unit/test_ifc_ingest.py
           pytest backend/tests/unit/test_ifc_ingest.py -v
 
+      - name: Run 2D AutoCAD DXF CAD Ingestion Unit & Integration Test
+        run: |
+          python backend/tests/unit/test_dxf_ingest.py
+          pytest backend/tests/unit/test_dxf_ingest.py -v
+

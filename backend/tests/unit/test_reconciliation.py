@@ -16,6 +16,7 @@ from app.bim.reconciliation import GeometryReconciler, GeometryVerificationRepor
 
 ROOT_DIR = BACKEND_DIR.parent
 REAL_IFC_FILE = ROOT_DIR / "docs" / "4420 Ashland Rev 2.ifc"
+REAL_DXF_FILE = ROOT_DIR / "docs" / "fixtures" / "sample_floor_plan.dxf"
 
 
 def test_ifc_reconciliation():
@@ -41,7 +42,8 @@ def test_dxf_reconciliation():
     ingestor = DXFIngestor()
     reconciler = GeometryReconciler()
 
-    parsed_dxf = ingestor.parse_file("level4_layout.dxf")
+    target_dxf = str(REAL_DXF_FILE) if REAL_DXF_FILE.exists() else "sample_floor_plan.dxf"
+    parsed_dxf = ingestor.parse_file(target_dxf)
     report: GeometryVerificationReport = reconciler.reconcile_dxf(parsed_dxf)
 
     assert report.is_geometry_valid is True

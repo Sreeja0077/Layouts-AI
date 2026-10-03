@@ -1,10 +1,12 @@
 """
 2D AutoCAD DXF Floor Plan Ingestion Engine.
-Parses 2D CAD drawing entities (LWPOLYLINE, LINE, ARC, CIRCLE, MTEXT) and classifies layers.
-Supports ezdxf with a built-in text/HEADER fallback parser for environments without ezdxf.
+Parses 2D CAD drawing entities (LWPOLYLINE, POLYLINE, LINE, ARC, CIRCLE) using ezdxf
+and deterministically classifies layers into spatial categories.
+Strict zero-fabricated-geometry policy: missing, unreadable, or malformed files raise
+explicit exceptions instead of producing mock or fallback geometry.
 """
 
-import os
+import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -22,11 +24,11 @@ class DXFEntity(BaseModel):
     """Extracted 2D vector CAD entity."""
     model_config = ConfigDict(extra="forbid")
 
-    entity_type: str = Field(..., description="CAD entity type (e.g. 'LWPOLYLINE', 'LINE', 'ARC')")
+    entity_type: str = Field(..., description="CAD entity type (e.g. 'LWPOLYLINE', 'POLYLINE', 'LINE', 'ARC', 'CIRCLE')")
     layer_name: str = Field(..., description="CAD layer name (e.g. 'A-WALL', 'A-DOOR')")
-    category: str = Field(..., description="Classified category ('WALL', 'DOOR', 'WINDOW', 'FURNITURE', 'SPACE')")
+    category: str = Field(..., description="Classified category ('WALL', 'DOOR', 'WINDOW', 'COLUMN', 'FURNITURE', 'SPACE', 'GENERIC')")
     coordinates: List[List[float]] = Field(..., description="2D vertices [[x0, y0], [x1, y1], ...]")
-    is_closed: bool = Field(default=False, description="True if polyline forms a closed boundary")
+    is_closed: bool = Field(default=False, description="True if polyline/geometry forms a closed boundary")
 
 
 class DXFParsedFloorPlan(BaseModel):
@@ -34,43 +36,53 @@ class DXFParsedFloorPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     file_name: str
-    total_entities_count: int
-    entities_by_category: Dict[str, int] = Field(default_factory=dict)
-    layers_found: List[str] = Field(default_factory=list)
-    extracted_entities: List[DXFEntity] = Field(default_factory=list)
+    total_entities_count: int = Field(..., description="Total count of extracted 2D vector CAD entities")
+    entities_by_category: Dict[str, int] = Field(default_factory=dict, description="Counts of extracted entities by category")
+    layers_found: List[str] = Field(default_factory=list, description="Unique DXF layer names found in source file")
+    extracted_entities: List[DXFEntity] = Field(default_factory=list, description="Extracted vector CAD entities")
 
 
 class DXFIngestor:
-    """Ingestor parsing 2D DXF CAD drawing files into spatial vector structures."""
+    """Ingestor parsing 2D DXF CAD drawing files into spatial vector structures using ezdxf."""
 
     def parse_file(self, file_path_or_name: str) -> DXFParsedFloorPlan:
-        """Parse a 2D DXF file and extract classified CAD entities."""
+        """
+        Parse a 2D DXF file and extract classified CAD entities using native ezdxf engine.
+        Enforces strict zero-fabricated-geometry policy: missing, unreadable, or malformed
+        files raise explicit errors instead of returning mock fallback data.
+        """
         path = Path(file_path_or_name)
 
-        if HAS_EZDXF and ezdxf is not None and path.exists():
-            try:
-                doc = ezdxf.readfile(str(path))
-                return self._parse_with_ezdxf(doc, path.name)
-            except Exception:
-                pass
+        if not path.exists():
+            raise FileNotFoundError(f"DXF file not found at path: '{file_path_or_name}'")
 
-        if path.exists():
-            return self._parse_dxf_text_file(path)
+        if not HAS_EZDXF or ezdxf is None:
+            raise ImportError(
+                "ezdxf library is not installed in the environment. "
+                "Please install ezdxf to parse DXF CAD files."
+            )
 
-        return self._parse_mock(file_path_or_name)
+        try:
+            doc = ezdxf.readfile(str(path))
+        except Exception as exc:
+            raise ValueError(f"Failed to open or parse DXF file '{path.name}': {str(exc)}") from exc
+
+        return self._parse_with_ezdxf(doc, path.name)
 
     def _classify_layer(self, layer_name: str) -> str:
-        """Classify CAD layer name into domain spatial categories."""
-        upper = layer_name.upper()
-        if any(w in upper for w in ["WALL", "A-WALL", "EXTERIOR", "INTERIOR"]):
+        """Classify CAD layer name into domain spatial categories deterministically."""
+        upper = layer_name.upper().strip()
+        tokens = [t for t in re.split(r"[^A-Z0-9]", upper) if t]
+
+        if any(w in upper for w in ["WALL", "A-WALL", "EXTERIOR", "PARTITION"]) or ("INTERIOR" in tokens and "WALL" in tokens):
             return "WALL"
         elif any(w in upper for w in ["DOOR", "A-DOOR", "OPENING"]):
             return "DOOR"
         elif any(w in upper for w in ["WINDOW", "GLAZ", "A-GLAZ"]):
             return "WINDOW"
-        elif any(w in upper for w in ["COL", "STRUCT", "PILLAR"]):
+        elif any(w in upper for w in ["COLUMN", "A-COL", "PILLAR"]) or "COL" in tokens or "STRUCT" in tokens:
             return "COLUMN"
-        elif any(w in upper for w in ["FURN", "EQUIP", "DESK"]):
+        elif any(w in upper for w in ["FURN", "FURNITURE", "EQUIP", "DESK"]):
             return "FURNITURE"
         elif any(w in upper for w in ["ROOM", "AREA", "SPACE", "ZONE"]):
             return "SPACE"
@@ -84,24 +96,91 @@ class DXFIngestor:
         layers_set = set()
 
         for entity in msp:
-            layer = entity.dxf.layer
+            layer = getattr(entity.dxf, "layer", "0")
             layers_set.add(layer)
-            cat = self._classify_layer(layer)
-            categories[cat] = categories.get(cat, 0) + 1
+            dxftype = entity.dxftype()
 
-            coords = []
+            coords: List[List[float]] = []
             is_closed = False
 
-            if entity.dxftype() == "LWPOLYLINE":
-                coords = [[p[0], p[1]] for p in entity.get_points()]
-                is_closed = entity.closed
-            elif entity.dxftype() == "LINE":
-                coords = [[entity.dxf.start.x, entity.dxf.start.y], [entity.dxf.end.x, entity.dxf.end.y]]
+            if dxftype == "LWPOLYLINE":
+                try:
+                    points = list(entity.get_points())
+                    coords = [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in points]
+                    is_closed = bool(getattr(entity, "closed", False))
+                except Exception:
+                    coords = []
 
-            if coords:
+            elif dxftype == "POLYLINE":
+                try:
+                    if hasattr(entity, "points"):
+                        points = [p.dxf.location for p in entity.points()]
+                        coords = [[round(float(p.x), 4), round(float(p.y), 4)] for p in points]
+                    elif hasattr(entity, "vertices"):
+                        coords = [[round(float(v.dxf.location.x), 4), round(float(v.dxf.location.y), 4)] for v in entity.vertices]
+                    is_closed = bool(getattr(entity, "is_closed", False))
+                except Exception:
+                    coords = []
+
+            elif dxftype == "LINE":
+                try:
+                    start = entity.dxf.start
+                    end = entity.dxf.end
+                    coords = [
+                        [round(float(start.x), 4), round(float(start.y), 4)],
+                        [round(float(end.x), 4), round(float(end.y), 4)],
+                    ]
+                    is_closed = False
+                except Exception:
+                    coords = []
+
+            elif dxftype == "ARC":
+                try:
+                    center = entity.dxf.center
+                    radius = float(entity.dxf.radius)
+                    start_angle = float(entity.dxf.start_angle)
+                    end_angle = float(entity.dxf.end_angle)
+
+                    if end_angle < start_angle:
+                        end_angle += 360.0
+
+                    angle_span = end_angle - start_angle
+                    segments = max(4, int(angle_span / 15.0))
+                    coords = []
+                    for i in range(segments + 1):
+                        angle_deg = start_angle + (angle_span * i / segments)
+                        rad = math.radians(angle_deg)
+                        x = round(float(center.x + radius * math.cos(rad)), 4)
+                        y = round(float(center.y + radius * math.sin(rad)), 4)
+                        coords.append([x, y])
+                    is_closed = False
+                except Exception:
+                    coords = []
+
+            elif dxftype == "CIRCLE":
+                try:
+                    center = entity.dxf.center
+                    radius = float(entity.dxf.radius)
+                    segments = 16
+                    coords = []
+                    for i in range(segments):
+                        angle_deg = 360.0 * i / segments
+                        rad = math.radians(angle_deg)
+                        x = round(float(center.x + radius * math.cos(rad)), 4)
+                        y = round(float(center.y + radius * math.sin(rad)), 4)
+                        coords.append([x, y])
+                    if coords:
+                        coords.append(coords[0])  # Close circle boundary ring
+                    is_closed = True
+                except Exception:
+                    coords = []
+
+            if coords and len(coords) >= 2:
+                cat = self._classify_layer(layer)
+                categories[cat] = categories.get(cat, 0) + 1
                 extracted.append(
                     DXFEntity(
-                        entity_type=entity.dxftype(),
+                        entity_type=dxftype,
                         layer_name=layer,
                         category=cat,
                         coordinates=coords,
@@ -113,72 +192,6 @@ class DXFIngestor:
             file_name=file_name,
             total_entities_count=len(extracted),
             entities_by_category=categories,
-            layers_found=list(layers_set),
+            layers_found=sorted(list(layers_set)),
             extracted_entities=extracted,
-        )
-
-    def _parse_dxf_text_file(self, file_path: Path) -> DXFParsedFloorPlan:
-        """Fallback text parser for ASCII DXF files."""
-        extracted: List[DXFEntity] = []
-        layers_set = set()
-        categories: Dict[str, int] = {}
-
-        # Basic layer extraction from DXF ASCII code 8
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-
-        for i in range(len(lines) - 1):
-            if lines[i].strip() == "8":
-                layer = lines[i + 1].strip()
-                layers_set.add(layer)
-                cat = self._classify_layer(layer)
-                categories[cat] = categories.get(cat, 0) + 1
-
-        mock_entity = DXFEntity(
-            entity_type="LWPOLYLINE",
-            layer_name="A-WALL",
-            category="WALL",
-            coordinates=[[0.0, 0.0], [15.0, 0.0], [15.0, 10.0], [0.0, 10.0]],
-            is_closed=True,
-        )
-        extracted.append(mock_entity)
-
-        return DXFParsedFloorPlan(
-            file_name=file_path.name,
-            total_entities_count=max(len(extracted), len(layers_set)),
-            entities_by_category=categories or {"WALL": 1},
-            layers_found=list(layers_set) or ["A-WALL"],
-            extracted_entities=extracted,
-        )
-
-    def _parse_mock(self, file_name: str) -> DXFParsedFloorPlan:
-        """Mock fallback for string identifiers."""
-        wall_entity = DXFEntity(
-            entity_type="LWPOLYLINE",
-            layer_name="A-WALL-EXTR",
-            category="WALL",
-            coordinates=[[0.0, 0.0], [25.0, 0.0], [25.0, 12.0], [0.0, 12.0]],
-            is_closed=True,
-        )
-        door_entity = DXFEntity(
-            entity_type="ARC",
-            layer_name="A-DOOR",
-            category="DOOR",
-            coordinates=[[5.0, 0.0], [6.0, 1.0]],
-            is_closed=False,
-        )
-        space_entity = DXFEntity(
-            entity_type="LWPOLYLINE",
-            layer_name="A-AREA-ROOM",
-            category="SPACE",
-            coordinates=[[0.0, 0.0], [25.0, 0.0], [25.0, 12.0], [0.0, 12.0]],
-            is_closed=True,
-        )
-
-        return DXFParsedFloorPlan(
-            file_name=file_name,
-            total_entities_count=3,
-            entities_by_category={"WALL": 1, "DOOR": 1, "SPACE": 1},
-            layers_found=["A-WALL-EXTR", "A-DOOR", "A-AREA-ROOM"],
-            extracted_entities=[wall_entity, door_entity, space_entity],
         )

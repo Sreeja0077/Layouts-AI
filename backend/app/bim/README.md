@@ -18,7 +18,13 @@ Parses Revit IFC files (`.ifc`), 2D DXF CAD drawings (`.dxf`), and raster assets
   - **Unit Normalization:** Detects project length unit declarations (`FOOT`, `MILLI`, `METRE`) via `ifcopenshell.util.unit.calculate_unit_scale` and normalizes all 2D coordinates into meters (`m`) with scale metadata.
   - **Provenance & Reference Metadata:** Captures schema, file timestamp, exporting application, project/building names, map conversion (`IfcMapConversion`), and projected CRS (`IfcProjectedCRS`) metadata when available.
   - **Error Handling:** Raises explicit `FileNotFoundError`, `ImportError`, and `ValueError` exceptions without silent exception swallowing or mock fallbacks in production.
-- [`dxf_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/dxf_ingest.py): 2D AutoCAD DXF CAD drawing parser (`DXFIngestor`, `DXFParsedFloorPlan`, `DXFEntity`).
+- [`dxf_ingest.py`](file:///d:/Layouts%20AI/backend/app/bim/dxf_ingest.py): Authoritative 2D AutoCAD DXF CAD drawing parser (`DXFIngestor`, `DXFParsedFloorPlan`, `DXFEntity`).
+  - **Parser Engine:** Uses `ezdxf` as the native DXF parsing engine for 2D CAD vector drawings.
+  - **Supported CAD Entity Types:** Extracts `LWPOLYLINE`, `POLYLINE`, `LINE`, `ARC` (sampled arc vertices), and `CIRCLE` (sampled circle boundary ring) entities into 2D floating-point vertex coordinates.
+  - **Layer Classification:** Deterministically classifies CAD layer names into domain spatial categories (`WALL`, `DOOR`, `WINDOW`, `COLUMN`, `FURNITURE`, `SPACE`, or `GENERIC` for unrecognized layers).
+  - **Entity Count Semantics:** `total_entities_count` and `entities_by_category` reflect exact counts of extracted 2D vector CAD entities (`total_entities_count == len(extracted_entities) == sum(entities_by_category.values())`).
+  - **Zero-Fabricated Geometry Policy:** No fake fallback geometry, mock entities, or invented coordinates exist. Missing files raise `FileNotFoundError`, missing `ezdxf` dependency raises `ImportError`, and malformed/unreadable DXF files raise `ValueError`.
+  - **Fixture Testing:** Verified against real standard ASCII DXF fixture [`docs/fixtures/sample_floor_plan.dxf`](file:///d:/Layouts%20AI/docs/fixtures/sample_floor_plan.dxf).
 - [`reconciliation.py`](file:///d:/Layouts%20AI/backend/app/bim/reconciliation.py): Floor plan geometry verification and anomaly report engine (`GeometryReconciler`).
 
 ## 🔒 Security & Quality Invariants
