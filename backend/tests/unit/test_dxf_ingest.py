@@ -74,7 +74,31 @@ def test_real_dxf_file_parsing():
     assert circle_col.is_closed is True
     assert len(circle_col.coordinates) == 17  # 16 segments + closing point
 
-    print("REAL DXF FILE PARSING VERIFIED: 9 extracted entities across 6 layers.")
+    # 4. Focused POLYLINE regression assertions
+    polyline_entities = [e for e in result.extracted_entities if e.entity_type == "POLYLINE"]
+    assert len(polyline_entities) == 4, f"Expected 4 POLYLINE entities, got {len(polyline_entities)}"
+
+    poly_wall = next(e for e in polyline_entities if e.layer_name == "A-WALL")
+    assert poly_wall.category == "WALL"
+    assert poly_wall.is_closed is True
+    assert poly_wall.coordinates == [[0.0, 0.0], [20.0, 0.0], [20.0, 12.0], [0.0, 12.0]]
+
+    poly_col = next(e for e in polyline_entities if e.layer_name == "A-COLUMN")
+    assert poly_col.category == "COLUMN"
+    assert poly_col.is_closed is True
+    assert poly_col.coordinates == [[4.0, 4.0], [6.0, 4.0], [6.0, 6.0], [4.0, 6.0]]
+
+    poly_space = next(e for e in polyline_entities if e.layer_name == "A-ROOM")
+    assert poly_space.category == "SPACE"
+    assert poly_space.is_closed is True
+    assert poly_space.coordinates == [[0.0, 0.0], [10.0, 0.0], [10.0, 12.0], [0.0, 12.0]]
+
+    poly_furn = next(e for e in polyline_entities if e.layer_name == "A-FURN")
+    assert poly_furn.category == "FURNITURE"
+    assert poly_furn.is_closed is True
+    assert poly_furn.coordinates == [[2.0, 2.0], [4.0, 2.0], [4.0, 3.0], [2.0, 3.0]]
+
+    print("REAL DXF FILE PARSING VERIFIED: 9 extracted entities across 6 layers (including 4 POLYLINE boundaries).")
 
 
 def test_dxf_pydantic_serialization():

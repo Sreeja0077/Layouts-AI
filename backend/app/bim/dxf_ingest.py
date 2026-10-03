@@ -107,20 +107,26 @@ class DXFIngestor:
                 try:
                     points = list(entity.get_points())
                     coords = [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in points]
-                    is_closed = bool(getattr(entity, "closed", False))
-                except Exception:
-                    coords = []
+                    is_closed = bool(getattr(entity, "closed", False) or (hasattr(entity.dxf, "flags") and bool(entity.dxf.flags & 1)))
+                except Exception as exc:
+                    raise ValueError(f"Failed to extract coordinates for DXF LWPOLYLINE entity on layer '{layer}': {str(exc)}") from exc
 
             elif dxftype == "POLYLINE":
                 try:
                     if hasattr(entity, "points"):
-                        points = [p.dxf.location for p in entity.points()]
-                        coords = [[round(float(p.x), 4), round(float(p.y), 4)] for p in points]
+                        points_list = list(entity.points())
+                        coords = [[round(float(p[0]), 4), round(float(p[1]), 4)] for p in points_list]
                     elif hasattr(entity, "vertices"):
-                        coords = [[round(float(v.dxf.location.x), 4), round(float(v.dxf.location.y), 4)] for v in entity.vertices]
-                    is_closed = bool(getattr(entity, "is_closed", False))
-                except Exception:
-                    coords = []
+                        coords = [[round(float(v.dxf.location[0]), 4), round(float(v.dxf.location[1]), 4)] for v in entity.vertices]
+                    else:
+                        raise ValueError(f"DXF POLYLINE entity on layer '{layer}' has no points or vertices attribute")
+
+                    is_closed = bool(
+                        getattr(entity, "is_closed", False)
+                        or (hasattr(entity.dxf, "flags") and bool(entity.dxf.flags & 1))
+                    )
+                except Exception as exc:
+                    raise ValueError(f"Failed to extract coordinates for DXF POLYLINE entity on layer '{layer}': {str(exc)}") from exc
 
             elif dxftype == "LINE":
                 try:
@@ -131,8 +137,8 @@ class DXFIngestor:
                         [round(float(end.x), 4), round(float(end.y), 4)],
                     ]
                     is_closed = False
-                except Exception:
-                    coords = []
+                except Exception as exc:
+                    raise ValueError(f"Failed to extract coordinates for DXF LINE entity on layer '{layer}': {str(exc)}") from exc
 
             elif dxftype == "ARC":
                 try:
@@ -154,8 +160,8 @@ class DXFIngestor:
                         y = round(float(center.y + radius * math.sin(rad)), 4)
                         coords.append([x, y])
                     is_closed = False
-                except Exception:
-                    coords = []
+                except Exception as exc:
+                    raise ValueError(f"Failed to extract coordinates for DXF ARC entity on layer '{layer}': {str(exc)}") from exc
 
             elif dxftype == "CIRCLE":
                 try:
@@ -172,8 +178,8 @@ class DXFIngestor:
                     if coords:
                         coords.append(coords[0])  # Close circle boundary ring
                     is_closed = True
-                except Exception:
-                    coords = []
+                except Exception as exc:
+                    raise ValueError(f"Failed to extract coordinates for DXF CIRCLE entity on layer '{layer}': {str(exc)}") from exc
 
             if coords and len(coords) >= 2:
                 cat = self._classify_layer(layer)
