@@ -45,7 +45,7 @@
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core
 - [x] **Task 3.1:** Implement canonical entity models (`FloorPlan`, `Room`, `Wall`, `Door`, `Window`, `Column`, `ExistingFurniture`). *(Completed: 2026-10-05 15:25:00+05:30)*
-- [x] **Task 4.1:** Implement obstacle & clearance buffer subtraction in `geometry/geo_engine/freespace.py`. *(Completed: 2026-09-30 15:05:00+05:30)*
+- [x] **Task 4.1:** Implement obstacle & clearance buffer subtraction in `geometry/geo_engine/freespace.py`. *(Completed: 2026-10-05 15:47:00+05:30)*
 - [x] **Task 4.2:** Implement hard-constraint & soft-design validation rules in `geometry/geo_engine/rules/`. *(Completed: 2026-09-30 15:46:00+05:30)*
 
 ### Phase 5: 2D Interactive Canvas Editor
@@ -486,8 +486,23 @@
   - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (76/76)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
 
+### [2026-10-05] Task 4.1 Execution - Authoritative Free-Space & Obstacle Subtraction Engine Finalization
+- **Action:** Rebuilt `FreeSpaceEngine` in `geometry/geo_engine/freespace.py` using authoritative Shapely/GEOS boolean operations (`compute_usable_geometry`, `compute_usable_freespace`, `calculate_freespace_area`). Removed all pure-Python rectangular bounding-box fallbacks and fake geometry approximations; enforced explicit `ImportError` when Shapely is missing. Implemented complete 2D topology preservation for interior rings (holes) and `MultiPolygon` components. Added support for perimeter wall safety insets (`wall_inset_buffer`), obstacle clearance buffers (`obstacle_clearance_buffer`), concave L-shaped and U-shaped room boundaries, door swing arc polygon subtraction (`DoorEntity.get_swing_arc_polygon()`), boundary-crossing/touching obstacle subtraction, geometry repair (`make_valid()`), exact topology-aware area calculations (`geometry.area`), and point containment verification. Expanded unit test suite in `backend/tests/unit/test_freespace.py` to 21 comprehensive test cases. Updated `geometry/geo_engine/README.md`.
+- **Status:** `SUCCESS (100% Tests & Full CI Sequence Verified)`
+- **Files Created/Updated:**
+  - [`geometry/geo_engine/freespace.py`](file:///d:/Layouts%20AI/geometry/geo_engine/freespace.py) (Authoritative Shapely FreeSpaceEngine with topology, hole preservation, and explicit ImportError guard)
+  - [`geometry/geo_engine/README.md`](file:///d:/Layouts%20AI/geometry/geo_engine/README.md) (Updated FreeSpaceEngine domain documentation)
+  - [`backend/tests/unit/test_freespace.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_freespace.py) (Expanded unit test suite with 21 comprehensive tests for holes, MultiPolygons, insets, clearance buffers, concave shapes, point containment, determinism, and explicit failure)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 4.1 completion timestamp and execution history log)
+- **Test Execution Results:**
+  - `python backend/tests/unit/test_freespace.py` & `pytest`: **PASSED (21/21)**
+  - `pytest backend/tests/unit/test_canonical_entities.py test_reconciliation.py test_ifc_ingest.py test_dxf_ingest.py test_rules_engine.py test_versioning.py`: **PASSED (41/41)**
+  - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (95/95)**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
+
 ---
 *Maintained continuously across all development steps.*
+
 
 
 
