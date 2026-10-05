@@ -1,13 +1,13 @@
 """
 Rule Evaluator Central Engine (Task 4.2).
-Aggregates and executes 16 HARD rules and 4 SOFT rules, returning a comprehensive ValidationResult.
+Aggregates and executes exactly 16 HARD rules and 4 SOFT rules, returning a comprehensive, fault-isolated, deterministic ValidationResult.
 """
 
 import time
 from typing import Any, Dict, List, Optional
 
 from app.domain.geometry.entities import RoomEntity
-from app.domain.geometry.schemas import ConstraintViolation, ValidationResult, ViolationSeverity
+from app.domain.geometry.schemas import ConstraintViolation, ValidationResult, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
 from app.domain.requirements.schemas import RequirementSet
 from geometry.geo_engine.rules.base_rule import BaseRule
@@ -99,29 +99,42 @@ class RuleEvaluator:
         hard_violations: List[ConstraintViolation] = []
         soft_violations: List[ConstraintViolation] = []
 
-        # 1. Run all 16 Hard Rules
+        # 1. Run all 16 Hard Rules with fault isolation
         for rule in self.hard_rules:
             try:
                 results = rule.evaluate(layout=layout, room=room, requirements=requirements, config=self.config)
                 hard_violations.extend(results)
             except Exception as e:
-                # Catch unexpected exception as a hard violation
+                # Rule exception becomes a structured CRITICAL_HARD violation
                 hard_violations.append(
                     rule.create_violation(
-                        violation_type=rule.hard_rules[0].severity,
-                        message=f"Rule '{rule.rule_id}' raised runtime exception: {str(e)}",
+                        violation_type=ViolationType.RULE_EXECUTION_ERROR,
+                        message=f"Hard rule '{rule.rule_id}' raised runtime exception: {str(e)}",
+                        violation_key=f"hard_exception_{rule.rule_id}",
                     )
                 )
 
-        # 2. Run all 4 Soft Rules
+        # 2. Run all 4 Soft Rules with fault isolation
         for rule in self.soft_rules:
             try:
                 results = rule.evaluate(layout=layout, room=room, requirements=requirements, config=self.config)
                 soft_violations.extend(results)
             except Exception as e:
-                pass
+                # Rule exception becomes a structured WARNING_SOFT violation
+                soft_violations.append(
+                    rule.create_violation(
+                        violation_type=ViolationType.RULE_EXECUTION_ERROR,
+                        message=f"Soft rule '{rule.rule_id}' raised runtime exception: {str(e)}",
+                        penalty_score=5.0,
+                        violation_key=f"soft_exception_{rule.rule_id}",
+                    )
+                )
 
         execution_ms = round((time.perf_counter() - start_time) * 1000.0, 3)
+
+        # Sort violations deterministically by ID
+        hard_violations.sort(key=lambda v: (v.id, v.violation_type.value))
+        soft_violations.sort(key=lambda v: (v.id, v.violation_type.value))
 
         # Layout is valid if 0 hard violations exist
         is_valid = len(hard_violations) == 0

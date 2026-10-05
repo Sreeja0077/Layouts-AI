@@ -1,6 +1,7 @@
 """
 Requirement Compliance Rule (Task 4.2 - Rule 11).
-Validates complete RequirementSet semantic compliance (space types, furniture categories, zones beyond count).
+Validates complete RequirementSet compliance using resolved catalog item IDs and exact item matches.
+Aligned strictly with RequirementItem domain schema.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,7 +13,7 @@ from geometry.geo_engine.rules.base_rule import BaseRule
 
 
 class RequirementComplianceRule(BaseRule):
-    """Verifies that mandatory space categories and zones requested in RequirementSet are present."""
+    """Verifies that resolved mandatory requirement items are present in the layout."""
 
     def __init__(self):
         super().__init__(rule_id="requirement_compliance", severity=ViolationSeverity.CRITICAL_HARD)
@@ -28,19 +29,33 @@ class RequirementComplianceRule(BaseRule):
         if not requirements or not requirements.items:
             return violations
 
-        placed_types = {obj.item_type.upper() for obj in layout.placed_objects}
+        placed_catalog_ids = {obj.catalog_item_id for obj in layout.placed_objects if obj.catalog_item_id}
 
         for req_item in requirements.items:
-            req_type = req_item.category.upper()
-            # If required category is missing completely
-            matching = [t for t in placed_types if req_type in t or t in req_type]
-            if not matching and req_item.quantity > 0:
-                violations.append(
-                    self.create_violation(
-                        violation_type=ViolationType.SPACING_VIOLATION,
-                        message=f"Mandatory requirement '{req_item.category}' (qty: {req_item.quantity}) is completely missing from generated layout.",
-                        affected_element_type="REQUIREMENT_SET",
+            target_id = req_item.resolved_catalog_item_id or req_item.raw_phrase
+            if not target_id or req_item.quantity <= 0:
+                continue
+
+            # Primary match on resolved_catalog_item_id
+            if req_item.resolved_catalog_item_id:
+                if req_item.resolved_catalog_item_id not in placed_catalog_ids:
+                    violations.append(
+                        self.create_violation(
+                            violation_type=ViolationType.SPACING_VIOLATION,
+                            message=f"Mandatory resolved requirement item '{req_item.resolved_catalog_item_id}' (qty: {req_item.quantity}) is completely missing from layout.",
+                            affected_element_type="REQUIREMENT_SET",
+                        )
                     )
-                )
+            elif req_item.raw_phrase:
+                # Secondary exact phrase match if catalog item ID was not resolved
+                matching = [c for c in placed_catalog_ids if req_item.raw_phrase.lower() in c.lower()]
+                if not matching:
+                    violations.append(
+                        self.create_violation(
+                            violation_type=ViolationType.SPACING_VIOLATION,
+                            message=f"Mandatory requirement phrase '{req_item.raw_phrase}' (qty: {req_item.quantity}) is missing from layout.",
+                            affected_element_type="REQUIREMENT_SET",
+                        )
+                    )
 
         return violations

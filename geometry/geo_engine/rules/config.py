@@ -1,9 +1,10 @@
 """
 Default Rule Configuration for Layout Validation Rules Engine.
 Defines project and company default thresholds for circulation, accessibility, furniture clearances,
-storage wall gaps, and fulfillment modes.
+storage wall gaps, and fulfillment modes. Supports safe deep-copy merging without mutating global defaults.
 """
 
+import copy
 from typing import Any, Dict
 
 DEFAULT_RULESET_CONFIG: Dict[str, Any] = {
@@ -42,14 +43,14 @@ DEFAULT_RULESET_CONFIG: Dict[str, Any] = {
 
 
 def get_ruleset_config(custom_config: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Merge custom configuration overrides into default ruleset config."""
+    """Merge custom configuration overrides into default ruleset config cleanly using deep copy."""
+    base = copy.deepcopy(DEFAULT_RULESET_CONFIG)
     if not custom_config:
-        return DEFAULT_RULESET_CONFIG.copy()
+        return base
 
-    merged = DEFAULT_RULESET_CONFIG.copy()
     for category, settings in custom_config.items():
-        if category in merged and isinstance(settings, dict):
-            merged[category] = {**merged[category], **settings}
+        if category in base and isinstance(settings, dict) and isinstance(base[category], dict):
+            base[category].update(settings)
         else:
-            merged[category] = settings
-    return merged
+            base[category] = copy.deepcopy(settings)
+    return base

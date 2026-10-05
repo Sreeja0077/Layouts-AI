@@ -1,6 +1,7 @@
 """
 Quantity Fulfillment Rule (Task 4.2 - Rule 12).
 Validates requested vs placed item quantities with configurable partial fulfillment modes (reject, warning, allow).
+Aligned strictly with RequirementItem domain schema.
 """
 
 from typing import Any, Dict, List, Optional
@@ -32,22 +33,28 @@ class QuantityFulfillmentRule(BaseRule):
         cfg = get_ruleset_config(config)
         mode = cfg.get("quantity", {}).get("partial_fulfillment", {}).get("mode", "warning")
 
-        # Tally placed items by category
+        # Tally placed items by catalog_item_id
         placed_counts: Dict[str, int] = {}
         for obj in layout.placed_objects:
-            cat = obj.item_type.upper()
-            placed_counts[cat] = placed_counts.get(cat, 0) + 1
+            cid = obj.catalog_item_id or obj.item_type
+            placed_counts[cid] = placed_counts.get(cid, 0) + 1
 
         for req_item in requirements.items:
-            req_cat = req_item.category.upper()
-            target_qty = req_item.quantity
+            target_id = req_item.resolved_catalog_item_id or req_item.raw_phrase
+            if not target_id or req_item.quantity <= 0:
+                continue
 
-            # Sum placed items matching category
-            actual_qty = sum(count for cat, count in placed_counts.items() if req_cat in cat or cat in req_cat)
+            target_qty = req_item.quantity
+            actual_qty = 0
+
+            if req_item.resolved_catalog_item_id:
+                actual_qty = placed_counts.get(req_item.resolved_catalog_item_id, 0)
+            elif req_item.raw_phrase:
+                actual_qty = sum(count for cid, count in placed_counts.items() if req_item.raw_phrase.lower() in cid.lower())
 
             if actual_qty < target_qty:
                 missing = target_qty - actual_qty
-                msg = f"Partial fulfillment for '{req_item.category}': requested {target_qty}, placed {actual_qty} (missing {missing})."
+                msg = f"Partial fulfillment for '{target_id}': requested {target_qty}, placed {actual_qty} (missing {missing})."
 
                 if mode == "reject":
                     violations.append(
@@ -58,7 +65,6 @@ class QuantityFulfillmentRule(BaseRule):
                         )
                     )
                 elif mode == "warning":
-                    # Emit warning violation with penalty
                     v = self.create_violation(
                         violation_type=ViolationType.SPACING_VIOLATION,
                         message=msg,
@@ -67,5 +73,6 @@ class QuantityFulfillmentRule(BaseRule):
                     )
                     v.severity = ViolationSeverity.WARNING_SOFT
                     violations.append(v)
+                # mode == "allow" -> no violation
 
         return violations

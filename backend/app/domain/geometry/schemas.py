@@ -22,6 +22,8 @@ class ViolationType(str, Enum):
     EGRESS_BLOCKAGE = "EGRESS_BLOCKAGE"             # Egress path width below minimum requirement
     COLUMN_COLLISION = "COLUMN_COLLISION"           # Object collides with structural column
     SPACING_VIOLATION = "SPACING_VIOLATION"         # Violates minimum inter-desk spacing
+    RULE_EXECUTION_ERROR = "RULE_EXECUTION_ERROR"   # Runtime exception raised during rule execution
+
 
 
 class ConstraintViolation(BaseModel):

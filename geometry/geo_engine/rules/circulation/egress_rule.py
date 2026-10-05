@@ -1,10 +1,10 @@
 """
 Egress Rule (Task 4.2 - Rule 8).
-Verifies layout-level path connectivity ensuring all placed workstations/seats have a connected walking path to designated room exits.
+Verifies door threshold spatial egress access and declared circulation path connectivity to room exits.
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -14,7 +14,7 @@ from geometry.geo_engine.rules.geometry.collision_rule import CollisionRule
 
 
 class EgressRule(BaseRule):
-    """Evaluates spatial path connectivity between workstations and room exits."""
+    """Evaluates door threshold spatial egress access and path connectivity to room exits."""
 
     def __init__(self):
         super().__init__(rule_id="egress", severity=ViolationSeverity.CRITICAL_HARD)
@@ -31,27 +31,52 @@ class EgressRule(BaseRule):
         if not room or not room.doors:
             return violations
 
-        # Get door locations
-        door_points = [(d.center_x, d.center_y) for d in room.doors]
+        door_points = [Point(d.center_x, d.center_y) for d in room.doors]
         if not door_points:
             return violations
 
-        # Check if objects block egress access
         object_polys = [CollisionRule.get_object_polygon(obj) for obj in layout.placed_objects]
 
-        for obj in layout.placed_objects:
-            obj_pt = Point(obj.x, obj.y)
-            # Find distance to closest door
-            min_door_dist = min(Point(dp[0], dp[1]).distance(obj_pt) for dp in door_points)
+        # 1. Check physical furniture obstruction in immediate door egress zone (0.8m radius)
+        for door_idx, door_pt in enumerate(door_points):
+            door_obj = room.doors[door_idx]
+            egress_zone = door_pt.buffer(0.8)
+            for i, obj_poly in enumerate(object_polys):
+                if obj_poly.intersects(egress_zone):
+                    inter = obj_poly.intersection(egress_zone)
+                    if inter.area > 0.05:
+                        obj = layout.placed_objects[i]
+                        coords = self.extract_overlap_coords(inter)
+                        violations.append(
+                            self.create_violation(
+                                violation_type=ViolationType.EGRESS_BLOCKAGE,
+                                message=f"Object '{obj.id}' ({obj.item_type}) obstructs egress threshold of Door '{door_obj.id}'.",
+                                affected_object_ids=[obj.id],
+                                affected_element_type="DOOR",
+                                overlap_polygon_coords=coords,
+                            )
+                        )
 
-            # If isolated object is far from all doors with no circulation paths
-            if min_door_dist > 20.0 and not layout.circulation_paths:
+        # 2. Check that declared circulation paths connect to at least one door threshold (within 2.0m)
+        if layout.circulation_paths:
+            connected = False
+            for path in layout.circulation_paths:
+                if not path.path_points:
+                    continue
+                for pt in path.path_points:
+                    path_pt = Point(pt[0], pt[1])
+                    if any(path_pt.distance(door_pt) <= 2.0 for door_pt in door_points):
+                        connected = True
+                        break
+                if connected:
+                    break
+
+            if not connected:
                 violations.append(
                     self.create_violation(
                         violation_type=ViolationType.EGRESS_BLOCKAGE,
-                        message=f"Workstation '{obj.id}' ({obj.item_type}) at ({obj.x}, {obj.y}) lacks connected egress path to room exit.",
-                        affected_object_ids=[obj.id],
-                        affected_element_type="DOOR",
+                        message="Declared circulation paths fail to connect within 2.0m of any room exit door.",
+                        affected_element_type="CIRCULATION_PATH",
                     )
                 )
 

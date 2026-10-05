@@ -1,11 +1,11 @@
 """
 Natural Light Rule (Task 4.2 - Rule 20 - SOFT RULE).
-Evaluates geometric heuristic proximity of workstations to windows for natural daylight access.
+Evaluates workstation proximity to actual window segment LineString geometry for daylight access.
 Contributes soft penalty score without invalidating layout.
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -33,15 +33,12 @@ class NaturalLightRule(BaseRule):
 
         cfg = get_ruleset_config(config)
         max_dist_m = cfg.get("windows", {}).get("natural_light_max_distance_mm", 6000) / 1000.0
-        win_points = [
-            Point((w.start_point[0] + w.end_point[0]) / 2.0, (w.start_point[1] + w.end_point[1]) / 2.0)
-            for w in room.windows
-        ]
+        win_lines = [LineString([w.start_point, w.end_point]) for w in room.windows]
 
         for obj in layout.placed_objects:
             if "desk" in obj.item_type.lower() or "workstation" in obj.item_type.lower():
                 obj_pt = Point(obj.x, obj.y)
-                min_win_dist = min(wp.distance(obj_pt) for wp in win_points)
+                min_win_dist = min(wl.distance(obj_pt) for wl in win_lines)
 
                 if min_win_dist > max_dist_m:
                     violations.append(

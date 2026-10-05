@@ -33,7 +33,7 @@ class BundleIntegrityRule(BaseRule):
             if bundle_id:
                 bundles.setdefault(bundle_id, []).append(obj)
 
-        for bundle_id, members in bundles.items():
+        for bundle_id, members in sorted(bundles.items()):
             # Check mandatory bundle components if declared in metadata
             req_components = members[0].custom_metadata.get("required_bundle_components", [])
             member_types = [m.item_type for m in members]

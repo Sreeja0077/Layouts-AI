@@ -1,6 +1,7 @@
 """
 Fixed Object Integrity Rule (Task 4.2 - Rule 4).
-Ensures existing/fixed/locked objects are not moved, rotated, or modified by AI layout proposals.
+Ensures existing retained furniture items (keep_flag=True) are preserved, not moved, not rotated, and not removed by AI layout proposals.
+Aligned with authoritative ExistingFurnitureEntity schema.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,7 +13,7 @@ from geometry.geo_engine.rules.base_rule import BaseRule
 
 
 class FixedObjectIntegrityRule(BaseRule):
-    """Guards existing/locked furniture instances from unauthorized changes."""
+    """Guards existing retained furniture instances (keep_flag=True) from unauthorized changes or removal."""
 
     def __init__(self):
         super().__init__(rule_id="fixed_object_integrity", severity=ViolationSeverity.CRITICAL_HARD)
@@ -26,28 +27,41 @@ class FixedObjectIntegrityRule(BaseRule):
     ) -> List[ConstraintViolation]:
         violations = []
 
-        # Compare placed objects against fixed/existing objects in room
-        existing_furniture = getattr(room, "existing_furniture", [])
-        if not existing_furniture:
+        if not room or not room.existing_furniture:
             return violations
 
-        # Index existing fixed furniture by ID
-        fixed_map = {f.id: f for f in existing_furniture if getattr(f, "locked", False) or "fixed" in getattr(f, "tags", [])}
+        # Filter retained existing furniture (keep_flag=True)
+        retained_map = {ef.id: ef for ef in room.existing_furniture if getattr(ef, "keep_flag", True)}
+        if not retained_map:
+            return violations
 
-        for obj in layout.placed_objects:
-            if obj.id in fixed_map:
-                original = fixed_map[obj.id]
-                # Check position change
-                dx = abs(obj.x - original.x)
-                dy = abs(obj.y - original.y)
-                drot = abs(obj.rotation_deg - original.rotation_deg)
+        placed_map = {obj.id: obj for obj in layout.placed_objects}
 
-                if dx > 1e-3 or dy > 1e-3 or drot > 1e-3:
+        for ef_id, ef in retained_map.items():
+            if ef_id not in placed_map:
+                violations.append(
+                    self.create_violation(
+                        violation_type=ViolationType.COLLISION,
+                        message=f"Retained existing furniture '{ef_id}' (catalog: '{ef.catalog_item_id}') was missing/removed from layout.",
+                        affected_object_ids=[ef_id],
+                        affected_element_type="EXISTING_FURNITURE",
+                    )
+                )
+            else:
+                obj = placed_map[ef_id]
+                orig_x, orig_y = ef.position[0], ef.position[1]
+                dx = abs(obj.x - orig_x)
+                dy = abs(obj.y - orig_y)
+                rot_diff = abs((obj.rotation_deg - ef.rotation) % 360.0)
+                rot_diff = min(rot_diff, 360.0 - rot_diff)
+
+                if dx > 1e-3 or dy > 1e-3 or rot_diff > 1e-3:
                     violations.append(
                         self.create_violation(
                             violation_type=ViolationType.COLLISION,
-                            message=f"Fixed object '{obj.id}' position/rotation was altered from baseline ({original.x}, {original.y}, {original.rotation_deg}°) to ({obj.x}, {obj.y}, {obj.rotation_deg}°).",
+                            message=f"Retained fixed furniture '{ef_id}' position/rotation was altered from ({orig_x}, {orig_y}, {ef.rotation}°) to ({obj.x}, {obj.y}, {obj.rotation_deg}°).",
                             affected_object_ids=[obj.id],
+                            affected_element_type="EXISTING_FURNITURE",
                         )
                     )
 

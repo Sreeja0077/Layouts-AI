@@ -1,11 +1,11 @@
 """
 Window Obstruction Rule (Task 4.2 - Rule 18 - SOFT RULE).
-Detects tall furniture (e.g. storage cabinets > 1.4m height) directly blocking windows.
+Detects tall furniture (e.g. storage cabinets > 1.4m height) directly blocking actual window segment geometry.
 Contributes soft penalty score without invalidating layout.
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -37,9 +37,8 @@ class WindowObstructionRule(BaseRule):
         tall_threshold_mm = win_cfg.get("tall_object_height_threshold_mm", 1400)
 
         for win in room.windows:
-            win_cx = (win.start_point[0] + win.end_point[0]) / 2.0
-            win_cy = (win.start_point[1] + win.end_point[1]) / 2.0
-            win_buffer = Point(win_cx, win_cy).buffer(0.8)
+            win_line = LineString([win.start_point, win.end_point])
+            win_buffer = win_line.buffer(0.8)
 
             for obj in layout.placed_objects:
                 obj_height_mm = obj.custom_metadata.get("height_mm", 750)
@@ -48,13 +47,17 @@ class WindowObstructionRule(BaseRule):
                 if obj_height_mm >= tall_threshold_mm or height_class == "tall":
                     obj_poly = CollisionRule.get_object_polygon(obj)
                     if obj_poly.intersects(win_buffer):
-                        violations.append(
-                            self.create_violation(
-                                violation_type=ViolationType.WINDOW_OBSTRUCTION,
-                                message=f"Tall object '{obj.id}' ({obj.item_type}) blocks window '{win.id}' natural light corridor.",
-                                affected_object_ids=[obj.id],
-                                affected_element_type="WINDOW",
-                                penalty_score=10.0,
+                        inter = obj_poly.intersection(win_buffer)
+                        if inter.area > 0.05:
+                            coords = self.extract_overlap_coords(inter)
+                            violations.append(
+                                self.create_violation(
+                                    violation_type=ViolationType.WINDOW_OBSTRUCTION,
+                                    message=f"Tall object '{obj.id}' ({obj.item_type}) blocks window '{win.id}' natural light corridor.",
+                                    affected_object_ids=[obj.id],
+                                    affected_element_type="WINDOW",
+                                    penalty_score=10.0,
+                                    overlap_polygon_coords=coords,
+                                )
                             )
-                        )
         return violations

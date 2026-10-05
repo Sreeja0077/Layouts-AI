@@ -1,6 +1,6 @@
 """
 Connectivity Rule (Task 4.2 - Rule 16).
-Validates walkable circulation path connectivity between distinct functional areas/zones.
+Validates walkable circulation path connectivity between distinct functional areas/zones when explicitly required.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,7 +12,7 @@ from geometry.geo_engine.rules.base_rule import BaseRule
 
 
 class ConnectivityRule(BaseRule):
-    """Verifies functional connectivity between key spatial zones."""
+    """Verifies functional connectivity between key spatial zones when explicitly required."""
 
     def __init__(self):
         super().__init__(rule_id="connectivity", severity=ViolationSeverity.CRITICAL_HARD)
@@ -25,14 +25,29 @@ class ConnectivityRule(BaseRule):
         config: Dict[str, Any] = None,
     ) -> List[ConstraintViolation]:
         violations = []
-        # If circulation paths exist, connectivity between zones is checked
-        if not layout.circulation_paths and len(layout.placed_objects) > 10:
+
+        # Check objects requiring connectivity
+        req_conn_objects = [obj for obj in layout.placed_objects if obj.custom_metadata.get("requires_connectivity")]
+
+        if req_conn_objects and not layout.circulation_paths:
             violations.append(
                 self.create_violation(
                     violation_type=ViolationType.EGRESS_BLOCKAGE,
-                    message="Layout lacks declared circulation paths connecting functional work zones.",
+                    message=f"Layout contains {len(req_conn_objects)} objects requiring spatial connectivity but lacks declared circulation paths.",
+                    affected_object_ids=[obj.id for obj in req_conn_objects],
                     affected_element_type="CIRCULATION_PATH",
                 )
             )
+
+        # Validate declared circulation path point counts
+        for path in layout.circulation_paths:
+            if not path.path_points or len(path.path_points) < 2:
+                violations.append(
+                    self.create_violation(
+                        violation_type=ViolationType.EGRESS_BLOCKAGE,
+                        message=f"Declared circulation path '{path.id}' has invalid or disconnected geometry.",
+                        affected_element_type="CIRCULATION_PATH",
+                    )
+                )
 
         return violations

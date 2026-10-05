@@ -1,6 +1,6 @@
 """
 Aisle Width Rule (Task 4.2 - Rule 6).
-Validates main and secondary circulation corridors to ensure width does not fall below configurable ruleset thresholds.
+Validates main and secondary circulation corridors ensuring path width and geometry meet configurable ruleset thresholds.
 """
 
 from typing import Any, Dict, List, Optional
@@ -33,7 +33,27 @@ class AisleWidthRule(BaseRule):
         sec_min_m = circ_cfg.get("secondary_aisle_min_mm", 900) / 1000.0
 
         for path in layout.circulation_paths:
-            required_m = main_min_m if path.path_type == "MAIN_AISLE" else sec_min_m
+            if not path.path_points or len(path.path_points) < 2:
+                violations.append(
+                    self.create_violation(
+                        violation_type=ViolationType.EGRESS_BLOCKAGE,
+                        message=f"Circulation corridor '{path.id}' has invalid or insufficient path points.",
+                        affected_element_type="CIRCULATION_PATH",
+                    )
+                )
+                continue
+
+            if path.min_width_meters <= 0.0:
+                violations.append(
+                    self.create_violation(
+                        violation_type=ViolationType.EGRESS_BLOCKAGE,
+                        message=f"Circulation corridor '{path.id}' has non-positive width ({path.min_width_meters}m).",
+                        affected_element_type="CIRCULATION_PATH",
+                    )
+                )
+                continue
+
+            required_m = main_min_m if path.path_type.upper() == "MAIN_AISLE" else sec_min_m
             if path.min_width_meters < required_m:
                 violations.append(
                     self.create_violation(

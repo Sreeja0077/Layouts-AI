@@ -4,7 +4,7 @@ Ensures furniture does not block door thresholds or immediate entrance approach 
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -36,7 +36,6 @@ class EntranceObstructionRule(BaseRule):
         approach_m = door_cfg.get("entrance_approach_clearance_mm", 1000) / 1000.0
 
         for door in room.doors:
-            # Construct 1.0m entrance approach buffer circle around door threshold
             approach_circle = Point(door.center_x, door.center_y).buffer(approach_m)
 
             for obj in layout.placed_objects:
@@ -44,12 +43,14 @@ class EntranceObstructionRule(BaseRule):
                 if obj_poly.intersects(approach_circle):
                     inter = obj_poly.intersection(approach_circle)
                     if inter.area > 0.05:
+                        coords = self.extract_overlap_coords(inter)
                         violations.append(
                             self.create_violation(
                                 violation_type=ViolationType.CLEARANCE_OVERLAP,
                                 message=f"Object '{obj.id}' ({obj.item_type}) blocks {approach_m}m immediate entrance approach to Door '{door.id}'.",
                                 affected_object_ids=[obj.id],
                                 affected_element_type="DOOR",
+                                overlap_polygon_coords=coords,
                             )
                         )
 

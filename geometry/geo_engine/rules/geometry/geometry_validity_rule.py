@@ -1,6 +1,6 @@
 """
 Geometry Validity Rule (Task 4.2 - Rule 1).
-Validates that all geometry supplied to the layout engine is valid (no self-intersections, zero-area, degenerate, or negative dimensions).
+Validates physical geometry parameters for placed objects and rooms using Shapely.
 """
 
 from typing import Any, Dict, List, Optional
@@ -65,15 +65,35 @@ class GeometryValidityRule(BaseRule):
                         )
                     )
 
-        # Validate placed object footprints
+        # Validate placed object footprints and dimensions
         for obj in layout.placed_objects:
             if obj.width <= 0.0 or obj.height <= 0.0:
                 violations.append(
                     self.create_violation(
                         violation_type=ViolationType.COLLISION,
-                        message=f"PlacedObject '{obj.id}' has invalid non-positive dimensions ({obj.width}x{obj.height}).",
+                        message=f"PlacedObject '{obj.id}' ({obj.item_type}) has non-positive dimensions ({obj.width}x{obj.height}).",
                         affected_object_ids=[obj.id],
                     )
                 )
+            else:
+                try:
+                    from geometry.geo_engine.rules.geometry.collision_rule import CollisionRule
+                    obj_poly = CollisionRule.get_object_polygon(obj)
+                    if not obj_poly.is_valid or obj_poly.area <= 0.0:
+                        violations.append(
+                            self.create_violation(
+                                violation_type=ViolationType.COLLISION,
+                                message=f"PlacedObject '{obj.id}' ({obj.item_type}) produces invalid rotated footprint.",
+                                affected_object_ids=[obj.id],
+                            )
+                        )
+                except Exception as e:
+                    violations.append(
+                        self.create_violation(
+                            violation_type=ViolationType.COLLISION,
+                            message=f"PlacedObject '{obj.id}' footprint error: {str(e)}",
+                            affected_object_ids=[obj.id],
+                        )
+                    )
 
         return violations

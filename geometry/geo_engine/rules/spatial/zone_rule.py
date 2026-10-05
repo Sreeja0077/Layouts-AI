@@ -4,7 +4,6 @@ Validates object placement inside permitted/disallowed semantic zones (e.g. Exec
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point, Polygon
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -29,13 +28,27 @@ class ZoneRule(BaseRule):
 
         for obj in layout.placed_objects:
             zone_id = obj.custom_metadata.get("zone_id")
-            forbidden_zones = obj.custom_metadata.get("disallowed_zones", ["circulation"])
+            if not zone_id:
+                continue
 
-            if zone_id and zone_id.lower() in forbidden_zones:
+            zone_lower = zone_id.lower()
+            disallowed = [z.lower() for z in obj.custom_metadata.get("disallowed_zones", [])]
+            allowed = [z.lower() for z in obj.custom_metadata.get("allowed_zones", [])]
+
+            if disallowed and zone_lower in disallowed:
                 violations.append(
                     self.create_violation(
                         violation_type=ViolationType.OUT_OF_BOUNDS,
                         message=f"Object '{obj.id}' ({obj.item_type}) placed in forbidden zone '{zone_id}'.",
+                        affected_object_ids=[obj.id],
+                        affected_element_type="ZONE",
+                    )
+                )
+            elif allowed and zone_lower not in allowed:
+                violations.append(
+                    self.create_violation(
+                        violation_type=ViolationType.OUT_OF_BOUNDS,
+                        message=f"Object '{obj.id}' ({obj.item_type}) placed in zone '{zone_id}' which is not in allowed zones list ({allowed}).",
                         affected_object_ids=[obj.id],
                         affected_element_type="ZONE",
                     )

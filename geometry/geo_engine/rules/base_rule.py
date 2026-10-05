@@ -1,11 +1,12 @@
 """
-Base Rule Interface for Layout Validation Engine.
+Base Rule Interface for Layout Validation Engine (Task 4.2).
 All 20 deterministic rules inherit from BaseRule and return structured ConstraintViolation objects.
+Enforces deterministic violation IDs derived via SHA-256 hash.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from hashlib import sha256
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
@@ -43,11 +44,20 @@ class BaseRule(ABC):
         affected_object_ids: Optional[List[str]] = None,
         affected_element_type: Optional[str] = None,
         penalty_score: float = 0.0,
-        overlap_polygon_coords: Optional[List[tuple]] = None,
+        overlap_polygon_coords: Optional[List[Tuple[float, float]]] = None,
+        violation_key: Optional[str] = None,
     ) -> ConstraintViolation:
-        """Helper to construct a standard ConstraintViolation object."""
+        """
+        Helper constructing a deterministic ConstraintViolation object.
+        Violation IDs are derived deterministically using a SHA-256 hash of rule parameters.
+        """
+        sorted_objs = ",".join(sorted(affected_object_ids or []))
+        v_key = violation_key or message[:40]
+        id_seed = f"{self.rule_id}|{violation_type.value}|{self.severity.value}|{sorted_objs}|{affected_element_type or ''}|{v_key}"
+        deterministic_id = f"{self.rule_id}_{sha256(id_seed.encode('utf-8')).hexdigest()[:12]}"
+
         return ConstraintViolation(
-            id=f"{self.rule_id}_{uuid4().hex[:8]}",
+            id=deterministic_id,
             violation_type=violation_type,
             severity=self.severity,
             affected_object_ids=affected_object_ids or [],
@@ -56,3 +66,20 @@ class BaseRule(ABC):
             penalty_score=penalty_score if self.severity == ViolationSeverity.WARNING_SOFT else 0.0,
             overlap_polygon_coords=overlap_polygon_coords,
         )
+
+    @staticmethod
+    def extract_overlap_coords(inter: Any, decimals: int = 4) -> Optional[List[Tuple[float, float]]]:
+        """Safely extract 2D polygon vertices from a Shapely intersection result without crashing on non-polygons."""
+        if inter is None or inter.is_empty:
+            return None
+        try:
+            if inter.geom_type == "Polygon":
+                return [(round(p[0], decimals), round(p[1], decimals)) for p in inter.exterior.coords]
+            elif inter.geom_type == "MultiPolygon":
+                coords = []
+                for poly in inter.geoms:
+                    coords.extend([(round(p[0], decimals), round(p[1], decimals)) for p in poly.exterior.coords])
+                return coords
+        except Exception:
+            pass
+        return None
