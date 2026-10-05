@@ -39,8 +39,8 @@
 
 ### Phase 2: BIM & Floor-Plan Ingestion Engine
 - [x] **Task 2.1:** Implement Revit IFC parser using `IfcOpenShell` in `backend/app/bim/ifc_ingest.py`. *(Completed: 2026-10-01 15:55:47+05:30)*
-- [ ] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`.
-- [x] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry. *(Completed: 2026-09-30 14:06:20+05:30)*
+- [ ] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-10-05 13:56:00+05:30)*
+- [ ] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry.
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core

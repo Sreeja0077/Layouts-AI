@@ -94,3 +94,13 @@ jobs:
           python backend/tests/unit/test_dxf_ingest.py
           pytest backend/tests/unit/test_dxf_ingest.py -v
 
+      - name: Run Geometry Reconciliation Unit & Integration Test
+        run: |
+          python backend/tests/unit/test_reconciliation.py
+          pytest backend/tests/unit/test_reconciliation.py -v
+
+      - name: Run Floor Plan Verification API Integration Test
+        run: |
+          python backend/tests/integration/test_verification_api.py
+          pytest backend/tests/integration/test_verification_api.py -v
+
