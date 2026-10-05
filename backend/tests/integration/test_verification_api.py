@@ -296,6 +296,105 @@ def test_non_uuid_floor_plan_identifier_full_flow_regression():
     print("Verified Non-UUID Identifier Full Flow Regression (Zero InvalidTextRepresentation Errors)")
 
 
+def test_floor_plan_publishing_flow_postgres_persistence():
+    """
+    Verify Task 2.4 publishing flow:
+    - Ingest v1 -> PENDING
+    - Attempt publish on PENDING -> 400 Bad Request
+    - Verify v1 -> VERIFIED
+    - Publish v1 -> 200 OK (is_published == True, published_by_user_id == ensure_uuid("usr_mock_001"))
+    - GET /published-version -> 200 OK (v1)
+    - Ingest v2 -> PENDING
+    - Verify v2 -> VERIFIED
+    - Publish v2 -> 200 OK (v2 published, v1 unpublished)
+    - GET /published-version -> 200 OK (v2)
+    - Audit log recorded with FLOOR_PLAN_SOURCE_VERSION_PUBLISH
+    - Durable state verified with fresh DB session
+    """
+    fp_id = "fp_pub_api_001"
+    security_settings.ALLOW_MOCK_AUTH = True
+
+    # 1. Ingest v1
+    ingest_v1 = client.post(
+        "/api/v1/projects/proj_101/floor-plans/ingest",
+        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
+    )
+    assert ingest_v1.status_code == 200
+
+    # 2. Publish unverified PENDING version -> 400 Bad Request
+    pub_pending = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish")
+    assert pub_pending.status_code == 400
+    assert "VERIFIED" in pub_pending.json()["detail"]
+
+    # 3. Verify v1
+    verify_v1 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verify")
+    assert verify_v1.status_code == 200
+
+    # 4. Publish v1 -> 200 OK
+    pub_v1 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish")
+    assert pub_v1.status_code == 200
+    v1_payload = pub_v1.json()
+    assert v1_payload["version_no"] == 1
+    assert v1_payload["is_published"] is True
+    assert v1_payload["published_by_user_id"] == ensure_uuid("usr_mock_001")
+    assert v1_payload["published_at"] is not None
+
+    # 5. GET published version -> returns v1
+    get_pub1 = client.get(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/published-version")
+    assert get_pub1.status_code == 200
+    assert get_pub1.json()["version_no"] == 1
+    assert get_pub1.json()["is_published"] is True
+
+    # 6. Ingest & verify v2
+    ingest_v2 = client.post(
+        "/api/v1/projects/proj_101/floor-plans/ingest",
+        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
+    )
+    assert ingest_v2.status_code == 200
+
+    verify_v2 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verify")
+    assert verify_v2.status_code == 200
+
+    # 7. Publish v2 -> 200 OK
+    pub_v2 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish")
+    assert pub_v2.status_code == 200
+    v2_payload = pub_v2.json()
+    assert v2_payload["version_no"] == 2
+    assert v2_payload["is_published"] is True
+
+    # 8. GET published version -> now returns v2
+    get_pub2 = client.get(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/published-version")
+    assert get_pub2.status_code == 200
+    assert get_pub2.json()["version_no"] == 2
+
+    # 9. Direct PostgreSQL audit & persistence check
+    target_uuid = ensure_uuid(fp_id)
+    db = SessionLocal()
+    try:
+        versions = (
+            db.query(FloorPlanSourceVersionModel)
+            .filter(FloorPlanSourceVersionModel.floor_plan_id == target_uuid)
+            .order_by(FloorPlanSourceVersionModel.version_no.asc())
+            .all()
+        )
+        assert len(versions) == 2
+        assert versions[0].is_published is False
+        assert versions[1].is_published is True
+
+        audit = (
+            db.query(AuditLogModel)
+            .filter(AuditLogModel.action == "FLOOR_PLAN_SOURCE_VERSION_PUBLISH")
+            .order_by(AuditLogModel.created_at.desc())
+            .first()
+        )
+        assert audit is not None
+        assert str(audit.actor_id) == ensure_uuid("usr_mock_001")
+    finally:
+        db.close()
+
+    print("Verified Floor Plan Publishing API & PostgreSQL Persistence Reload")
+
+
 if __name__ == "__main__":
     setup_module()
     test_floor_plan_ingestion_and_postgres_persistence()
@@ -303,5 +402,7 @@ if __name__ == "__main__":
     test_floor_plan_verify_flow_postgres_persistence()
     test_floor_plan_reject_flow_postgres_persistence()
     test_non_uuid_floor_plan_identifier_full_flow_regression()
+    test_floor_plan_publishing_flow_postgres_persistence()
     print("ALL VERIFICATION API & POSTGRESQL PERSISTENCE INTEGRATION TESTS PASSED SUCCESSFULLY!")
+
 

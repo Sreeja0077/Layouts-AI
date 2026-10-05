@@ -456,18 +456,19 @@
   - [`frontend/src/components/VerificationSummaryPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/components/VerificationSummaryPanel.tsx) (Summary & warning panel)
   - [`frontend/src/components/RejectModal.tsx`](file:///d:/Layouts%20AI/frontend/src/components/RejectModal.tsx) (Mandatory rejection reason modal)
   - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added reconciliation & verification API test steps)
+### [2026-10-05] Task 2.4 Execution - PostgreSQL-Backed Floor Plan Source Version Publishing Engine
+- **Action:** Refactored `SourceVersionPublisher` (`versioning.py`) to operate directly on PostgreSQL `FloorPlanSourceVersionModel` records created during Task 2.3 ingestion/verification. Created Alembic migration `003_version_publishing.py` adding `is_published`, `published_by_user_id`, `published_at` columns, `uq_floor_plan_version_no` unique constraint, and partial unique index `uq_published_source_version` on `floor_plan_id` where `is_published = true`. Updated `POST /{project_id}/floor-plans/{floor_plan_id}/publish` and `GET /{project_id}/floor-plans/{floor_plan_id}/published-version` endpoints in `projects.py`. Enforced verification status gate (blocking `PENDING` and `REJECTED` publishing), user provisioning via `ensure_user_exists()`, RBAC permissions (`ALLOWED_VERIFICATION_ROLES`), idempotent publishing, atomic unpublishing of prior published baselines, and transactional audit logging (`FLOOR_PLAN_SOURCE_VERSION_PUBLISH`).
+- **Status:** `SUCCESS (Full CI & Integration Sequence Verified)`
+- **Files Created/Updated:**
+  - [`backend/alembic/versions/003_version_publishing.py`](file:///d:/Layouts%20AI/backend/alembic/versions/003_version_publishing.py) (Alembic migration 003)
+  - [`backend/app/persistence/models.py`](file:///d:/Layouts%20AI/backend/app/persistence/models.py) (Added `is_published`, `published_by_user_id`, `published_at`, `UniqueConstraint`, and `Index` to `FloorPlanSourceVersionModel`)
+  - [`backend/app/domain/revisions/versioning.py`](file:///d:/Layouts%20AI/backend/app/domain/revisions/versioning.py) (PostgreSQL-backed `SourceVersionPublisher` engine)
+  - [`backend/app/api/v1/projects.py`](file:///d:/Layouts%20AI/backend/app/api/v1/projects.py) (`POST /publish` and `GET /published-version` endpoints)
+  - [`backend/tests/unit/test_versioning.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_versioning.py) (PostgreSQL-backed unit test suite for publishing lifecycle, versioning rules, idempotency, and audit logging)
+  - [`backend/tests/integration/test_verification_api.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_verification_api.py) (Full integration test suite covering Ingest -> Verify -> Publish -> Unpublish baseline workflow)
 - **Test Execution Results:**
-  - `python backend/tests/integration/test_verification_api.py`: **PASSED (5/5)**
-  - `pytest backend/tests/integration/test_verification_api.py -v`: **PASSED (5/5)**
-  - `python backend/tests/unit/test_domain_schemas.py`: **PASSED**
-  - `python backend/tests/unit/test_db_schema.py`: **PASSED**
-  - `python backend/tests/unit/test_main_api.py`: **PASSED**
-  - `python backend/tests/unit/test_security_rbac.py`: **PASSED**
-  - `python backend/tests/unit/test_freespace.py`: **PASSED**
-  - `python backend/tests/unit/test_rules_engine.py`: **PASSED**
-  - `python backend/tests/unit/test_ifc_ingest.py`: **PASSED**
-  - `python backend/tests/unit/test_dxf_ingest.py`: **PASSED**
-  - `python backend/tests/unit/test_reconciliation.py`: **PASSED**
+  - `python backend/tests/unit/test_versioning.py` & `pytest`: **PASSED (1/1)**
+  - `python backend/tests/integration/test_verification_api.py` & `pytest`: **PASSED (6/6)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
 
 ---

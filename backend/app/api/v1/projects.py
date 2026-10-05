@@ -383,24 +383,58 @@ async def reject_floor_plan_geometry(
 
 @router.post("/{project_id}/floor-plans/{floor_plan_id}/publish", response_model=FloorPlanSourceVersionPayload)
 async def publish_floor_plan_version(
-    project_id: str, floor_plan_id: str, payload: Dict[str, Any]
+    project_id: str,
+    floor_plan_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> FloorPlanSourceVersionPayload:
-    """Publish a verified floor plan version as locked baseline for layout proposals."""
-    source_type = payload.get("source_type", "IFC")
-    file_name = payload.get("file_name", "blueprint_v1.ifc")
-    storage_path = payload.get("file_storage_path", f"floor_plans/{file_name}")
+    """
+    Publish a verified floor plan source version as locked baseline for layout proposals (Task 2.4).
+    Enforces RBAC permissions and operates directly on PostgreSQL-persisted source versions.
+    """
+    if current_user.role not in ALLOWED_VERIFICATION_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: User role '{current_user.role}' lacks Layouts Team publishing permissions.",
+        )
 
-    draft = publisher.create_draft_version(
-        floor_plan_id=floor_plan_id,
-        source_type=source_type,
-        file_name=file_name,
-        file_storage_path=storage_path,
-        geometry_summary=payload.get("geometry_summary", {"status": "VERIFIED"}),
-    )
+    version_no = None
+    if payload and "version_no" in payload and payload["version_no"] is not None:
+        try:
+            version_no = int(payload["version_no"])
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid version_no format. Must be an integer.",
+            )
 
-    published = publisher.publish_version(
-        floor_plan_id=floor_plan_id,
-        version_id=draft.version_id,
-        publisher_user_id=payload.get("publisher_user_id", "usr_layouts_exec_001"),
-    )
+    try:
+        published = publisher.publish_version(
+            db=db,
+            floor_plan_id=floor_plan_id,
+            current_user=current_user,
+            version_no=version_no,
+        )
+        return published
+    except ValueError as exc:
+        err_msg = str(exc)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_msg) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg) from exc
+
+
+@router.get("/{project_id}/floor-plans/{floor_plan_id}/published-version", response_model=FloorPlanSourceVersionPayload)
+async def get_published_floor_plan_version(
+    project_id: str,
+    floor_plan_id: str,
+    db: Session = Depends(get_db),
+) -> FloorPlanSourceVersionPayload:
+    """Get the currently published source version baseline from PostgreSQL for a floor plan."""
+    published = publisher.get_current_published_version(db=db, floor_plan_id=floor_plan_id)
+    if not published:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No published floor plan source version found for floor plan '{floor_plan_id}'.",
+        )
     return published

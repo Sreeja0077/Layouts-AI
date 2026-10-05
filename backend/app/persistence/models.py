@@ -16,11 +16,14 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -102,8 +105,22 @@ class FloorPlanSourceVersionModel(Base):
     reviewer_user_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
     verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[Optional[str]] = mapped_column(Text)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    published_by_user_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     floor_plan: Mapped["FloorPlan"] = relationship("FloorPlan", back_populates="source_versions")
+
+    __table_args__ = (
+        UniqueConstraint("floor_plan_id", "version_no", name="uq_floor_plan_version_no"),
+        Index(
+            "uq_published_source_version",
+            "floor_plan_id",
+            unique=True,
+            postgresql_where=text("is_published = true"),
+            sqlite_where=text("is_published = 1"),
+        ),
+    )
 
 
 class Region(Base):
