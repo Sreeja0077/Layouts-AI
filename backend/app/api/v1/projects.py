@@ -23,7 +23,7 @@ from app.bim.reconciliation import (
 )
 from app.domain.revisions import SourceVersionPublisher, FloorPlanSourceVersionPayload
 from app.persistence.database import get_db
-from app.persistence.models import Project, FloorPlan, FloorPlanSourceVersionModel, AuditLogModel
+from app.persistence.models import User, Project, FloorPlan, FloorPlanSourceVersionModel, AuditLogModel
 from app.security.auth import AuthenticatedUser, UserRole, get_current_user
 
 router = APIRouter()
@@ -41,6 +41,27 @@ def ensure_uuid(id_str: str) -> str:
         return str(uuid.UUID(id_str))
     except (ValueError, AttributeError):
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, id_str))
+
+
+def ensure_user_exists(db: Session, user: AuthenticatedUser) -> str:
+    """Ensure authenticated user exists in PostgreSQL users table and return normalized UUID."""
+    user_uuid = ensure_uuid(user.user_id)
+    org_uuid = ensure_uuid(user.org_id)
+    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    user_obj = db.query(User).filter(User.id == user_uuid).first()
+    if not user_obj:
+        user_obj = User(
+            id=user_uuid,
+            email=user.email or "dev_user@company.com",
+            full_name=user.email.split("@")[0] if user.email else "Dev User",
+            role=role_str,
+            org_id=org_uuid,
+            is_active=True,
+        )
+        db.add(user_obj)
+        db.flush()
+    return user_uuid
 
 
 def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[FloorPlanSourceVersionModel]:
@@ -259,7 +280,7 @@ async def verify_floor_plan_geometry(
             detail="Cannot verify floor plan geometry with critical errors or invalid structural boundaries.",
         )
 
-    reviewer_uuid = ensure_uuid(current_user.user_id)
+    reviewer_uuid = ensure_user_exists(db, current_user)
     now_iso = datetime.utcnow().isoformat()
 
     report.verification_status = VerificationStatus.VERIFIED
@@ -326,7 +347,7 @@ async def reject_floor_plan_geometry(
         )
 
     report = GeometryVerificationReport.model_validate(record.verification_report)
-    reviewer_uuid = ensure_uuid(current_user.user_id)
+    reviewer_uuid = ensure_user_exists(db, current_user)
     now_iso = datetime.utcnow().isoformat()
 
     report.verification_status = VerificationStatus.REJECTED

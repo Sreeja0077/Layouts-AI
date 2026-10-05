@@ -22,7 +22,7 @@ if str(BACKEND_DIR) not in sys.path:
 from fastapi.testclient import TestClient
 from app.main import app
 from app.persistence.database import SessionLocal, engine
-from app.persistence.models import Base, FloorPlanSourceVersionModel, AuditLogModel, FloorPlan, Project
+from app.persistence.models import Base, FloorPlanSourceVersionModel, AuditLogModel, FloorPlan, Project, User
 from app.security.auth import AuthenticatedUser, UserRole
 from app.security.config import security_settings
 from app.api.v1.projects import ensure_uuid
@@ -30,12 +30,36 @@ from app.api.v1.projects import ensure_uuid
 client = TestClient(app)
 
 
+def setup_mock_user():
+    """Ensure mock user exists in database for integration tests before VERIFY/REJECT operations."""
+    mock_user_uuid = ensure_uuid("usr_mock_001")
+    mock_org_uuid = ensure_uuid("org_mock_999")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == mock_user_uuid).first()
+        if not user:
+            user = User(
+                id=mock_user_uuid,
+                email="dev_user@company.com",
+                full_name="Mock Layouts Exec",
+                role="LAYOUT_EXEC",
+                org_id=mock_org_uuid,
+                is_active=True,
+            )
+            db.add(user)
+            db.commit()
+    finally:
+        db.close()
+
+
 def setup_module():
-    """Ensure database tables are initialized before tests run."""
+    """Ensure database tables and mock user are initialized before tests run."""
     try:
         Base.metadata.create_all(bind=engine)
     except Exception:
         pass
+    setup_mock_user()
 
 
 def test_floor_plan_ingestion_and_postgres_persistence():
@@ -135,10 +159,15 @@ def test_floor_plan_verify_flow_postgres_persistence():
         assert record.verified_at is not None
         assert record.verification_report["verification_status"] == "VERIFIED"
 
-        # Verify audit log entry was created
+        # Verify audit log entry was created and actor_id matches existing users.id
         audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_VERIFY").first()
         assert audit is not None
         assert "fp_verify_001" in audit.entity_ref
+        assert audit.actor_id == ensure_uuid("usr_mock_001")
+
+        actor_user = db.query(User).filter(User.id == audit.actor_id).first()
+        assert actor_user is not None, f"audit_logs.actor_id '{audit.actor_id}' missing in users table"
+        assert actor_user.email == "dev_user@company.com"
     finally:
         db.close()
 
@@ -187,10 +216,15 @@ def test_floor_plan_reject_flow_postgres_persistence():
         assert record.rejection_reason == "Unclosed exterior wall polyline on layer A-WALL"
         assert record.verification_report["verification_status"] == "REJECTED"
 
-        # Verify audit log entry was created
+        # Verify audit log entry was created and actor_id matches existing users.id
         audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_REJECT").first()
         assert audit is not None
         assert "fp_reject_001" in audit.entity_ref
+        assert audit.actor_id == ensure_uuid("usr_mock_001")
+
+        actor_user = db.query(User).filter(User.id == audit.actor_id).first()
+        assert actor_user is not None, f"audit_logs.actor_id '{audit.actor_id}' missing in users table"
+        assert actor_user.email == "dev_user@company.com"
     finally:
         db.close()
 
