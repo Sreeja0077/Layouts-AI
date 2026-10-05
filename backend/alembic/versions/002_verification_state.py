@@ -1,6 +1,6 @@
 """add_floor_plan_verification_state
 
-Revision ID: 002_add_floor_plan_verification_state
+Revision ID: 002_verification_state
 Revises: 001_initial_postgis_schema
 Create Date: 2026-10-05 11:37:00.000000
 
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision: str = '002_add_floor_plan_verification_state'
+revision: str = '002_verification_state'
 down_revision: Union[str, None] = '001_initial_postgis_schema'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
