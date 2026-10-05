@@ -46,16 +46,8 @@ class RequirementComplianceRule(BaseRule):
                             affected_element_type="REQUIREMENT_SET",
                         )
                     )
-            elif req_item.raw_phrase:
-                # Secondary exact phrase match if catalog item ID was not resolved
-                matching = [c for c in placed_catalog_ids if req_item.raw_phrase.lower() in c.lower()]
-                if not matching:
-                    violations.append(
-                        self.create_violation(
-                            violation_type=ViolationType.SPACING_VIOLATION,
-                            message=f"Mandatory requirement phrase '{req_item.raw_phrase}' (qty: {req_item.quantity}) is missing from layout.",
-                            affected_element_type="REQUIREMENT_SET",
-                        )
-                    )
+            else:
+                # When resolved_catalog_item_id is absent, skip deterministic catalog validation for unresolved semantic phrases
+                continue
 
         return violations

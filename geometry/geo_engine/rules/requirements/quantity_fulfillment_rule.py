@@ -47,10 +47,12 @@ class QuantityFulfillmentRule(BaseRule):
             target_qty = req_item.quantity
             actual_qty = 0
 
+            # Deterministic matching strictly on resolved_catalog_item_id
             if req_item.resolved_catalog_item_id:
                 actual_qty = placed_counts.get(req_item.resolved_catalog_item_id, 0)
-            elif req_item.raw_phrase:
-                actual_qty = sum(count for cid, count in placed_counts.items() if req_item.raw_phrase.lower() in cid.lower())
+            else:
+                # When resolved_catalog_item_id is absent, skip catalog matching
+                continue
 
             if actual_qty < target_qty:
                 missing = target_qty - actual_qty
@@ -62,17 +64,19 @@ class QuantityFulfillmentRule(BaseRule):
                             violation_type=ViolationType.SPACING_VIOLATION,
                             message=msg,
                             affected_element_type="QUANTITY",
+                            severity=ViolationSeverity.CRITICAL_HARD,
                         )
                     )
                 elif mode == "warning":
-                    v = self.create_violation(
-                        violation_type=ViolationType.SPACING_VIOLATION,
-                        message=msg,
-                        affected_element_type="QUANTITY",
-                        penalty_score=float(missing * 0.1),
+                    violations.append(
+                        self.create_violation(
+                            violation_type=ViolationType.SPACING_VIOLATION,
+                            message=msg,
+                            affected_element_type="QUANTITY",
+                            penalty_score=float(missing * 0.1),
+                            severity=ViolationSeverity.WARNING_SOFT,
+                        )
                     )
-                    v.severity = ViolationSeverity.WARNING_SOFT
-                    violations.append(v)
                 # mode == "allow" -> no violation
 
         return violations

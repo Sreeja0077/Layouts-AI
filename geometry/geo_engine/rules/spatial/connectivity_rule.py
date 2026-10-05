@@ -4,6 +4,7 @@ Validates walkable circulation path connectivity between distinct functional are
 """
 
 from typing import Any, Dict, List, Optional
+from shapely.geometry import LineString
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -12,7 +13,11 @@ from geometry.geo_engine.rules.base_rule import BaseRule
 
 
 class ConnectivityRule(BaseRule):
-    """Verifies functional connectivity between key spatial zones when explicitly required."""
+    """
+    Verifies functional connectivity between key spatial zones when explicitly required.
+    Note: Task 4.2 validates declared circulation path LineString geometry validity and explicit connectivity metadata.
+    Full zone-to-zone path graph network validation belongs to Task 9.4.
+    """
 
     def __init__(self):
         super().__init__(rule_id="connectivity", severity=ViolationSeverity.CRITICAL_HARD)
@@ -39,13 +44,24 @@ class ConnectivityRule(BaseRule):
                 )
             )
 
-        # Validate declared circulation path point counts
+        # Validate declared circulation path LineString geometry
         for path in layout.circulation_paths:
+            is_invalid = False
             if not path.path_points or len(path.path_points) < 2:
+                is_invalid = True
+            else:
+                try:
+                    ls = LineString(path.path_points)
+                    if ls.is_empty or ls.length <= 0:
+                        is_invalid = True
+                except Exception:
+                    is_invalid = True
+
+            if is_invalid:
                 violations.append(
                     self.create_violation(
                         violation_type=ViolationType.EGRESS_BLOCKAGE,
-                        message=f"Declared circulation path '{path.id}' has invalid or disconnected geometry.",
+                        message=f"Declared circulation path '{path.id}' has invalid, empty, or disconnected LineString geometry.",
                         affected_element_type="CIRCULATION_PATH",
                     )
                 )

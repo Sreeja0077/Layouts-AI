@@ -4,7 +4,7 @@ Verifies door threshold spatial egress access and declared circulation path conn
 """
 
 from typing import Any, Dict, List, Optional
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 from app.domain.geometry.entities import RoomEntity
 from app.domain.geometry.schemas import ConstraintViolation, ViolationSeverity, ViolationType
 from app.domain.layout.schemas import LayoutSuggestion
@@ -58,17 +58,19 @@ class EgressRule(BaseRule):
                         )
 
         # 2. Check that declared circulation paths connect to at least one door threshold (within 2.0m)
+        # Note: Task 4.2 performs a deterministic spatial pre-check of door egress thresholds and declared circulation path LineString proximity. Full navigable seat-to-exit visibility graph and A* pathfinding validation belongs to Task 9.4.
         if layout.circulation_paths:
             connected = False
             for path in layout.circulation_paths:
                 if not path.path_points:
                     continue
-                for pt in path.path_points:
-                    path_pt = Point(pt[0], pt[1])
-                    if any(path_pt.distance(door_pt) <= 2.0 for door_pt in door_points):
-                        connected = True
-                        break
-                if connected:
+                if len(path.path_points) >= 2:
+                    path_geom = LineString(path.path_points)
+                else:
+                    path_geom = Point(path.path_points[0])
+
+                if any(path_geom.distance(door_pt) <= 2.0 for door_pt in door_points):
+                    connected = True
                     break
 
             if not connected:

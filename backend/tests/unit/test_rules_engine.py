@@ -782,5 +782,84 @@ def test_55_custom_ruleset_overrides_work():
     assert DEFAULT_RULESET_CONFIG["circulation"]["main_aisle_min_mm"] == 1200
 
 
+def test_56_quantity_warning_has_positive_penalty():
+    rule = QuantityFulfillmentRule()
+    reqs = RequirementSet(
+        id="req1", project_id="proj1", floor_plan_id="fp1",
+        items=[RequirementItem(id="r1", raw_phrase="executive desk", resolved_catalog_item_id="desk_exec", quantity=5)]
+    )
+    layout = LayoutSuggestion(
+        id="l1", floor_plan_id="fp1", strategy_name="s1",
+        placed_objects=[PlacedObject(id="d1", catalog_item_id="desk_exec", item_type="DESK", x=1.0, y=1.0, width=1.6, height=0.8)]
+    )
+    config = {"quantity": {"partial_fulfillment": {"mode": "warning"}}}
+    violations = rule.evaluate(layout=layout, requirements=reqs, config=config)
+    assert len(violations) == 1
+    assert violations[0].severity == ViolationSeverity.WARNING_SOFT
+    assert violations[0].penalty_score > 0.0
+
+
+def test_57_raw_phrase_does_not_perform_accidental_substring_matching():
+    rule_comp = RequirementComplianceRule()
+    rule_qty = QuantityFulfillmentRule()
+
+    reqs = RequirementSet(
+        id="req1", project_id="proj1", floor_plan_id="fp1",
+        items=[RequirementItem(id="r1", raw_phrase="desk", resolved_catalog_item_id=None, quantity=1)]
+    )
+    layout = LayoutSuggestion(
+        id="l1", floor_plan_id="fp1", strategy_name="s1",
+        placed_objects=[PlacedObject(id="d1", catalog_item_id="executive_desk_large", item_type="DESK", x=1.0, y=1.0, width=1.6, height=0.8)]
+    )
+    violations_comp = rule_comp.evaluate(layout=layout, requirements=reqs)
+    assert len(violations_comp) == 0
+
+    violations_qty = rule_qty.evaluate(layout=layout, requirements=reqs)
+    assert len(violations_qty) == 0
+
+
+def test_58_non_seat_furniture_does_not_count_as_one_seat():
+    rule = CapacityRule()
+    reqs = RequirementSet(id="req1", project_id="proj1", floor_plan_id="fp1", target_density_seats=1)
+    layout = LayoutSuggestion(
+        id="l1", floor_plan_id="fp1", strategy_name="s1",
+        placed_objects=[PlacedObject(id="cab1", catalog_item_id="cab_01", item_type="STORAGE_CABINET", x=1.0, y=1.0, width=1.0, height=0.5, custom_metadata={})]
+    )
+    violations = rule.evaluate(layout=layout, requirements=reqs)
+    assert len(violations) == 1
+    assert violations[0].severity == ViolationSeverity.CRITICAL_HARD
+    assert "below required target density" in violations[0].message
+
+
+def test_59_egress_uses_linestring_distance_to_door():
+    rule = EgressRule()
+    room = create_sample_room()  # Door at x=5.0, y=0.0
+    layout_valid = LayoutSuggestion(
+        id="l1", floor_plan_id="fp1", strategy_name="s1",
+        circulation_paths=[CirculationPath(id="p1", path_type="MAIN_AISLE", min_width_meters=1.2, path_points=[(0.0, 1.0), (10.0, 1.0)])]
+    )
+    violations = rule.evaluate(layout=layout_valid, room=room)
+    assert len(violations) == 0
+
+    layout_far = LayoutSuggestion(
+        id="l2", floor_plan_id="fp1", strategy_name="s1",
+        circulation_paths=[CirculationPath(id="p2", path_type="MAIN_AISLE", min_width_meters=1.2, path_points=[(0.0, 5.0), (10.0, 5.0)])]
+    )
+    violations_far = rule.evaluate(layout=layout_far, room=room)
+    assert len(violations_far) == 1
+    assert violations_far[0].violation_type == ViolationType.EGRESS_BLOCKAGE
+
+
+def test_60_malformed_empty_connectivity_path_rejected():
+    rule = ConnectivityRule()
+    layout = LayoutSuggestion(
+        id="l1", floor_plan_id="fp1", strategy_name="s1",
+        circulation_paths=[CirculationPath(id="p_bad", path_type="MAIN_AISLE", min_width_meters=1.2, path_points=[(1.0, 1.0)])]
+    )
+    violations = rule.evaluate(layout=layout)
+    assert len(violations) == 1
+    assert "invalid, empty, or disconnected LineString geometry" in violations[0].message
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

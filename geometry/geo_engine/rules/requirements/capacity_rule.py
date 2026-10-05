@@ -30,13 +30,16 @@ class CapacityRule(BaseRule):
             return violations
 
         target_headcount = requirements.target_density_seats
-        achieved_seats = layout.metrics.total_seats if layout.metrics else 0
+        achieved_seats = layout.metrics.total_seats if layout.metrics and layout.metrics.total_seats > 0 else 0
 
-        # Fallback capacity count if metrics total_seats is 0
+        # Fallback capacity count if metrics total_seats is 0: count explicit custom_metadata["capacity"] only
         if achieved_seats == 0:
             for obj in layout.placed_objects:
-                seats_attr = obj.custom_metadata.get("capacity", 1)
-                achieved_seats += seats_attr
+                if "capacity" in obj.custom_metadata:
+                    try:
+                        achieved_seats += int(obj.custom_metadata["capacity"])
+                    except (ValueError, TypeError):
+                        pass
 
         if achieved_seats < target_headcount:
             deficit = target_headcount - achieved_seats
