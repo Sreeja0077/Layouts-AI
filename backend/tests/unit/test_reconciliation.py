@@ -1,6 +1,6 @@
 """
 Unit and Integration test for floor plan geometry reconciliation and verification flow (Task 2.3).
-Verifies authoritative Shapely-derived boundary validation, net area calculation from geometry,
+Verifies authoritative Shapely-derived boundary validation, topological area computation,
 topology preservation (concavities, holes, MultiPolygon), anomaly warning detection,
 and Layouts Team verification/rejection status management on real IFC/DXF models.
 Zero hard-coded production geometry or fixed demo fallbacks.
@@ -15,7 +15,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.bim.ifc_ingest import IFCIngestor
+from app.bim.ifc_ingest import IFCIngestor, IFCParsedFloorPlan, ExtractedElement, GeometryStatus, GeometryType
 from app.bim.dxf_ingest import DXFIngestor
 from app.bim.reconciliation import (
     GeometryReconciler,
@@ -73,10 +73,28 @@ def test_real_ifc_geometry_reconciliation():
         f"Reconciled area {report.total_net_area_sqm} does not match independently calculated Shapely area {expected_area}"
     )
 
-    # 3. Topology & Boundary assertions
+    # 3. Topology & Authoritative Boundary assertions
     assert report.boundary_geometry is not None
     assert report.boundary_geometry.type in ("Polygon", "MultiPolygon")
-    assert len(report.boundary_polygon) >= 3
+    assert report.boundary_geometry.coordinates is not None
+
+    # Reconstruct Shapely geometry from authoritative boundary_geometry
+    reconstructed_boundary = reconciler._coords_to_shapely(
+        report.boundary_geometry.type, report.boundary_geometry.coordinates
+    )
+    assert reconstructed_boundary is not None
+    assert reconstructed_boundary.is_valid
+    assert not reconstructed_boundary.is_empty
+    assert reconstructed_boundary.area > 0.0
+
+    # Verification of legacy boundary_polygon compatibility behavior:
+    # boundary_polygon is populated ONLY for simple Polygons without interior holes.
+    # For MultiPolygon or hole-bearing geometries, boundary_polygon remains empty [] to prevent lossy representations.
+    if report.boundary_geometry.type == "Polygon" and not getattr(reconstructed_boundary, "interiors", None):
+        assert len(report.boundary_polygon) >= 3
+    else:
+        assert report.boundary_polygon == []
+
     assert len(report.all_elements_geometry) == 306
 
     print(f"REAL IFC GEOMETRY RECONCILIATION PASSED: {report.total_rooms_count} rooms, {report.total_net_area_sqm} sqm.")
@@ -115,7 +133,7 @@ def test_real_dxf_geometry_reconciliation():
 
 
 def test_reconciliation_geometry_edge_cases():
-    """Verify edge case handling for invalid/self-intersecting polygons and missing element warnings."""
+    """Verify edge case handling for invalid/self-intersecting polygons, concavities, holes, and MultiPolygon topologies."""
     reconciler = GeometryReconciler()
 
     # 1. Self-intersecting bowtie polygon repair
@@ -128,13 +146,68 @@ def test_reconciliation_geometry_edge_cases():
     l_poly = reconciler._coords_to_shapely("Polygon", l_coords)
     assert l_poly is not None and abs(l_poly.area - 16.0) < 1e-3
 
-    # 3. MultiPolygon component area calculation
+    # 3. MultiPolygon component area calculation & boundary_polygon empty assertion
     multi_coords = [
         [[[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]],
         [[[5.0, 5.0], [8.0, 5.0], [8.0, 8.0], [5.0, 8.0], [5.0, 5.0]]],
     ]
     multi_poly = reconciler._coords_to_shapely("MultiPolygon", multi_coords)
     assert multi_poly is not None and abs(multi_poly.area - 13.0) < 1e-3  # 4 + 9 = 13.0
+
+    # 4. Synthesize synthetic IFC parsed models to test topology-aware boundary behavior:
+    # a) Simple Polygon space -> populates boundary_polygon (len >= 3)
+    space_simple = ExtractedElement(
+        internal_id="ifcspace_1",
+        ifc_global_id="guid_space_simple",
+        global_id="guid_space_simple",
+        element_type="IfcSpace",
+        name="Room 1",
+        geometry_status=GeometryStatus.VALID,
+        geometry_type=GeometryType.POLYGON,
+        geometry_coordinates=[[[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]]],
+    )
+    mock_parsed_simple = IFCParsedFloorPlan(
+        file_name="simple.ifc",
+        total_elements_count=1,
+        valid_geometry_count=1,
+        spaces=[space_simple],
+    )
+    report_simple = reconciler.reconcile_ifc(mock_parsed_simple)
+    assert report_simple.boundary_geometry is not None
+    assert report_simple.boundary_geometry.type == "Polygon"
+    assert len(report_simple.boundary_polygon) >= 3
+
+    # b) MultiPolygon spaces (disjoint components) -> boundary_geometry is MultiPolygon, boundary_polygon is []
+    space_m1 = ExtractedElement(
+        internal_id="ifcspace_m1",
+        ifc_global_id="guid_m1",
+        global_id="guid_m1",
+        element_type="IfcSpace",
+        name="Building Component A",
+        geometry_status=GeometryStatus.VALID,
+        geometry_type=GeometryType.POLYGON,
+        geometry_coordinates=[[[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]],
+    )
+    space_m2 = ExtractedElement(
+        internal_id="ifcspace_m2",
+        ifc_global_id="guid_m2",
+        global_id="guid_m2",
+        element_type="IfcSpace",
+        name="Building Component B",
+        geometry_status=GeometryStatus.VALID,
+        geometry_type=GeometryType.POLYGON,
+        geometry_coordinates=[[[10.0, 10.0], [12.0, 10.0], [12.0, 12.0], [10.0, 12.0], [10.0, 10.0]]],
+    )
+    mock_parsed_multi = IFCParsedFloorPlan(
+        file_name="multi.ifc",
+        total_elements_count=2,
+        valid_geometry_count=2,
+        spaces=[space_m1, space_m2],
+    )
+    report_multi = reconciler.reconcile_ifc(mock_parsed_multi)
+    assert report_multi.boundary_geometry is not None
+    assert report_multi.boundary_geometry.type == "MultiPolygon"
+    assert report_multi.boundary_polygon == [], "MultiPolygon MUST leave legacy boundary_polygon [] to prevent lossy simple-polygon reduction"
 
     print("RECONCILIATION GEOMETRY EDGE CASE TESTS PASSED!")
 

@@ -1,7 +1,7 @@
 export type VerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 
 export interface GeometryAnomalyWarning {
-  warning_id: str;
+  warning_id: string;
   warning_type: string;
   severity: "WARNING" | "CRITICAL";
   element_id?: string;
