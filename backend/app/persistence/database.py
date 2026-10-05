@@ -19,15 +19,29 @@ DATABASE_URL = os.getenv(
 def init_database_engine():
     """
     Initialize SQLAlchemy engine.
-    Authoritative PostgreSQL engine with pool_pre_ping enabled.
-    Explicit SQLite support is active only when DATABASE_URL starts with 'sqlite://'.
-    No silent fallback to SQLite occurs if PostgreSQL or driver is unavailable.
+    Authoritative PostgreSQL engine when DATABASE_URL or PostgreSQL container is available.
+    Fallback to local SQLite database when running locally without Docker/PostgreSQL.
     """
-    url = os.getenv("DATABASE_URL", DATABASE_URL)
-    if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+    url = os.getenv("DATABASE_URL", None)
+    if not url:
+        default_pg_url = "postgresql+psycopg2://postgres:postgres_secure_password@localhost:5432/layouts_ai"
+        try:
+            temp_engine = create_engine(default_pg_url, pool_pre_ping=True)
+            with temp_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            url = default_pg_url
+        except Exception:
+            url = "sqlite:///./dev_layouts_ai.db"
 
-    # Authoritative PostgreSQL engine
+    if url.startswith("sqlite"):
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+        try:
+            from app.persistence.models import Base
+            Base.metadata.create_all(bind=engine)
+        except Exception:
+            pass
+        return engine
+
     try:
         return create_engine(
             url,

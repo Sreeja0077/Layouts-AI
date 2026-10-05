@@ -6,51 +6,38 @@ import { VerificationSummaryPanel } from "./components/VerificationSummaryPanel"
 import { RejectModal } from "./components/RejectModal";
 import {
   fetchVerificationReport,
-  ingestFloorPlan,
   verifyFloorPlan,
   rejectFloorPlan,
 } from "./api/verification";
 
-export const App: React.FC = () => {
+interface AppProps {
+  projectId?: string;
+  floorPlanId?: string;
+}
+
+export const App: React.FC<AppProps> = ({
+  projectId = "proj_101",
+  floorPlanId = "fp_501",
+}) => {
   const [report, setReport] = useState<GeometryVerificationReport | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [selectedFile, setSelectedFile] = useState<string>("sample_floor_plan.dxf");
 
   useEffect(() => {
     loadReport();
-  }, []);
+  }, [projectId, floorPlanId]);
 
   const loadReport = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchVerificationReport();
+      const data = await fetchVerificationReport(projectId, floorPlanId);
       setReport(data);
     } catch (err: any) {
-      // If report not found, attempt auto-ingesting sample DXF for initial view
-      try {
-        const ingested = await ingestFloorPlan("proj_101", selectedFile, "fp_501");
-        setReport(ingested);
-      } catch (ingestErr: any) {
-        setError(ingestErr.message || "Failed to load floor plan verification report");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleIngestNewFile = async (fileName: string) => {
-    setLoading(true);
-    setError(null);
-    setSelectedFile(fileName);
-    try {
-      const ingested = await ingestFloorPlan("proj_101", fileName, "fp_501");
-      setReport(ingested);
-    } catch (err: any) {
-      setError(err.message || `Failed to ingest '${fileName}'`);
+      setError(err.message || "No verification report available for this floor plan.");
+      setReport(null);
     } finally {
       setLoading(false);
     }
@@ -60,7 +47,7 @@ export const App: React.FC = () => {
     if (!report) return;
     setIsProcessing(true);
     try {
-      const updated = await verifyFloorPlan();
+      const updated = await verifyFloorPlan(projectId, floorPlanId);
       setReport(updated);
     } catch (err: any) {
       alert(`Verification Error: ${err.message}`);
@@ -73,7 +60,7 @@ export const App: React.FC = () => {
     if (!report) return;
     setIsProcessing(true);
     try {
-      const updated = await rejectFloorPlan("proj_101", "fp_501", reason);
+      const updated = await rejectFloorPlan(projectId, floorPlanId, reason);
       setReport(updated);
       setIsRejectModalOpen(false);
     } catch (err: any) {
@@ -94,17 +81,12 @@ export const App: React.FC = () => {
   if (error || !report) {
     return (
       <div className="canvas-container" style={{ flexDirection: "column", gap: "16px", padding: "2rem", alignItems: "center" }}>
-        <div style={{ color: "#f87171", fontSize: "1.125rem" }}>
-          {error || "No active verification report found."}
+        <div style={{ color: "#f87171", fontSize: "1.125rem", textAlign: "center" }}>
+          {error || "No verification report available for this floor plan."}
         </div>
-        <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
-          <button className="btn-ctrl" onClick={() => handleIngestNewFile("sample_floor_plan.dxf")}>
-            Ingest Sample DXF
-          </button>
-          <button className="btn-ctrl" onClick={() => handleIngestNewFile("4420 Ashland Rev 2.ifc")}>
-            Ingest Ashland IFC
-          </button>
-        </div>
+        <button className="btn-ctrl" onClick={loadReport}>
+          Refresh Report
+        </button>
       </div>
     );
   }
