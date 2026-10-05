@@ -442,13 +442,14 @@
 - **Status:** `SUCCESS`
 
 ### [2026-10-05] Task 2.3 Execution - Layouts Team Verification UI & API Flow
-- **Action:** Fixed geometry reconciliation test suite failure from CI Run #18. Rebuilt `GeometryReconciler` (`reconciliation.py`) and verification API endpoints (`projects.py`). Removed demo fixture fallbacks. Implemented durable verification state persistence across server restarts. Implemented RBAC-protected human `VERIFY` and `REJECT` (with mandatory reason comment) endpoints. Built React + TypeScript SVG verification UI in `frontend/`.
-- **Status:** `SUCCESS`
+- **Action:** Fixed geometry reconciliation test suite failure from CI Run #18. Rebuilt `GeometryReconciler` (`reconciliation.py`) and verification API endpoints (`projects.py`). Removed demo fixture fallbacks. Implemented durable verification state persistence across server restarts. Implemented RBAC-protected human `VERIFY` and `REJECT` (with mandatory reason comment) endpoints. Built React + TypeScript SVG verification UI in `frontend/`. Fixed PostgreSQL UUID query filter in `_get_latest_source_version()`. Provisioned authenticated user in `users` table via `ensure_user_exists()`. Normalized audit actor_id assertions `str(audit.actor_id) == ensure_uuid("usr_mock_001")` in `test_verification_api.py`.
+- **Status:** `SUCCESS (Full CI Sequence Verified)`
 - **Files Created/Updated:**
   - [`backend/app/bim/reconciliation.py`](file:///d:/Layouts%20AI/backend/app/bim/reconciliation.py) (Shapely topology reconciler, PENDING/VERIFIED/REJECTED status, boundary_geometry authoritative handling)
-  - [`backend/app/api/v1/projects.py`](file:///d:/Layouts%20AI/backend/app/api/v1/projects.py) (Verification endpoints, persistence, 404 on missing files, RBAC guards)
+  - [`backend/app/api/v1/projects.py`](file:///d:/Layouts%20AI/backend/app/api/v1/projects.py) (Verification endpoints, `ensure_user_exists()`, `fp_uuid` query filter, persistence, RBAC guards)
+  - [`backend/app/persistence/database.py`](file:///d:/Layouts%20AI/backend/app/persistence/database.py) (Added `StaticPool` for SQLite in-memory test connections)
   - [`backend/tests/unit/test_reconciliation.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_reconciliation.py) (Topology-aware unit & edge-case test suite)
-  - [`backend/tests/integration/test_verification_api.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_verification_api.py) (Verification API integration & RBAC test suite)
+  - [`backend/tests/integration/test_verification_api.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_verification_api.py) (Verification API integration, string-normalized UUID assertions, and non-UUID identifier regression suite)
   - [`frontend/src/types/verification.ts`](file:///d:/Layouts%20AI/frontend/src/types/verification.ts) (Fixed TypeScript `warning_id: string;`)
   - [`frontend/src/components/GeometryPreviewCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/components/GeometryPreviewCanvas.tsx) (World-to-screen SVG viewer with MultiPolygon/hole rendering)
   - [`frontend/src/components/VerificationHeader.tsx`](file:///d:/Layouts%20AI/frontend/src/components/VerificationHeader.tsx) (Verification status header)
@@ -456,10 +457,17 @@
   - [`frontend/src/components/RejectModal.tsx`](file:///d:/Layouts%20AI/frontend/src/components/RejectModal.tsx) (Mandatory rejection reason modal)
   - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added reconciliation & verification API test steps)
 - **Test Execution Results:**
-  - `python backend/tests/unit/test_reconciliation.py` & `pytest`: **PASSED (3/3)**
-  - `python backend/tests/integration/test_verification_api.py` & `pytest`: **PASSED (3/3)**
+  - `python backend/tests/integration/test_verification_api.py`: **PASSED (5/5)**
+  - `pytest backend/tests/integration/test_verification_api.py -v`: **PASSED (5/5)**
+  - `python backend/tests/unit/test_domain_schemas.py`: **PASSED**
+  - `python backend/tests/unit/test_db_schema.py`: **PASSED**
+  - `python backend/tests/unit/test_main_api.py`: **PASSED**
+  - `python backend/tests/unit/test_security_rbac.py`: **PASSED**
+  - `python backend/tests/unit/test_freespace.py`: **PASSED**
+  - `python backend/tests/unit/test_rules_engine.py`: **PASSED**
   - `python backend/tests/unit/test_ifc_ingest.py`: **PASSED**
   - `python backend/tests/unit/test_dxf_ingest.py`: **PASSED**
+  - `python backend/tests/unit/test_reconciliation.py`: **PASSED**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
 
 ---

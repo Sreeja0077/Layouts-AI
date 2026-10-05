@@ -163,9 +163,9 @@ def test_floor_plan_verify_flow_postgres_persistence():
         audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_VERIFY").first()
         assert audit is not None
         assert "fp_verify_001" in audit.entity_ref
-        assert audit.actor_id == ensure_uuid("usr_mock_001")
+        assert str(audit.actor_id) == ensure_uuid("usr_mock_001")
 
-        actor_user = db.query(User).filter(User.id == audit.actor_id).first()
+        actor_user = db.query(User).filter(User.id == str(audit.actor_id)).first()
         assert actor_user is not None, f"audit_logs.actor_id '{audit.actor_id}' missing in users table"
         assert actor_user.email == "dev_user@company.com"
     finally:
@@ -220,9 +220,9 @@ def test_floor_plan_reject_flow_postgres_persistence():
         audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_REJECT").first()
         assert audit is not None
         assert "fp_reject_001" in audit.entity_ref
-        assert audit.actor_id == ensure_uuid("usr_mock_001")
+        assert str(audit.actor_id) == ensure_uuid("usr_mock_001")
 
-        actor_user = db.query(User).filter(User.id == audit.actor_id).first()
+        actor_user = db.query(User).filter(User.id == str(audit.actor_id)).first()
         assert actor_user is not None, f"audit_logs.actor_id '{audit.actor_id}' missing in users table"
         assert actor_user.email == "dev_user@company.com"
     finally:
