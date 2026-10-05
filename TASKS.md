@@ -44,7 +44,7 @@
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core
-- [x] **Task 3.1:** Implement canonical entity models (`FloorPlan`, `Room`, `Wall`, `Door`, `Window`, `Column`, `ExistingFurniture`). *(Completed: 2026-09-30 14:46:25+05:30)*
+- [x] **Task 3.1:** Implement canonical entity models (`FloorPlan`, `Room`, `Wall`, `Door`, `Window`, `Column`, `ExistingFurniture`). *(Completed: 2026-10-05 15:25:00+05:30)*
 - [x] **Task 4.1:** Implement obstacle & clearance buffer subtraction in `geometry/geo_engine/freespace.py`. *(Completed: 2026-09-30 15:05:00+05:30)*
 - [x] **Task 4.2:** Implement hard-constraint & soft-design validation rules in `geometry/geo_engine/rules/`. *(Completed: 2026-09-30 15:46:00+05:30)*
 
@@ -471,8 +471,24 @@
   - `python backend/tests/integration/test_verification_api.py` & `pytest`: **PASSED (6/6)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
 
+### [2026-10-05] Task 3.1 Execution - Canonical Floor-Plan Entity Models Finalization
+- **Action:** Implemented stable, renderer-independent, AI-independent canonical geometry models per architecture blueprint specifications. Implemented `ExistingFurnitureEntity` model with `id`, `catalog_item_id`, `position: Tuple[float, float]`, `rotation: float = 0.0`, and `keep_flag: bool = True` (retained vs movable semantics). Updated `RoomEntity` with `existing_furniture_ids` and `existing_furniture` relationships matching the established entity relationship pattern. Updated `CanonicalFloorPlan` aggregate container with `existing_furniture` list and optional architecture blueprint revision pointers (`project_id`, `current_published_revision_id`, `current_working_revision_id`). Enforced explicit metric units (`meters`, `sqm`, `degrees`), non-empty required string identifiers (`min_length=1`), positive dimension bounds (`gt=0.0`, `ge=0.0`), Pydantic v2 `ConfigDict(extra="forbid")`, and clean JSON serialization. Updated exports in `backend/app/domain/geometry/__init__.py` and documentation in `backend/app/domain/geometry/README.md`.
+- **Status:** `SUCCESS (100% Tests & CI Sequence Verified)`
+- **Files Created/Updated:**
+  - [`backend/app/domain/geometry/entities.py`](file:///d:/Layouts%20AI/backend/app/domain/geometry/entities.py) (Added `ExistingFurnitureEntity`, updated `RoomEntity` and `CanonicalFloorPlan` aggregates)
+  - [`backend/app/domain/geometry/__init__.py`](file:///d:/Layouts%20AI/backend/app/domain/geometry/__init__.py) (Exported `ExistingFurnitureEntity`)
+  - [`backend/app/domain/geometry/README.md`](file:///d:/Layouts%20AI/backend/app/domain/geometry/README.md) (Updated canonical entity domain documentation)
+  - [`backend/tests/unit/test_canonical_entities.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_canonical_entities.py) (Expanded unit test suite covering Wall, Door swing arc, Window, Column obstacle polygon, Beam, ExistingFurniture keep_flag, Room, CanonicalFloorPlan, and negative validation tests)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 3.1 status and execution history log)
+- **Test Execution Results:**
+  - `python backend/tests/unit/test_canonical_entities.py` & `pytest`: **PASSED (9/9)**
+  - `pytest backend/tests/unit/test_freespace.py test_rules_engine.py test_reconciliation.py test_ifc_ingest.py test_dxf_ingest.py`: **PASSED (22/22)**
+  - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (76/76)**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
+
 ---
 *Maintained continuously across all development steps.*
+
 
 
 

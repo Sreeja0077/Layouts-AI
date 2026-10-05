@@ -7,6 +7,7 @@ from app.domain.geometry.entities import (
     WindowEntity,
     ColumnEntity,
     BeamEntity,
+    ExistingFurnitureEntity,
     RoomEntity,
     CanonicalFloorPlan,
 )
@@ -22,6 +23,8 @@ __all__ = [
     "WindowEntity",
     "ColumnEntity",
     "BeamEntity",
+    "ExistingFurnitureEntity",
     "RoomEntity",
     "CanonicalFloorPlan",
 ]
+
