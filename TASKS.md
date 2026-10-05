@@ -46,7 +46,7 @@
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core
 - [x] **Task 3.1:** Implement canonical entity models (`FloorPlan`, `Room`, `Wall`, `Door`, `Window`, `Column`, `ExistingFurniture`). *(Completed: 2026-10-05 15:25:00+05:30)*
 - [x] **Task 4.1:** Implement obstacle & clearance buffer subtraction in `geometry/geo_engine/freespace.py`. *(Completed: 2026-10-05 15:47:00+05:30)*
-- [x] **Task 4.2:** Implement hard-constraint & soft-design validation rules in `geometry/geo_engine/rules/`. *(Completed: 2026-09-30 15:46:00+05:30)*
+- [x] **Task 4.2:** Implement hard-constraint & soft-design validation rules in `geometry/geo_engine/rules/`. *(Completed: 2026-10-05 16:47:00+05:30)*
 
 ### Phase 5: 2D Interactive Canvas Editor
 - [ ] **Task 5.1:** Initialize Vite + React + TypeScript setup in `frontend/`.
@@ -498,6 +498,22 @@
   - `python backend/tests/unit/test_freespace.py` & `pytest`: **PASSED (21/21)**
   - `pytest backend/tests/unit/test_canonical_entities.py test_reconciliation.py test_ifc_ingest.py test_dxf_ingest.py test_rules_engine.py test_versioning.py`: **PASSED (41/41)**
   - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (95/95)**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
+
+### [2026-10-05] Task 4.2 Execution - Deterministic Architectural Layout Validation Rules Engine Finalization
+- **Action:** Conducted complete architectural review, correction, and strengthening of the 20-rule layout validation suite (`geometry/geo_engine/rules/`). Fixed rule exception handling & fault isolation in `RuleEvaluator` (`rule.hard_rules[0].severity` bug fixed; hard rule exceptions generate `CRITICAL_HARD` `RULE_EXECUTION_ERROR` violations; soft rule exceptions generate `WARNING_SOFT` `RULE_EXECUTION_ERROR` warnings with penalty score; no exceptions swallowed). Replaced non-deterministic `uuid4()` violation IDs with SHA-256 derived deterministic IDs (`self.rule_id_hash`). Realigned all 20 rule modules strictly with current domain schemas (`ExistingFurnitureEntity`, `RequirementItem`, `RequirementSet`, `PlacedObject`). Removed arbitrary heuristics (`min_door_dist > 20m`, `len(placed_objects) > 10`, `req_item.category`, `requirements.total_headcount`). Added explicit `severity` override to `BaseRule.create_violation()`. Corrected `QuantityFulfillmentRule` warning penalty score. Corrected `RequirementComplianceRule` and `QuantityFulfillmentRule` matching to use `RequirementItem.resolved_catalog_item_id == PlacedObject.catalog_item_id` and skip catalog matching when absent (no fuzzy substring matching on `raw_phrase`). Corrected `CapacityRule` fallback order (`layout.metrics.total_seats` -> explicit `custom_metadata["capacity"]` -> do not infer). Updated `EgressRule` to use Shapely `LineString` distance to door thresholds. Updated `ConnectivityRule` to validate non-empty `LineString` circulation paths. Documented Task 9.4 boundaries for circulation path graphs. Deep-copied ruleset configuration in `get_ruleset_config()`. Expanded unit test suite in `backend/tests/unit/test_rules_engine.py` to 60 comprehensive unit tests.
+- **Status:** `SUCCESS (100% Tests & Full CI Sequence Verified)`
+- **Files Created/Updated:**
+  - [`geometry/geo_engine/rules/base_rule.py`](file:///d:/Layouts%20AI/geometry/geo_engine/rules/base_rule.py) (SHA-256 deterministic IDs, optional severity override, safe overlap coords)
+  - [`geometry/geo_engine/rules/config.py`](file:///d:/Layouts%20AI/geometry/geo_engine/rules/config.py) (Deep-copy configuration merge)
+  - [`geometry/geo_engine/rules/rule_evaluator.py`](file:///d:/Layouts%20AI/geometry/geo_engine/rules/rule_evaluator.py) (Fault-isolated 20-rule evaluator, deterministic output order)
+  - All 20 rule modules in `geometry/geo_engine/rules/` (geometry, circulation, requirements, spatial, design)
+  - [`geometry/geo_engine/rules/README.md`](file:///d:/Layouts%20AI/geometry/geo_engine/rules/README.md) (Updated rule engine architecture documentation)
+  - [`backend/tests/unit/test_rules_engine.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_rules_engine.py) (Expanded to 60 unit tests covering all 20 rules, fault isolation, determinism, and regression cases)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 4.2 status and history log)
+- **Test Execution Results:**
+  - `pytest backend/tests/unit/test_rules_engine.py -v`: **PASSED (60/60)**
+  - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (151/151)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
 
 ---
