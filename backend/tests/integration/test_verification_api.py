@@ -1,7 +1,8 @@
 """
 Integration tests for Layouts Team Floor Plan Verification API endpoints (Task 2.3).
 Verifies ingestion, verification report fetching, human VERIFY state transitions,
-REJECT state transitions with mandatory reason comments, and RBAC authorization guards.
+REJECT state transitions with mandatory reason comments, explicit 404 handling on missing files/reports,
+and RBAC authorization guards. Zero production demo fallbacks.
 """
 
 import sys
@@ -42,6 +43,24 @@ def test_floor_plan_ingestion_and_report_retrieval():
     assert get_resp.json()["verification_status"] == "PENDING"
 
     print("Verified Floor Plan Ingestion & Report Retrieval Endpoint")
+
+
+def test_no_demo_fallback_on_missing_file_or_report():
+    """Verify missing source file or unknown floor_plan_id returns explicit 404 error instead of substituting demo fixture."""
+    # 1. Unknown file ingestion attempt -> 404
+    missing_file_resp = client.post(
+        "/api/v1/projects/proj_101/floor-plans/ingest",
+        json={"file_name": "non_existent_blueprint.ifc", "floor_plan_id": "fp_missing_file_999"},
+    )
+    assert missing_file_resp.status_code == 404
+    assert "not found" in missing_file_resp.json()["detail"].lower()
+
+    # 2. Unknown floor_plan_id GET report -> 404
+    unknown_report_resp = client.get("/api/v1/projects/proj_101/floor-plans/unknown_fp_999/verification-report")
+    assert unknown_report_resp.status_code == 404
+    assert "not found" in unknown_report_resp.json()["detail"].lower()
+
+    print("Verified Explicit 404 Error Handling (Zero Demo Fallbacks)")
 
 
 def test_floor_plan_verify_flow():
@@ -98,6 +117,7 @@ def test_floor_plan_reject_flow():
 
 if __name__ == "__main__":
     test_floor_plan_ingestion_and_report_retrieval()
+    test_no_demo_fallback_on_missing_file_or_report()
     test_floor_plan_verify_flow()
     test_floor_plan_reject_flow()
     print("ALL VERIFICATION API INTEGRATION TESTS PASSED SUCCESSFULLY!")

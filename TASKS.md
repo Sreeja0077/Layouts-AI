@@ -39,8 +39,8 @@
 
 ### Phase 2: BIM & Floor-Plan Ingestion Engine
 - [x] **Task 2.1:** Implement Revit IFC parser using `IfcOpenShell` in `backend/app/bim/ifc_ingest.py`. *(Completed: 2026-10-01 15:55:47+05:30)*
-- [ ] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-10-05 13:56:00+05:30)*
-- [ ] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry.
+- [x] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-10-05 13:56:00+05:30)*
+- [x] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry. *(Completed: 2026-10-05 11:24:00+05:30)*
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core
@@ -441,8 +441,30 @@
   6. Updated `Makefile` help text to reflect active containers (PostgreSQL, Redis).
 - **Status:** `SUCCESS`
 
+### [2026-10-05] Task 2.3 Execution - Layouts Team Verification UI & API Flow
+- **Action:** Fixed geometry reconciliation test suite failure from CI Run #18. Rebuilt `GeometryReconciler` (`reconciliation.py`) and verification API endpoints (`projects.py`). Removed demo fixture fallbacks. Implemented durable verification state persistence across server restarts. Implemented RBAC-protected human `VERIFY` and `REJECT` (with mandatory reason comment) endpoints. Built React + TypeScript SVG verification UI in `frontend/`.
+- **Status:** `SUCCESS`
+- **Files Created/Updated:**
+  - [`backend/app/bim/reconciliation.py`](file:///d:/Layouts%20AI/backend/app/bim/reconciliation.py) (Shapely topology reconciler, PENDING/VERIFIED/REJECTED status, boundary_geometry authoritative handling)
+  - [`backend/app/api/v1/projects.py`](file:///d:/Layouts%20AI/backend/app/api/v1/projects.py) (Verification endpoints, persistence, 404 on missing files, RBAC guards)
+  - [`backend/tests/unit/test_reconciliation.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_reconciliation.py) (Topology-aware unit & edge-case test suite)
+  - [`backend/tests/integration/test_verification_api.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_verification_api.py) (Verification API integration & RBAC test suite)
+  - [`frontend/src/types/verification.ts`](file:///d:/Layouts%20AI/frontend/src/types/verification.ts) (Fixed TypeScript `warning_id: string;`)
+  - [`frontend/src/components/GeometryPreviewCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/components/GeometryPreviewCanvas.tsx) (World-to-screen SVG viewer with MultiPolygon/hole rendering)
+  - [`frontend/src/components/VerificationHeader.tsx`](file:///d:/Layouts%20AI/frontend/src/components/VerificationHeader.tsx) (Verification status header)
+  - [`frontend/src/components/VerificationSummaryPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/components/VerificationSummaryPanel.tsx) (Summary & warning panel)
+  - [`frontend/src/components/RejectModal.tsx`](file:///d:/Layouts%20AI/frontend/src/components/RejectModal.tsx) (Mandatory rejection reason modal)
+  - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added reconciliation & verification API test steps)
+- **Test Execution Results:**
+  - `python backend/tests/unit/test_reconciliation.py` & `pytest`: **PASSED (3/3)**
+  - `python backend/tests/integration/test_verification_api.py` & `pytest`: **PASSED (3/3)**
+  - `python backend/tests/unit/test_ifc_ingest.py`: **PASSED**
+  - `python backend/tests/unit/test_dxf_ingest.py`: **PASSED**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build`)
+
 ---
 *Maintained continuously across all development steps.*
+
 
 
 

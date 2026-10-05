@@ -10,7 +10,28 @@ export async function fetchVerificationReport(
     `${API_BASE}/projects/${projectId}/floor-plans/${floorPlanId}/verification-report`
   );
   if (!resp.ok) {
-    throw new Error(`Failed to fetch verification report: ${resp.statusText}`);
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.detail || `Failed to fetch verification report: ${resp.statusText}`);
+  }
+  return resp.json();
+}
+
+export async function ingestFloorPlan(
+  projectId: string = "proj_101",
+  fileName: string = "sample_floor_plan.dxf",
+  floorPlanId: string = "fp_501"
+): Promise<GeometryVerificationReport> {
+  const resp = await fetch(
+    `${API_BASE}/projects/${projectId}/floor-plans/ingest`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file_name: fileName, floor_plan_id: floorPlanId }),
+    }
+  );
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.detail || `Ingestion failed: ${resp.statusText}`);
   }
   return resp.json();
 }

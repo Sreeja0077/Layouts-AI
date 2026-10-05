@@ -97,7 +97,11 @@ class FloorPlanSourceVersionModel(Base):
     file_storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     ifc_export_metadata: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
     uploaded_by: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    verification_status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False)
+    verification_report: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONType)
+    reviewer_user_id: Mapped[Optional[str]] = mapped_column(UUIDType, ForeignKey("users.id"))
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     floor_plan: Mapped["FloorPlan"] = relationship("FloorPlan", back_populates="source_versions")
 

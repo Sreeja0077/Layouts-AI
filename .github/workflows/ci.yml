@@ -104,3 +104,15 @@ jobs:
           python backend/tests/integration/test_verification_api.py
           pytest backend/tests/integration/test_verification_api.py -v
 
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Install & Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+

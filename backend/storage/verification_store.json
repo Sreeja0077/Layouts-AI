@@ -1,0 +1,666 @@
+{
+  "fp_501": {
+    "floor_plan_name": "sample_floor_plan.dxf",
+    "source_type": "DXF",
+    "is_geometry_valid": true,
+    "verification_status": "VERIFIED",
+    "total_rooms_count": 1,
+    "total_net_area_sqm": 120.0,
+    "boundary_polygon": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        10.0,
+        0.0
+      ],
+      [
+        10.0,
+        12.0
+      ],
+      [
+        0.0,
+        12.0
+      ]
+    ],
+    "boundary_geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      ]
+    },
+    "elements_summary": {
+      "WALL": 2,
+      "DOOR": 2,
+      "WINDOW": 1,
+      "COLUMN": 2,
+      "SPACE": 1,
+      "FURNITURE": 1
+    },
+    "all_elements_geometry": [
+      {
+        "id": "dxf_polyline_1",
+        "global_id": "dxf_A-WALL_1",
+        "category": "WALL",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            20.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_line_2",
+        "global_id": "dxf_A-WALL_2",
+        "category": "WALL",
+        "type": "LINE",
+        "coordinates": [
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            8.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_line_3",
+        "global_id": "dxf_A-DOOR_3",
+        "category": "DOOR",
+        "type": "LINE",
+        "coordinates": [
+          [
+            10.0,
+            8.0
+          ],
+          [
+            10.0,
+            10.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_arc_4",
+        "global_id": "dxf_A-DOOR_4",
+        "category": "DOOR",
+        "type": "ARC",
+        "coordinates": [
+          [
+            12.0,
+            8.0
+          ],
+          [
+            11.9319,
+            8.5176
+          ],
+          [
+            11.7321,
+            9.0
+          ],
+          [
+            11.4142,
+            9.4142
+          ],
+          [
+            11.0,
+            9.7321
+          ],
+          [
+            10.5176,
+            9.9319
+          ],
+          [
+            10.0,
+            10.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_line_5",
+        "global_id": "dxf_A-WINDOW_5",
+        "category": "WINDOW",
+        "type": "LINE",
+        "coordinates": [
+          [
+            4.0,
+            12.0
+          ],
+          [
+            8.0,
+            12.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_polyline_6",
+        "global_id": "dxf_A-COLUMN_6",
+        "category": "COLUMN",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            4.0,
+            4.0
+          ],
+          [
+            6.0,
+            4.0
+          ],
+          [
+            6.0,
+            6.0
+          ],
+          [
+            4.0,
+            6.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_circle_7",
+        "global_id": "dxf_A-COLUMN_7",
+        "category": "COLUMN",
+        "type": "CIRCLE",
+        "coordinates": [
+          [
+            16.0,
+            5.0
+          ],
+          [
+            15.9239,
+            5.3827
+          ],
+          [
+            15.7071,
+            5.7071
+          ],
+          [
+            15.3827,
+            5.9239
+          ],
+          [
+            15.0,
+            6.0
+          ],
+          [
+            14.6173,
+            5.9239
+          ],
+          [
+            14.2929,
+            5.7071
+          ],
+          [
+            14.0761,
+            5.3827
+          ],
+          [
+            14.0,
+            5.0
+          ],
+          [
+            14.0761,
+            4.6173
+          ],
+          [
+            14.2929,
+            4.2929
+          ],
+          [
+            14.6173,
+            4.0761
+          ],
+          [
+            15.0,
+            4.0
+          ],
+          [
+            15.3827,
+            4.0761
+          ],
+          [
+            15.7071,
+            4.2929
+          ],
+          [
+            15.9239,
+            4.6173
+          ],
+          [
+            16.0,
+            5.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_polyline_8",
+        "global_id": "dxf_A-ROOM_8",
+        "category": "SPACE",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_polyline_9",
+        "global_id": "dxf_A-FURN_9",
+        "category": "FURNITURE",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            2.0,
+            2.0
+          ],
+          [
+            4.0,
+            2.0
+          ],
+          [
+            4.0,
+            3.0
+          ],
+          [
+            2.0,
+            3.0
+          ]
+        ],
+        "is_closed": true
+      }
+    ],
+    "warnings": [],
+    "reviewer_user_id": "usr_mock_001",
+    "verified_at": "2026-10-05T06:38:10.521944",
+    "rejection_reason": null
+  },
+  "sample_floor_plan.dxf": {
+    "floor_plan_name": "sample_floor_plan.dxf",
+    "source_type": "DXF",
+    "is_geometry_valid": true,
+    "verification_status": "VERIFIED",
+    "total_rooms_count": 1,
+    "total_net_area_sqm": 120.0,
+    "boundary_polygon": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        10.0,
+        0.0
+      ],
+      [
+        10.0,
+        12.0
+      ],
+      [
+        0.0,
+        12.0
+      ]
+    ],
+    "boundary_geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      ]
+    },
+    "elements_summary": {
+      "WALL": 2,
+      "DOOR": 2,
+      "WINDOW": 1,
+      "COLUMN": 2,
+      "SPACE": 1,
+      "FURNITURE": 1
+    },
+    "all_elements_geometry": [
+      {
+        "id": "dxf_polyline_1",
+        "global_id": "dxf_A-WALL_1",
+        "category": "WALL",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            20.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_line_2",
+        "global_id": "dxf_A-WALL_2",
+        "category": "WALL",
+        "type": "LINE",
+        "coordinates": [
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            8.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_line_3",
+        "global_id": "dxf_A-DOOR_3",
+        "category": "DOOR",
+        "type": "LINE",
+        "coordinates": [
+          [
+            10.0,
+            8.0
+          ],
+          [
+            10.0,
+            10.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_arc_4",
+        "global_id": "dxf_A-DOOR_4",
+        "category": "DOOR",
+        "type": "ARC",
+        "coordinates": [
+          [
+            12.0,
+            8.0
+          ],
+          [
+            11.9319,
+            8.5176
+          ],
+          [
+            11.7321,
+            9.0
+          ],
+          [
+            11.4142,
+            9.4142
+          ],
+          [
+            11.0,
+            9.7321
+          ],
+          [
+            10.5176,
+            9.9319
+          ],
+          [
+            10.0,
+            10.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_line_5",
+        "global_id": "dxf_A-WINDOW_5",
+        "category": "WINDOW",
+        "type": "LINE",
+        "coordinates": [
+          [
+            4.0,
+            12.0
+          ],
+          [
+            8.0,
+            12.0
+          ]
+        ],
+        "is_closed": false
+      },
+      {
+        "id": "dxf_polyline_6",
+        "global_id": "dxf_A-COLUMN_6",
+        "category": "COLUMN",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            4.0,
+            4.0
+          ],
+          [
+            6.0,
+            4.0
+          ],
+          [
+            6.0,
+            6.0
+          ],
+          [
+            4.0,
+            6.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_circle_7",
+        "global_id": "dxf_A-COLUMN_7",
+        "category": "COLUMN",
+        "type": "CIRCLE",
+        "coordinates": [
+          [
+            16.0,
+            5.0
+          ],
+          [
+            15.9239,
+            5.3827
+          ],
+          [
+            15.7071,
+            5.7071
+          ],
+          [
+            15.3827,
+            5.9239
+          ],
+          [
+            15.0,
+            6.0
+          ],
+          [
+            14.6173,
+            5.9239
+          ],
+          [
+            14.2929,
+            5.7071
+          ],
+          [
+            14.0761,
+            5.3827
+          ],
+          [
+            14.0,
+            5.0
+          ],
+          [
+            14.0761,
+            4.6173
+          ],
+          [
+            14.2929,
+            4.2929
+          ],
+          [
+            14.6173,
+            4.0761
+          ],
+          [
+            15.0,
+            4.0
+          ],
+          [
+            15.3827,
+            4.0761
+          ],
+          [
+            15.7071,
+            4.2929
+          ],
+          [
+            15.9239,
+            4.6173
+          ],
+          [
+            16.0,
+            5.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_polyline_8",
+        "global_id": "dxf_A-ROOM_8",
+        "category": "SPACE",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            0.0
+          ],
+          [
+            10.0,
+            12.0
+          ],
+          [
+            0.0,
+            12.0
+          ]
+        ],
+        "is_closed": true
+      },
+      {
+        "id": "dxf_polyline_9",
+        "global_id": "dxf_A-FURN_9",
+        "category": "FURNITURE",
+        "type": "POLYLINE",
+        "coordinates": [
+          [
+            2.0,
+            2.0
+          ],
+          [
+            4.0,
+            2.0
+          ],
+          [
+            4.0,
+            3.0
+          ],
+          [
+            2.0,
+            3.0
+          ]
+        ],
+        "is_closed": true
+      }
+    ],
+    "warnings": [],
+    "reviewer_user_id": "usr_mock_001",
+    "verified_at": "2026-10-05T06:38:10.521944",
+    "rejection_reason": null
+  }
+}

@@ -6,6 +6,7 @@ import { VerificationSummaryPanel } from "./components/VerificationSummaryPanel"
 import { RejectModal } from "./components/RejectModal";
 import {
   fetchVerificationReport,
+  ingestFloorPlan,
   verifyFloorPlan,
   rejectFloorPlan,
 } from "./api/verification";
@@ -16,6 +17,7 @@ export const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [selectedFile, setSelectedFile] = useState<string>("sample_floor_plan.dxf");
 
   useEffect(() => {
     loadReport();
@@ -28,7 +30,27 @@ export const App: React.FC = () => {
       const data = await fetchVerificationReport();
       setReport(data);
     } catch (err: any) {
-      setError(err.message || "Failed to load floor plan verification report");
+      // If report not found, attempt auto-ingesting sample DXF for initial view
+      try {
+        const ingested = await ingestFloorPlan("proj_101", selectedFile, "fp_501");
+        setReport(ingested);
+      } catch (ingestErr: any) {
+        setError(ingestErr.message || "Failed to load floor plan verification report");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleIngestNewFile = async (fileName: string) => {
+    setLoading(true);
+    setError(null);
+    setSelectedFile(fileName);
+    try {
+      const ingested = await ingestFloorPlan("proj_101", fileName, "fp_501");
+      setReport(ingested);
+    } catch (err: any) {
+      setError(err.message || `Failed to ingest '${fileName}'`);
     } finally {
       setLoading(false);
     }
@@ -63,7 +85,7 @@ export const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="canvas-container" style={{ color: "#38bdf8", fontSize: "1.125rem" }}>
+      <div className="canvas-container" style={{ color: "#38bdf8", fontSize: "1.125rem", padding: "2rem" }}>
         Loading floor plan geometry verification report...
       </div>
     );
@@ -71,11 +93,18 @@ export const App: React.FC = () => {
 
   if (error || !report) {
     return (
-      <div className="canvas-container" style={{ flexDirection: "column", gap: "16px" }}>
+      <div className="canvas-container" style={{ flexDirection: "column", gap: "16px", padding: "2rem", alignItems: "center" }}>
         <div style={{ color: "#f87171", fontSize: "1.125rem" }}>
-          Error: {error || "Verification report unavailable"}
+          {error || "No active verification report found."}
         </div>
-        <button className="btn-ctrl" onClick={loadReport}>Retry Loading</button>
+        <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
+          <button className="btn-ctrl" onClick={() => handleIngestNewFile("sample_floor_plan.dxf")}>
+            Ingest Sample DXF
+          </button>
+          <button className="btn-ctrl" onClick={() => handleIngestNewFile("4420 Ashland Rev 2.ifc")}>
+            Ingest Ashland IFC
+          </button>
+        </div>
       </div>
     );
   }

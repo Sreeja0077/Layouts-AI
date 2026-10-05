@@ -5,7 +5,7 @@ Explicit SQLite engine creation is reserved strictly for isolated unit tests whe
 """
 
 import os
-from typing import Generator
+from typing import Generator, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -48,6 +48,23 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency yielding transactional database session per request."""
     db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_db_optional() -> Generator[Optional[Session], None, None]:
+    """FastAPI dependency yielding a database session if available, or None if connection fails."""
+    try:
+        db = SessionLocal()
+    except Exception:
+        db = None
+
+    if db is None:
+        yield None
+        return
+
     try:
         yield db
     finally:
