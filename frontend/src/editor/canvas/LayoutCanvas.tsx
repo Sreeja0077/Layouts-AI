@@ -1,49 +1,59 @@
 /**
- * LayoutCanvas Component (Task 5.2).
+ * LayoutCanvas Component (Task 5.2 & Task 5.3).
  * Top-level reusable Konva 2D Architectural Canvas wrapper.
  * Combines responsive CanvasStage, Drafting Grid, Viewport Toolbar Controls, and World Coordinates Status Display.
+ * Consumes renderer-neutral FloorPlanRenderModel via RendererAdapter architecture.
  */
 
 import React, { useState, useCallback } from "react";
-import { LayoutCanvasProps, Viewport, Point2D, DemoRenderModel } from "./canvasTypes";
+import { LayoutCanvasProps, Viewport, Point2D } from "./canvasTypes";
 import { CanvasStage } from "./CanvasStage";
 import {
   DEFAULT_INITIAL_SCALE,
   zoomAtPoint,
-  createInitialViewport,
 } from "./viewport";
+import { FloorPlanRenderModel } from "../renderer/renderTypes";
 
-// Sample architectural demo floor plan for Task 5.2 visual foundation validation
-const SAMPLE_DEMO_MODEL: DemoRenderModel = {
-  roomId: "rm_101",
-  roomName: "Executive Office Suite A",
-  boundaryPolygon: [
+// Sample renderer-neutral architectural floor plan model for Task 5.3 validation
+const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
+  id: "rm_101",
+  name: "Executive Office Suite A",
+  boundary: [
     { x: 0, y: 0 },
     { x: 12, y: 0 },
     { x: 12, y: 8 },
     { x: 0, y: 8 },
   ],
   walls: [
-    { id: "w1", start: { x: 0, y: 0 }, end: { x: 12, y: 0 }, thicknessMeters: 0.2 },
-    { id: "w2", start: { x: 12, y: 0 }, end: { x: 12, y: 8 }, thicknessMeters: 0.2 },
-    { id: "w3", start: { x: 12, y: 8 }, end: { x: 0, y: 8 }, thicknessMeters: 0.2 },
-    { id: "w4", start: { x: 0, y: 8 }, end: { x: 0, y: 0 }, thicknessMeters: 0.2 },
-    { id: "w_int_1", start: { x: 6, y: 0 }, end: { x: 6, y: 5 }, thicknessMeters: 0.15 },
+    { id: "w1", start: { x: 0, y: 0 }, end: { x: 12, y: 0 }, thicknessMeters: 0.2, isExterior: true },
+    { id: "w2", start: { x: 12, y: 0 }, end: { x: 12, y: 8 }, thicknessMeters: 0.2, isExterior: true },
+    { id: "w3", start: { x: 12, y: 8 }, end: { x: 0, y: 8 }, thicknessMeters: 0.2, isExterior: true },
+    { id: "w4", start: { x: 0, y: 8 }, end: { x: 0, y: 0 }, thicknessMeters: 0.2, isExterior: true },
+    { id: "w_int_1", start: { x: 6, y: 0 }, end: { x: 6, y: 5 }, thicknessMeters: 0.15, isExterior: false },
   ],
   doors: [
     { id: "d1", position: { x: 3, y: 0 }, widthMeters: 0.9, swingAngleDeg: 90 },
   ],
+  windows: [
+    { id: "win1", start: { x: 2, y: 8 }, end: { x: 5, y: 8 }, thicknessMeters: 0.2 },
+  ],
   columns: [
     { id: "col1", position: { x: 9, y: 4 }, widthMeters: 0.6, heightMeters: 0.6 },
+  ],
+  furniture: [
+    { id: "f1", catalogItemId: "desk_exec", itemType: "EXECUTIVE_DESK", position: { x: 3, y: 4 }, widthMeters: 1.8, depthMeters: 0.9, rotationDeg: 0 },
+    { id: "f2", catalogItemId: "chair_exec", itemType: "TASK_CHAIR", position: { x: 3, y: 5.2 }, widthMeters: 0.6, depthMeters: 0.6, rotationDeg: 0 },
   ],
 };
 
 export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   initialScale = DEFAULT_INITIAL_SCALE,
   showGrid: initialShowGrid = true,
-  demoModel = SAMPLE_DEMO_MODEL,
+  renderModel = SAMPLE_FLOOR_PLAN_RENDER_MODEL,
+  demoModel,
   className = "",
 }) => {
+  const activeModel = renderModel || demoModel || SAMPLE_FLOOR_PLAN_RENDER_MODEL;
   const [viewport, setViewport] = useState<Viewport>({
     scale: initialScale,
     x: 80,
@@ -94,7 +104,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
       >
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
-            2D Architectural Konva Canvas
+            2D Architectural Konva Canvas (RendererAdapter Decoupled)
           </span>
           <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
             (Shift + Drag or Middle Mouse to Pan • Scroll to Zoom)
@@ -168,7 +178,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           onViewportChange={setViewport}
           onCursorMove={setCursorWorldPt}
           showGrid={showGrid}
-          demoModel={demoModel}
+          renderModel={activeModel}
         />
       </div>
 

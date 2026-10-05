@@ -1,27 +1,25 @@
 /**
- * Konva Canvas Stage Component (Task 5.2).
- * Establishes Konva Stage & Layer hierarchy, viewport mouse wheel zoom, panning, and basic floor plan visualization.
- * Authoritative geometry logic is strictly isolated in Python backend; Konva acts solely as a renderer.
+ * Konva Canvas Stage Component (Task 5.2 & Task 5.3).
+ * Establishes Konva Stage & Layer hierarchy, viewport mouse wheel zoom, panning, and architectural floor plan visualization.
+ * Architectural layer rendering is decoupled via RendererAdapter (KonvaFloorPlanRenderer).
+ * Authoritative geometry logic is strictly isolated in Python backend.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
-import { Stage, Layer, Line, Rect, Arc, Group, Text } from "react-konva";
+import { Stage, Layer } from "react-konva";
 import Konva from "konva";
-import { DemoRenderModel, Viewport, Point2D } from "./canvasTypes";
+import { Viewport, Point2D } from "./canvasTypes";
 import { CanvasGrid } from "./CanvasGrid";
-import {
-  worldToScreen,
-  screenToWorld,
-  zoomAtPoint,
-  createInitialViewport,
-} from "./viewport";
+import { screenToWorld, zoomAtPoint } from "./viewport";
+import { FloorPlanRenderModel } from "../renderer/renderTypes";
+import { KonvaFloorPlanRenderer } from "../renderer/KonvaRendererAdapter";
 
 interface CanvasStageProps {
   viewport: Viewport;
   onViewportChange: (newViewport: Viewport) => void;
   onCursorMove?: (worldPt: Point2D) => void;
   showGrid?: boolean;
-  demoModel?: DemoRenderModel;
+  renderModel?: FloorPlanRenderModel;
 }
 
 export const CanvasStage: React.FC<CanvasStageProps> = ({
@@ -29,7 +27,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   onViewportChange,
   onCursorMove,
   showGrid = true,
-  demoModel,
+  renderModel,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -66,7 +64,6 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
 
-      // Determine zoom factor: scrolling up zooms in (factor > 1), scrolling down zooms out (factor < 1)
       const zoomFactor = e.evt.deltaY < 0 ? 1.1 : 0.9;
       const newViewport = zoomAtPoint(pointer, zoomFactor, viewport);
       onViewportChange(newViewport);
@@ -102,7 +99,6 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   );
 
   const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    // Pan trigger: Middle mouse button (button === 1) or drag on canvas background
     if (e.evt.button === 1 || e.evt.shiftKey) {
       setIsPanning(true);
       panStartRef.current = { x: e.evt.clientX, y: e.evt.clientY };
@@ -112,15 +108,6 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   const handleMouseUp = useCallback(() => {
     setIsPanning(false);
   }, []);
-
-  // Compute flattened polygon points for room boundary
-  const roomPointsFlat = React.useMemo(() => {
-    if (!demoModel || !demoModel.boundaryPolygon) return [];
-    return demoModel.boundaryPolygon.flatMap((pt) => {
-      const s = worldToScreen(pt, viewport);
-      return [s.x, s.y];
-    });
-  }, [demoModel, viewport]);
 
   return (
     <div
@@ -152,92 +139,10 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
           />
         )}
 
-        {/* Layer 2: Floor Plan Geometry Layer */}
+        {/* Layer 2: Floor Plan Geometry Layer rendered via RendererAdapter */}
         <Layer>
-          {demoModel && (
-            <Group>
-              {/* Room Outer Boundary Polygon */}
-              {roomPointsFlat.length >= 6 && (
-                <Line
-                  points={roomPointsFlat}
-                  closed
-                  stroke="#38bdf8"
-                  strokeWidth={2}
-                  fill="rgba(56, 189, 248, 0.06)"
-                />
-              )}
-
-              {/* Room Name Label */}
-              {demoModel.boundaryPolygon && demoModel.boundaryPolygon.length > 0 && (
-                <Text
-                  text={`${demoModel.roomName} (Room ID: ${demoModel.roomId})`}
-                  x={worldToScreen(demoModel.boundaryPolygon[0], viewport).x + 10}
-                  y={worldToScreen(demoModel.boundaryPolygon[0], viewport).y + 10}
-                  fill="#94a3b8"
-                  fontSize={14}
-                  fontFamily="Inter, sans-serif"
-                />
-              )}
-
-              {/* Walls */}
-              {demoModel.walls.map((wall) => {
-                const sStart = worldToScreen(wall.start, viewport);
-                const sEnd = worldToScreen(wall.end, viewport);
-                return (
-                  <Line
-                    key={wall.id}
-                    points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-                    stroke="#cbd5e1"
-                    strokeWidth={Math.max(2, wall.thicknessMeters * viewport.scale)}
-                    lineCap="round"
-                  />
-                );
-              })}
-
-              {/* Doors */}
-              {demoModel.doors.map((door) => {
-                const sPos = worldToScreen(door.position, viewport);
-                const sWidth = door.widthMeters * viewport.scale;
-                return (
-                  <Group key={door.id} x={sPos.x} y={sPos.y}>
-                    <Arc
-                      angle={door.swingAngleDeg}
-                      rotation={0}
-                      innerRadius={0}
-                      outerRadius={sWidth}
-                      fill="rgba(251, 191, 36, 0.15)"
-                      stroke="#f59e0b"
-                      strokeWidth={1.5}
-                      dash={[3, 3]}
-                    />
-                    <Line
-                      points={[0, 0, sWidth, 0]}
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                    />
-                  </Group>
-                );
-              })}
-
-              {/* Columns */}
-              {demoModel.columns.map((col) => {
-                const sPos = worldToScreen(col.position, viewport);
-                const sW = col.widthMeters * viewport.scale;
-                const sH = col.heightMeters * viewport.scale;
-                return (
-                  <Rect
-                    key={col.id}
-                    x={sPos.x - sW / 2}
-                    y={sPos.y - sH / 2}
-                    width={sW}
-                    height={sH}
-                    fill="rgba(239, 68, 68, 0.25)"
-                    stroke="#ef4444"
-                    strokeWidth={1.5}
-                  />
-                );
-              })}
-            </Group>
+          {renderModel && (
+            <KonvaFloorPlanRenderer model={renderModel} viewport={viewport} />
           )}
         </Layer>
       </Stage>
