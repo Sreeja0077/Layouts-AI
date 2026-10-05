@@ -25,7 +25,12 @@ def init_database_engine():
     """
     url = os.getenv("DATABASE_URL", DATABASE_URL)
     if url.startswith("sqlite"):
-        return create_engine(url, connect_args={"check_same_thread": False})
+        from sqlalchemy.pool import StaticPool
+        return create_engine(
+            url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
 
     # Authoritative PostgreSQL engine
     try:

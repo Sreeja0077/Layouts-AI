@@ -44,14 +44,11 @@ def ensure_uuid(id_str: str) -> str:
 
 
 def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[FloorPlanSourceVersionModel]:
-    """Query database for latest FloorPlanSourceVersionModel matching floor_plan_id."""
+    """Query database for latest FloorPlanSourceVersionModel matching normalized floor_plan_id UUID."""
     fp_uuid = ensure_uuid(floor_plan_id)
     return (
         db.query(FloorPlanSourceVersionModel)
-        .filter(
-            (FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
-            | (FloorPlanSourceVersionModel.floor_plan_id == floor_plan_id)
-        )
+        .filter(FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
         .order_by(FloorPlanSourceVersionModel.version_no.desc())
         .first()
     )
