@@ -1,7 +1,8 @@
 """
-Integration tests for Layouts Team Floor Plan Verification API & PostgreSQL Persistence (Task 2.3).
+Integration tests for Layouts Team Floor Plan Verification & Source Version Publishing API (Task 2.3 & Task 2.4).
 Verifies ingestion, PostgreSQL source-version model persistence, verification report fetching,
 human VERIFY state transitions, REJECT state transitions with mandatory reason comments,
+durable source version publishing (Task 2.4), unpublishing of prior baselines,
 audit logging, transactional rollback on errors, explicit 404 handling on missing files/reports,
 and RBAC authorization guards.
 Zero production demo fallbacks, zero memory-only stores, zero local JSON persistence files.
@@ -9,6 +10,7 @@ Zero production demo fallbacks, zero memory-only stores, zero local JSON persist
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 # Ensure PostgreSQL integration test uses DATABASE_URL environment setting (defaults to in-memory for isolated local unit test runner)
@@ -31,7 +33,7 @@ client = TestClient(app)
 
 
 def setup_mock_user():
-    """Ensure mock user exists in database for integration tests before VERIFY/REJECT operations."""
+    """Ensure mock user exists in database for integration tests before VERIFY/REJECT/PUBLISH operations."""
     mock_user_uuid = ensure_uuid("usr_mock_001")
     mock_org_uuid = ensure_uuid("org_mock_999")
 
@@ -53,6 +55,20 @@ def setup_mock_user():
         db.close()
 
 
+def _clean_floor_plan_test_data(floor_plan_id: str):
+    """Ensure clean test isolation for a specific floor_plan_id across repeated test runs."""
+    fp_uuid = ensure_uuid(floor_plan_id)
+    db = SessionLocal()
+    try:
+        db.query(AuditLogModel).filter(AuditLogModel.entity_ref.like(f"%{floor_plan_id}%")).delete(synchronize_session=False)
+        db.query(FloorPlanSourceVersionModel).filter(FloorPlanSourceVersionModel.floor_plan_id == fp_uuid).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def setup_module():
     """Ensure database tables and mock user are initialized before tests run."""
     try:
@@ -64,9 +80,12 @@ def setup_module():
 
 def test_floor_plan_ingestion_and_postgres_persistence():
     """Verify posting ingestion request creates and persists FloorPlanSourceVersionModel record in PostgreSQL."""
+    fp_id = "fp_test_dxf_001"
+    _clean_floor_plan_test_data(fp_id)
+
     response = client.post(
         "/api/v1/projects/proj_101/floor-plans/ingest",
-        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": "fp_test_dxf_001"},
+        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
     )
     assert response.status_code == 200, f"Ingest failed: {response.text}"
     report = response.json()
@@ -80,9 +99,7 @@ def test_floor_plan_ingestion_and_postgres_persistence():
     assert len(report["all_elements_geometry"]) == 9
 
     # Prove PostgreSQL DB persistence using a fresh, independent DB session and exact normalized UUID lookup
-    from app.api.v1.projects import ensure_uuid
-    target_uuid = ensure_uuid("fp_test_dxf_001")
-
+    target_uuid = ensure_uuid(fp_id)
     db = SessionLocal()
     try:
         record = (
@@ -100,7 +117,7 @@ def test_floor_plan_ingestion_and_postgres_persistence():
         db.close()
 
     # GET report endpoint reads from PostgreSQL
-    get_resp = client.get("/api/v1/projects/proj_101/floor-plans/fp_test_dxf_001/verification-report")
+    get_resp = client.get(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verification-report")
     assert get_resp.status_code == 200
     assert get_resp.json()["verification_status"] == "PENDING"
 
@@ -127,15 +144,18 @@ def test_no_demo_fallback_on_missing_file_or_report():
 
 def test_floor_plan_verify_flow_postgres_persistence():
     """Verify human VERIFY action updates verification_status in PostgreSQL and records reviewer user ID & audit log."""
+    fp_id = "fp_verify_001"
+    _clean_floor_plan_test_data(fp_id)
+
     # Ingest fixture first
     client.post(
         "/api/v1/projects/proj_101/floor-plans/ingest",
-        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": "fp_verify_001"},
+        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
     )
 
     # Verify action (with mock auth active as LAYOUT_EXEC)
     security_settings.ALLOW_MOCK_AUTH = True
-    response = client.post("/api/v1/projects/proj_101/floor-plans/fp_verify_001/verify")
+    response = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verify")
     assert response.status_code == 200
     report = response.json()
 
@@ -144,8 +164,7 @@ def test_floor_plan_verify_flow_postgres_persistence():
     assert report["verified_at"] is not None
 
     # Prove PostgreSQL persistence by querying DB with a completely fresh session
-    from app.api.v1.projects import ensure_uuid
-    target_uuid = ensure_uuid("fp_verify_001")
+    target_uuid = ensure_uuid(fp_id)
     db = SessionLocal()
     try:
         record = (
@@ -160,9 +179,17 @@ def test_floor_plan_verify_flow_postgres_persistence():
         assert record.verification_report["verification_status"] == "VERIFIED"
 
         # Verify audit log entry was created and actor_id matches existing users.id
-        audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_VERIFY").first()
+        audit = (
+            db.query(AuditLogModel)
+            .filter(
+                AuditLogModel.action == "FLOOR_PLAN_VERIFY",
+                AuditLogModel.entity_ref.like(f"%{fp_id}%"),
+            )
+            .order_by(AuditLogModel.created_at.desc())
+            .first()
+        )
         assert audit is not None
-        assert "fp_verify_001" in audit.entity_ref
+        assert fp_id in audit.entity_ref
         assert str(audit.actor_id) == ensure_uuid("usr_mock_001")
 
         actor_user = db.query(User).filter(User.id == str(audit.actor_id)).first()
@@ -176,15 +203,18 @@ def test_floor_plan_verify_flow_postgres_persistence():
 
 def test_floor_plan_reject_flow_postgres_persistence():
     """Verify human REJECT action requires mandatory rejection reason comment and updates status in PostgreSQL."""
+    fp_id = "fp_reject_001"
+    _clean_floor_plan_test_data(fp_id)
+
     # Ingest fixture first
     client.post(
         "/api/v1/projects/proj_101/floor-plans/ingest",
-        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": "fp_reject_001"},
+        json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
     )
 
     # Rejection without reason -> 400 Bad Request
     bad_resp = client.post(
-        "/api/v1/projects/proj_101/floor-plans/fp_reject_001/reject",
+        f"/api/v1/projects/proj_101/floor-plans/{fp_id}/reject",
         json={"rejection_reason": ""},
     )
     assert bad_resp.status_code == 400
@@ -192,7 +222,7 @@ def test_floor_plan_reject_flow_postgres_persistence():
 
     # Rejection with valid reason
     response = client.post(
-        "/api/v1/projects/proj_101/floor-plans/fp_reject_001/reject",
+        f"/api/v1/projects/proj_101/floor-plans/{fp_id}/reject",
         json={"rejection_reason": "Unclosed exterior wall polyline on layer A-WALL"},
     )
     assert response.status_code == 200
@@ -202,7 +232,7 @@ def test_floor_plan_reject_flow_postgres_persistence():
     assert report["rejection_reason"] == "Unclosed exterior wall polyline on layer A-WALL"
 
     # Prove PostgreSQL persistence by querying DB with a fresh session
-    reject_target_uuid = ensure_uuid("fp_reject_001")
+    reject_target_uuid = ensure_uuid(fp_id)
     db = SessionLocal()
     try:
         record = (
@@ -217,9 +247,17 @@ def test_floor_plan_reject_flow_postgres_persistence():
         assert record.verification_report["verification_status"] == "REJECTED"
 
         # Verify audit log entry was created and actor_id matches existing users.id
-        audit = db.query(AuditLogModel).filter(AuditLogModel.action == "FLOOR_PLAN_REJECT").first()
+        audit = (
+            db.query(AuditLogModel)
+            .filter(
+                AuditLogModel.action == "FLOOR_PLAN_REJECT",
+                AuditLogModel.entity_ref.like(f"%{fp_id}%"),
+            )
+            .order_by(AuditLogModel.created_at.desc())
+            .first()
+        )
         assert audit is not None
-        assert "fp_reject_001" in audit.entity_ref
+        assert fp_id in audit.entity_ref
         assert str(audit.actor_id) == ensure_uuid("usr_mock_001")
 
         actor_user = db.query(User).filter(User.id == str(audit.actor_id)).first()
@@ -243,7 +281,10 @@ def test_non_uuid_floor_plan_identifier_full_flow_regression():
     - REJECT succeeds
     - Persisted verification state remains correct
     """
-    non_uuid_fp_id = "fp_test_dxf_001"
+    non_uuid_fp_id = "fp_non_uuid_reg_001"
+    non_uuid_reject_id = "fp_non_uuid_reject_001"
+    _clean_floor_plan_test_data(non_uuid_fp_id)
+    _clean_floor_plan_test_data(non_uuid_reject_id)
 
     # 1. Ingestion succeeds
     ingest_resp = client.post(
@@ -264,7 +305,6 @@ def test_non_uuid_floor_plan_identifier_full_flow_regression():
     assert verify_resp.json()["verification_status"] == "VERIFIED"
 
     # 4. REJECT succeeds on non-UUID floor_plan_id
-    non_uuid_reject_id = "fp_reject_001"
     client.post(
         "/api/v1/projects/proj_101/floor-plans/ingest",
         json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": non_uuid_reject_id},
@@ -277,7 +317,6 @@ def test_non_uuid_floor_plan_identifier_full_flow_regression():
     assert reject_resp.json()["verification_status"] == "REJECTED"
 
     # 5. Persisted verification state in database remains correct
-    from app.api.v1.projects import ensure_uuid
     target_uuid = ensure_uuid(non_uuid_fp_id)
     db = SessionLocal()
     try:
@@ -303,8 +342,10 @@ def test_floor_plan_publishing_flow_postgres_persistence():
     - Attempt publish on PENDING -> 400 Bad Request
     - Verify v1 -> VERIFIED
     - Publish v1 -> 200 OK (is_published == True, published_by_user_id == ensure_uuid("usr_mock_001"))
+    - Client spoof attempt: publisher_user_id in body is ignored, server uses authenticated user
     - GET /published-version -> 200 OK (v1)
     - Ingest v2 -> PENDING
+    - Attempt publish v2 on PENDING -> 400 Bad Request
     - Verify v2 -> VERIFIED
     - Publish v2 -> 200 OK (v2 published, v1 unpublished)
     - GET /published-version -> 200 OK (v2)
@@ -312,6 +353,7 @@ def test_floor_plan_publishing_flow_postgres_persistence():
     - Durable state verified with fresh DB session
     """
     fp_id = "fp_pub_api_001"
+    _clean_floor_plan_test_data(fp_id)
     security_settings.ALLOW_MOCK_AUTH = True
 
     # 1. Ingest v1
@@ -330,8 +372,11 @@ def test_floor_plan_publishing_flow_postgres_persistence():
     verify_v1 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verify")
     assert verify_v1.status_code == 200
 
-    # 4. Publish v1 -> 200 OK
-    pub_v1 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish")
+    # 4. Publish v1 with spoof attempt -> 200 OK, but uses authenticated user
+    pub_v1 = client.post(
+        f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish",
+        json={"publisher_user_id": "usr_hacker_999"},
+    )
     assert pub_v1.status_code == 200
     v1_payload = pub_v1.json()
     assert v1_payload["version_no"] == 1
@@ -351,6 +396,10 @@ def test_floor_plan_publishing_flow_postgres_persistence():
         json={"file_name": "sample_floor_plan.dxf", "floor_plan_id": fp_id},
     )
     assert ingest_v2.status_code == 200
+
+    # Attempt publish unverified v2 -> 400 Bad Request
+    pub_v2_pending = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/publish")
+    assert pub_v2_pending.status_code == 400
 
     verify_v2 = client.post(f"/api/v1/projects/proj_101/floor-plans/{fp_id}/verify")
     assert verify_v2.status_code == 200
@@ -383,7 +432,10 @@ def test_floor_plan_publishing_flow_postgres_persistence():
 
         audit = (
             db.query(AuditLogModel)
-            .filter(AuditLogModel.action == "FLOOR_PLAN_SOURCE_VERSION_PUBLISH")
+            .filter(
+                AuditLogModel.action == "FLOOR_PLAN_SOURCE_VERSION_PUBLISH",
+                AuditLogModel.entity_ref.like(f"%{fp_id}%"),
+            )
             .order_by(AuditLogModel.created_at.desc())
             .first()
         )
@@ -404,5 +456,3 @@ if __name__ == "__main__":
     test_non_uuid_floor_plan_identifier_full_flow_regression()
     test_floor_plan_publishing_flow_postgres_persistence()
     print("ALL VERIFICATION API & POSTGRESQL PERSISTENCE INTEGRATION TESTS PASSED SUCCESSFULLY!")
-
-

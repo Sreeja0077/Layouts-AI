@@ -1,6 +1,6 @@
 """
 Unit tests for PostgreSQL-backed floor plan source versioning and publishing engine (Task 2.4).
-Verifies database persistence, version number incrementing, verification status gates (PENDING/REJECTED blocked),
+Verifies database persistence, version number tracking, verification status gates (PENDING/REJECTED blocked),
 idempotent publishing, unpublishing prior baselines, and audit logging.
 """
 
@@ -26,25 +26,21 @@ from app.persistence.models import Base, FloorPlanSourceVersionModel, AuditLogMo
 from app.security.auth import AuthenticatedUser, UserRole
 
 
-def setup_module():
-    """Ensure database tables and mock user are initialized before tests run."""
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception:
-        pass
+def setup_mock_user():
+    """Ensure mock user exists in database for integration tests before VERIFY/REJECT operations."""
+    mock_user_uuid = ensure_uuid("usr_mock_001")
+    mock_org_uuid = ensure_uuid("org_mock_999")
 
     db = SessionLocal()
     try:
-        user_uuid = ensure_uuid("usr_mock_001")
-        org_uuid = ensure_uuid("org_mock_999")
-        user = db.query(User).filter(User.id == user_uuid).first()
+        user = db.query(User).filter(User.id == mock_user_uuid).first()
         if not user:
             user = User(
-                id=user_uuid,
+                id=mock_user_uuid,
                 email="dev_user@company.com",
                 full_name="Mock Layouts Exec",
                 role="LAYOUT_EXEC",
-                org_id=org_uuid,
+                org_id=mock_org_uuid,
                 is_active=True,
             )
             db.add(user)
@@ -53,9 +49,34 @@ def setup_module():
         db.close()
 
 
+def _clean_floor_plan_test_data(floor_plan_id: str):
+    """Ensure clean test isolation for a specific floor_plan_id across repeated test runs."""
+    fp_uuid = ensure_uuid(floor_plan_id)
+    db = SessionLocal()
+    try:
+        db.query(AuditLogModel).filter(AuditLogModel.entity_ref.like(f"%{floor_plan_id}%")).delete(synchronize_session=False)
+        db.query(FloorPlanSourceVersionModel).filter(FloorPlanSourceVersionModel.floor_plan_id == fp_uuid).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def setup_module():
+    """Ensure database tables and mock user are initialized before tests run."""
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        pass
+    setup_mock_user()
+
+
 def test_postgres_source_version_publishing_lifecycle():
     publisher = SourceVersionPublisher()
     floor_plan_id = "fp_pub_test_001"
+    _clean_floor_plan_test_data(floor_plan_id)
+
     fp_uuid = ensure_uuid(floor_plan_id)
     proj_uuid = ensure_uuid("proj_101")
     mock_user = AuthenticatedUser(
@@ -163,7 +184,10 @@ def test_postgres_source_version_publishing_lifecycle():
         # 8. Check audit log entry was written for publishing
         audit = (
             db.query(AuditLogModel)
-            .filter(AuditLogModel.action == "FLOOR_PLAN_SOURCE_VERSION_PUBLISH")
+            .filter(
+                AuditLogModel.action == "FLOOR_PLAN_SOURCE_VERSION_PUBLISH",
+                AuditLogModel.entity_ref.like(f"%{floor_plan_id}%"),
+            )
             .order_by(AuditLogModel.created_at.desc())
             .first()
         )
