@@ -4,6 +4,7 @@ import { VerificationHeader } from "./components/VerificationHeader";
 import { GeometryPreviewCanvas } from "./components/GeometryPreviewCanvas";
 import { VerificationSummaryPanel } from "./components/VerificationSummaryPanel";
 import { RejectModal } from "./components/RejectModal";
+import { LayoutCanvas } from "./editor/canvas";
 import {
   fetchVerificationReport,
   verifyFloorPlan,
@@ -24,6 +25,7 @@ export const App: React.FC<AppProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<"verification" | "editor">("verification");
 
   useEffect(() => {
     loadReport();
@@ -78,38 +80,89 @@ export const App: React.FC<AppProps> = ({
     );
   }
 
-  if (error || !report) {
-    return (
-      <div className="canvas-container" style={{ flexDirection: "column", gap: "16px", padding: "2rem", alignItems: "center" }}>
-        <div style={{ color: "#f87171", fontSize: "1.125rem", textAlign: "center" }}>
-          {error || "No verification report available for this floor plan."}
-        </div>
-        <button className="btn-ctrl" onClick={loadReport}>
-          Refresh Report
-        </button>
-      </div>
-    );
-  }
-
   return (
     <>
-      <VerificationHeader report={report} />
-      <main className="main-content">
-        <GeometryPreviewCanvas report={report} />
-        <VerificationSummaryPanel
-          report={report}
-          onVerify={handleVerify}
-          onRejectClick={() => setIsRejectModalOpen(true)}
-          isProcessing={isProcessing}
-        />
-      </main>
+      {report && <VerificationHeader report={report} />}
 
-      <RejectModal
-        isOpen={isRejectModalOpen}
-        onClose={() => setIsRejectModalOpen(false)}
-        onSubmit={handleRejectSubmit}
-        isProcessing={isProcessing}
-      />
+      {/* Navigation View Switcher Bar */}
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          padding: "8px 24px",
+          backgroundColor: "#0f172a",
+          borderBottom: "1px solid #1e293b",
+        }}
+      >
+        <button
+          onClick={() => setActiveTab("verification")}
+          style={{
+            backgroundColor: activeTab === "verification" ? "#0284c7" : "#1e293b",
+            color: "#f8fafc",
+            border: "1px solid #334155",
+            borderRadius: "6px",
+            padding: "6px 14px",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            cursor: "pointer",
+          }}
+        >
+          Verification View
+        </button>
+        <button
+          onClick={() => setActiveTab("editor")}
+          style={{
+            backgroundColor: activeTab === "editor" ? "#0284c7" : "#1e293b",
+            color: "#f8fafc",
+            border: "1px solid #334155",
+            borderRadius: "6px",
+            padding: "6px 14px",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            cursor: "pointer",
+          }}
+        >
+          Konva 2D Canvas Editor (Task 5.2)
+        </button>
+      </div>
+
+      {activeTab === "verification" && (
+        <>
+          {error || !report ? (
+            <div className="canvas-container" style={{ flexDirection: "column", gap: "16px", padding: "2rem", alignItems: "center" }}>
+              <div style={{ color: "#f87171", fontSize: "1.125rem", textAlign: "center" }}>
+                {error || "No verification report available for this floor plan."}
+              </div>
+              <button className="btn-ctrl" onClick={loadReport}>
+                Refresh Report
+              </button>
+            </div>
+          ) : (
+            <main className="main-content">
+              <GeometryPreviewCanvas report={report} />
+              <VerificationSummaryPanel
+                report={report}
+                onVerify={handleVerify}
+                onRejectClick={() => setIsRejectModalOpen(true)}
+                isProcessing={isProcessing}
+              />
+            </main>
+          )}
+
+          <RejectModal
+            isOpen={isRejectModalOpen}
+            onClose={() => setIsRejectModalOpen(false)}
+            onSubmit={handleRejectSubmit}
+            isProcessing={isProcessing}
+          />
+        </>
+      )}
+
+      {activeTab === "editor" && (
+        <main className="main-content" style={{ padding: "16px", display: "flex", flexDirection: "column", height: "calc(100vh - 120px)" }}>
+          <LayoutCanvas />
+        </main>
+      )}
     </>
   );
 };

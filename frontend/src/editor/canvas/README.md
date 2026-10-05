@@ -1,19 +1,28 @@
-# Konva Canvas Stage & RendererAdapter
+# Konva 2D Architectural Canvas Stage (Task 5.2)
 
 ## 📌 Purpose & Overview
-Main Konva stage setup and RendererAdapter interface decoupling editor logic from rendering engine details.
+Provides the reusable Konva 2D rendering surface for architectural floor-plan visualization. Supports responsive viewport bounds, world metric coordinate transformations (meters), pointer-anchored zooming, canvas panning, and visual drafting grid overlays.
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `frontend/src/editor/canvas`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
+## 🏗️ Architectural Invariants
+- **System Authority:** Python backend owns authoritative geometry, validation, free-space, and spatial optimization. Konva acts purely as a rendering and interaction surface.
+- **World Coordinates:** Spatial positions are defined in architectural meters (`X`, `Y` in meters). Screen canvas pixels are computed dynamically via pure viewport transformation functions (`worldToScreen`, `screenToWorld`).
+- **Visual Assistance:** The drafting grid (`CanvasGrid`) provides visual spatial reference only and is strictly decoupled from collision, containment, or layout validation.
 
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
+## 📐 Viewport Model & Coordinate Transformations
+`Viewport = { scale: number (px/m), x: number (px), y: number (px) }`
+- **World → Screen:** `screenX = worldX * scale + offsetX`, `screenY = worldY * scale + offsetY`
+- **Screen → World:** `worldX = (screenX - offsetX) / scale`, `worldY = (screenY - offsetY) / scale`
+- **Zooming:** Mouse wheel zoom is anchored at the cursor pointer location (`zoomAtPoint`), keeping the world position under the mouse pointer visually stationary during scaling.
+- **Panning:** Canvas panning adjusts screen offsets (`x`, `y`) without mutating underlying architectural geometry.
 
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
+## 🧱 Module Organization (`frontend/src/editor/canvas/`)
+- `canvasTypes.ts`: TypeScript contracts for `Viewport`, `Point2D`, `DemoRenderModel`, and `LayoutCanvasProps`.
+- `viewport.ts`: Pure, testable coordinate transformation and scale-clamping functions.
+- `CanvasGrid.tsx`: Konva grid layer rendering 1.0m major and 0.25m minor drafting grid lines.
+- `CanvasStage.tsx`: Responsive Konva `<Stage>` and `<Layer>` hierarchy with event listeners.
+- `LayoutCanvas.tsx`: Top-level wrapper component combining stage, toolbar zoom controls, and coordinate status bar.
+- `index.ts`: Package entrypoint re-exporting all canvas modules.
 
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## ⚠️ Task Boundaries & Future Scope
+- **Task 5.3 (RendererAdapter):** Decouples domain entities from Konva canvas details using adapter contracts. *(Not implemented in Task 5.2)*.
+- **Task 5.4 (Object Manipulation):** Selection handles, dragging, rotation, resizing, and snapping assistance. *(Not implemented in Task 5.2)*.

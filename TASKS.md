@@ -50,7 +50,7 @@
 
 ### Phase 5: 2D Interactive Canvas Editor
 - [x] **Task 5.1:** Initialize Vite + React + TypeScript setup in `frontend/`. *(Completed: 2026-10-05 16:57:00+05:30)*
-- [ ] **Task 5.2:** Build Konva canvas stage with `react-konva` in `frontend/src/editor/canvas/`.
+- [x] **Task 5.2:** Build Konva canvas stage with `react-konva` in `frontend/src/editor/canvas/`. *(Completed: 2026-10-05 17:08:00+05:30)*
 - [ ] **Task 5.3:** Implement `RendererAdapter` interface decoupling canvas engine from domain logic.
 - [ ] **Task 5.4:** Add object selection, dragging, rotation, resizing, and snapping assistance.
 
@@ -524,6 +524,27 @@
 - **Test Execution Results:**
   - `npm ci` (Frontend): **PASSED** (`added 69 packages in 19s`)
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` completed in 10.32s)
+
+### [2026-10-05] Task 5.2 Execution - Konva 2D Canvas Stage & Viewport Foundation
+- **Action:** Installed `konva@^9.3.22` and `react-konva@^18.2.16` compatible with React 18. Built pure testable viewport transformation helpers in `frontend/src/editor/canvas/viewport.ts` (`worldToScreen`, `screenToWorld`, `clampScale`, `zoomAtPoint`, `createInitialViewport`). Built responsive architectural drafting grid layer `CanvasGrid.tsx` rendering 1.0m major and 0.25m minor world-space grid lines. Built Konva `<Stage>` and `<Layer>` component `CanvasStage.tsx` with container `ResizeObserver`, pointer-anchored mouse wheel zoom, and canvas panning. Built top-level reusable `LayoutCanvas.tsx` component with viewport toolbar controls (Zoom In, Zoom Out, Reset View, Toggle Grid) and cursor world coordinates status bar. Created modular exports in `index.ts`. Preserved domain authority in Python backend (zero backend logic in canvas). Integrated tab switcher in `App.tsx` preserving existing verification UI. Updated documentation in `editor/canvas/README.md`.
+- **Status:** `SUCCESS (100% Tests, Build & Runtime Verification Passed)`
+- **Files Created/Updated:**
+  - [`frontend/package.json`](file:///d:/Layouts%20AI/frontend/package.json) & `package-lock.json` (Added `konva` and `react-konva`)
+  - [`frontend/src/editor/canvas/canvasTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/canvasTypes.ts) (`Viewport`, `Point2D`, `DemoRenderModel`, `LayoutCanvasProps`)
+  - [`frontend/src/editor/canvas/viewport.ts`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/viewport.ts) (Pure worldToScreen, screenToWorld, zoomAtPoint helpers)
+  - [`frontend/src/editor/canvas/viewport.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/viewport.test.ts) (Unit test suite for coordinate transformation math)
+  - [`frontend/src/editor/canvas/CanvasGrid.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/CanvasGrid.tsx) (Drafting grid layer)
+  - [`frontend/src/editor/canvas/CanvasStage.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/CanvasStage.tsx) (Konva stage & floor plan layer)
+  - [`frontend/src/editor/canvas/LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx) (Top-level canvas wrapper & toolbar)
+  - [`frontend/src/editor/canvas/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/index.ts) (Module exports)
+  - [`frontend/src/editor/canvas/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/README.md) (Architecture & boundary documentation)
+  - [`frontend/src/App.tsx`](file:///d:/Layouts%20AI/frontend/src/App.tsx) (View tab switcher integrating LayoutCanvas without breaking verification screen)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 5.2 status and history log)
+- **Test Execution Results:**
+  - `npx vite-node src/editor/canvas/run_viewport_tests.ts`: **PASSED (All viewport math tests passed)**
+  - `npm ci` (Frontend): **PASSED** (`added 74 packages in 20s`)
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build` built 228 modules in 10.99s)
+  - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (151/151 tests in 36.27s)**
 
 ---
 *Maintained continuously across all development steps.*
