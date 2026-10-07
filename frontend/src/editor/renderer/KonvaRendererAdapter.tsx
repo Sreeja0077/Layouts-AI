@@ -282,8 +282,7 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
           stroke="#38bdf8"
           strokeWidth={2}
           fill="rgba(56, 189, 248, 0.06)"
-          onClick={() => onSelectObject?.(null)}
-          onTap={() => onSelectObject?.(null)}
+          listening={false}
         />
       )}
 
