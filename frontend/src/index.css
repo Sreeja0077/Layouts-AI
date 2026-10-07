@@ -138,6 +138,17 @@ body {
   color: #ffffff;
 }
 
+.btn-ctrl-active {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+.btn-ctrl-active:hover {
+  background: #0369a1;
+}
+
+
 .side-panel {
   width: 380px;
   background: #1e293b;

@@ -54,3 +54,34 @@ export function fitBounds(points: Point2D[], containerWidth: number, containerHe
 export function createInitialViewport(containerWidth: number, containerHeight: number, scale = DEFAULT_INITIAL_SCALE): Viewport {
   return { scale, x: containerWidth / 2, y: containerHeight / 2 };
 }
+
+/**
+ * Zooms into the canvas centered around the visible container's midpoint.
+ */
+export function zoomInCenter(
+  viewport: Viewport,
+  containerWidth: number,
+  containerHeight: number,
+  zoomFactor = 1.25,
+  minScale = DEFAULT_MIN_SCALE,
+  maxScale = DEFAULT_MAX_SCALE
+): Viewport {
+  const center: Point2D = { x: containerWidth / 2, y: containerHeight / 2 };
+  return zoomAtPoint(center, zoomFactor, viewport, minScale, maxScale);
+}
+
+/**
+ * Zooms out of the canvas centered around the visible container's midpoint.
+ */
+export function zoomOutCenter(
+  viewport: Viewport,
+  containerWidth: number,
+  containerHeight: number,
+  zoomFactor = 0.8,
+  minScale = DEFAULT_MIN_SCALE,
+  maxScale = DEFAULT_MAX_SCALE
+): Viewport {
+  const center: Point2D = { x: containerWidth / 2, y: containerHeight / 2 };
+  return zoomAtPoint(center, zoomFactor, viewport, minScale, maxScale);
+}
+
