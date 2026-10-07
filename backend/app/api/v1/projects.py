@@ -34,7 +34,8 @@ reconciler = GeometryReconciler()
 
 ALLOWED_VERIFICATION_ROLES = {UserRole.LAYOUT_EXEC, UserRole.LAYOUT_MGR, UserRole.ADMIN}
 
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "data/uploads")).resolve()
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # => backend/
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(_BACKEND_ROOT / "data" / "uploads"))).resolve()
 MAX_UPLOAD_SIZE_BYTES = 1000 * 1024 * 1024  # 1GB limit (large architectural files supported)
 ALLOWED_EXTENSIONS = {".ifc", ".dxf"}
 

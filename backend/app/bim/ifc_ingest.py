@@ -115,11 +115,13 @@ def transform_shape_verts(verts: Sequence[float], shape: Any) -> List[float]:
     """Transform local mesh vertices by IfcOpenShell shape placement 4x4 matrix into world space."""
     matrix_data = None
     if hasattr(shape, "transformation") and hasattr(shape.transformation, "matrix"):
-        matrix_data = shape.transformation.matrix.data
+        m_obj = shape.transformation.matrix
+        matrix_data = getattr(m_obj, "data", m_obj)
     elif hasattr(shape, "matrix"):
-        matrix_data = shape.matrix
+        m_obj = shape.matrix
+        matrix_data = getattr(m_obj, "data", m_obj)
 
-    if not matrix_data or len(matrix_data) < 16:
+    if not matrix_data or not isinstance(matrix_data, (tuple, list)) or len(matrix_data) < 16:
         return list(verts)
 
     m = list(matrix_data)

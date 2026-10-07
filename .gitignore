@@ -56,3 +56,7 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.db
+
+# Upload data (user files, never commit)
+data/uploads/
+backend/data/
