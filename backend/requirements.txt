@@ -11,4 +11,6 @@ shapely>=2.0.0
 cryptography>=41.0.0
 ifcopenshell==0.8.5
 ezdxf>=1.1.0
+python-multipart>=0.0.6
 pytest>=7.0.0
+

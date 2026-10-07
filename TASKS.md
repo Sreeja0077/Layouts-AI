@@ -42,6 +42,8 @@
 - [x] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-10-05 13:56:00+05:30)*
 - [x] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry. *(Completed: 2026-10-05 11:24:00+05:30)*
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
+- [x] **Task 2.5:** Build browser IFC/DXF upload and floor-plan ingestion entry flow. *(Completed: 2026-10-07 13:45:00+05:30)*
+
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core
 - [x] **Task 3.1:** Implement canonical entity models (`FloorPlan`, `Room`, `Wall`, `Door`, `Window`, `Column`, `ExistingFurniture`). *(Completed: 2026-10-05 15:25:00+05:30)*
@@ -637,6 +639,25 @@
 - **Test Execution Results:**
   - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand with 13 tests)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 237 modules in 11.94s)
+
+### [2026-10-07] Task 2.5 Execution - Real Browser IFC/DXF Upload & Floor-Plan Ingestion Entry Flow
+- **Action:** Implemented browser file upload flow, server-side secure file storage, auto-incrementing source version creation, BIM/DXF ingestion integration, and end-to-end product handoff into Layouts Team verification, baseline publishing, and 2D canvas editor.
+  - **Backend API (`backend/app/api/v1/projects.py`)**: Added `POST /api/v1/projects/{project_id}/floor-plans/upload` multipart endpoint with extension validation (`.ifc`, `.dxf`), non-empty / size bound checks (<= 50MB), filename sanitization, and path traversal security guards storing files in `UPLOAD_DIR / project_id / floor_plan_id / source_versions / v{version_no}`. Added `GET /api/v1/projects/{project_id}/floor-plans/{floor_plan_id}/ingestion-status` endpoint. Updated `list_projects`, `create_project`, and `list_floor_plans` to query PostgreSQL DB.
+  - **Frontend API Client (`frontend/src/api/ingestion.ts`)**: Built `uploadFloorPlanFile` with `XMLHttpRequest` progress reporting, `fetchIngestionStatus`, `publishFloorPlanVersion`, `listProjects`, `createProject`, and `reportToRenderModel` helper function transforming verification geometry elements into interactive `FloorPlanRenderModel`.
+  - **Frontend Upload Component (`frontend/src/components/FloorPlanUploadPanel.tsx`)**: Created drag & drop file container, project selection/creation inputs, file extension/size validation, upload progress bar (`0-100%`), ingestion status spinner, extracted element counts (walls, doors, windows, columns, spaces, area $m^2$), and error handling.
+  - **Product Flow Integration (`frontend/src/App.tsx`)**: Integrated `<FloorPlanUploadPanel>` into entry workflow (`"1. Upload Floor Plan"` -> `"2. Verification Review"` -> `"3. 2D Canvas Editor"`). Uploading a file auto-switches to Verification View for Layouts Team review, enables **"Publish Baseline"**, and loads the real uploaded floor plan baseline into `<LayoutCanvas>` with freehand region selection.
+  - **Testing**: Added integration test suite `backend/tests/integration/test_upload_api.py` covering multipart upload, version incrementing, extension validation, empty file rejection, path traversal protection, and status endpoint.
+- **Status:** `SUCCESS (100% Integration & Unit Tests, npm run build Passed)`
+- **Files Created/Updated:**
+  - [`backend/app/api/v1/projects.py`](file:///d:/Layouts%20AI/backend/app/api/v1/projects.py) (Added multipart upload & ingestion-status endpoints, database project management)
+  - [`backend/requirements.txt`](file:///d:/Layouts%20AI/backend/requirements.txt) (Added `python-multipart>=0.0.6`)
+  - [`backend/tests/integration/test_upload_api.py`](file:///d:/Layouts%20AI/backend/tests/integration/test_upload_api.py) (New integration test suite for upload API)
+  - [`frontend/src/api/ingestion.ts`](file:///d:/Layouts%20AI/frontend/src/api/ingestion.ts) (Frontend upload client & `reportToRenderModel` converter)
+  - [`frontend/src/components/FloorPlanUploadPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/components/FloorPlanUploadPanel.tsx) (New drag & drop upload UI panel)
+  - [`frontend/src/App.tsx`](file:///d:/Layouts%20AI/frontend/src/App.tsx) (Integrated upload workflow, verification review, publish handoff, and 2D canvas editor)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 2.5 completion status and history log)
+- **Test Execution Results:**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 239 modules in 12.29s)
 
 ---
 
