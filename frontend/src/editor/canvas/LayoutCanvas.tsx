@@ -1,7 +1,7 @@
 /**
  * Top-level reusable Konva 2D Architectural Canvas wrapper.
- * Combines responsive CanvasStage, Drafting Grid, Viewport Control Bar, and World Coordinates Status Bar.
- * Preserves renderer-neutral FloorPlanRenderModel decoupling and Task 5.4 manipulation capabilities.
+ * Combines responsive CanvasStage, Drafting Grid, Viewport Control Bar, World Coordinates Status Bar,
+ * Task 5.4 Object Manipulation, and Task 6.1 Freehand Region Stroke Capture.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
@@ -18,8 +18,9 @@ import { applyTransform } from "../transforms/transformManager";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange } from "../transforms/transformTypes";
 import { selectionManager } from "../selection/selectionManager";
+import { EditorToolMode, FreehandStroke } from "../freehand/freehandTypes";
 
-// Default sample floor plan render model for Task 5.3 & 5.4 validation
+// Default sample floor plan render model for Task 5.3, 5.4 & 6.1 validation
 const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
   id: "rm_101",
   name: "Executive Office Suite A",
@@ -64,6 +65,10 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [snapGuides, setSnapGuides] = useState<SnapGuideLine[]>([]);
 
+  // Task 6.1 State
+  const [toolMode, setToolMode] = useState<EditorToolMode>("select");
+  const [freehandStroke, setFreehandStroke] = useState<FreehandStroke | null>(null);
+
   const [viewport, setViewport] = useState<Viewport>({
     scale: initialScale,
     x: 0,
@@ -84,7 +89,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
     }
   }, [renderModel]);
 
-  // Viewport Control Button Actions (using dynamic container center)
+  // Viewport Control Button Actions
   const handleZoomIn = useCallback(() => {
     setViewport((prevVp) => zoomInCenter(prevVp, containerSize.width, containerSize.height));
   }, [containerSize]);
@@ -114,7 +119,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
     setActiveModel((prevModel) => applyTransform(prevModel, change));
   }, []);
 
-  // Determine currently selected object details for UI status bar
+  // Selected object details for status bar
   const selectedFurniture = activeModel.furniture.find((f) => f.id === selectedObjectId);
   const selectedWall = activeModel.walls.find((w) => w.id === selectedObjectId);
   const selectedDoor = activeModel.doors.find((d) => d.id === selectedObjectId);
@@ -137,7 +142,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         position: "relative",
       }}
     >
-      {/* Top Viewport Control Bar */}
+      {/* Top Viewport & Tool Mode Control Bar */}
       <div
         style={{
           display: "flex",
@@ -150,15 +155,47 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         }}
       >
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
-            2D CAD Layout Editor
-          </span>
+          {toolMode === "freehand_region" ? (
+            <span style={{ color: "#a855f7", fontWeight: 600, fontSize: "0.875rem" }}>
+              SELECT REGION ACTIVE — Click & drag on floor plan to outline working area
+            </span>
+          ) : freehandStroke?.isClosed ? (
+            <span style={{ color: "#c084fc", fontWeight: 600, fontSize: "0.875rem" }}>
+              Region Captured ({freehandStroke.points.length} points) — Ready for geometry analysis
+            </span>
+          ) : (
+            <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
+              2D CAD Layout Editor
+            </span>
+          )}
           <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
-            (Left-drag empty canvas to pan • Middle/Shift-drag to pan • Wheel zooms at cursor • Double-click zooms to point)
+            (Wheel zooms at cursor • Left-drag empty canvas to pan • Esc to clear)
           </span>
         </div>
 
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {/* Tool Modes */}
+          <button
+            className={`btn-ctrl ${toolMode === "select" ? "btn-ctrl-active" : ""}`}
+            onClick={() => setToolMode("select")}
+            title="Select & edit objects or pan canvas"
+          >
+            Select
+          </button>
+          <button
+            className={`btn-ctrl ${toolMode === "freehand_region" ? "btn-ctrl-active" : ""}`}
+            onClick={() => {
+              setToolMode("freehand_region");
+              setSelectedObjectId(null);
+            }}
+            title="Draw arbitrary spatial region on floor plan"
+          >
+            Select Region
+          </button>
+
+          <span style={{ color: "#475569", margin: "0 4px" }}>|</span>
+
+          {/* Viewport Actions */}
           <button className="btn-ctrl" onClick={handleZoomIn} title="Zoom In around canvas center">
             Zoom In (+)
           </button>
@@ -175,6 +212,17 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           >
             {showGrid ? "Grid On" : "Grid Off"}
           </button>
+
+          {freehandStroke && (
+            <button
+              className="btn-ctrl"
+              onClick={() => setFreehandStroke(null)}
+              title="Clear captured freehand stroke"
+              style={{ borderColor: "#ef4444", color: "#f87171" }}
+            >
+              Clear Region
+            </button>
+          )}
         </div>
       </div>
 
@@ -195,6 +243,9 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
             fitViewRef.current = fitFn;
           }}
           onContainerResize={setContainerSize}
+          toolMode={toolMode}
+          freehandStroke={freehandStroke}
+          onStrokeChange={setFreehandStroke}
         />
       </div>
 
@@ -214,7 +265,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         <div>
           World Coordinates: X = {cursorWorldPt.x.toFixed(2)} m, Y = {cursorWorldPt.y.toFixed(2)} m
         </div>
-        <div style={{ color: selectedObjectId ? "#38bdf8" : "#94a3b8", fontWeight: selectedObjectId ? 600 : 400 }}>
+        <div style={{ color: selectedObjectId ? "#38bdf8" : freehandStroke ? "#c084fc" : "#94a3b8", fontWeight: (selectedObjectId || freehandStroke) ? 600 : 400 }}>
           {selectedFurniture && (
             <>
               Selected Furniture: [{selectedFurniture.id}] {selectedFurniture.itemType} | Pos: ({selectedFurniture.position.x}m, {selectedFurniture.position.y}m) | Size: {selectedFurniture.widthMeters}m × {selectedFurniture.depthMeters}m | Rot: {selectedFurniture.rotationDeg}° {selectedFurniture.isLocked ? "🔒 [Locked]" : " (Editable)"}
@@ -224,10 +275,13 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           {selectedDoor && <>{`Selected Door: [${selectedDoor.id}] (Read-Only Aperture)`}</>}
           {selectedWindow && <>{`Selected Window: [${selectedWindow.id}] (Read-Only Aperture)`}</>}
           {selectedColumn && <>{`Selected Column: [${selectedColumn.id}] (Read-Only Structure)`}</>}
-          {!selectedObjectId && "Selected: None"}
+          {!selectedObjectId && freehandStroke?.isClosed && (
+            <>{`Freehand Region: Captured (${freehandStroke.points.length} points) [Screen Space]`}</>
+          )}
+          {!selectedObjectId && !freehandStroke?.isClosed && "Selected: None"}
         </div>
         <div>
-          Scale: {viewport.scale.toFixed(1)} px/m | Snap Step: 0.25m
+          Tool: {toolMode.toUpperCase()} | Scale: {viewport.scale.toFixed(1)} px/m
         </div>
       </div>
     </div>

@@ -56,8 +56,9 @@
 
 
 ### Phase 6: Freehand Region Selection
-- [ ] **Task 6.1:** Build user stroke capture tool in `frontend/src/editor/freehand/`.
+- [x] **Task 6.1:** Build user stroke capture tool in `frontend/src/editor/freehand/`. *(Completed: 2026-10-07 12:15:00+05:30)*
 - [ ] **Task 6.2:** Implement screen-to-world coordinate transform and client-side shoelace area preview.
+
 - [ ] **Task 6.3:** Implement server-side polygon clipping to surrounding walls using Shapely `make_valid`.
 
 ### Phase 7: Furniture Catalog & Semantic-to-Physical Mapping
@@ -600,7 +601,26 @@
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` built 234 modules in 10.34s)
   - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (151/151 passed in 36.42s)**
 
+### [2026-10-07] Task 6.1 Execution - User Freehand Region Stroke Capture Tool
+- **Action:** Built browser-side freehand stroke capture tool foundation for arbitrary spatial region selection on the 2D floor plan. Created `FreehandStroke` data schema (`freehandTypes.ts`) storing points in screen-space canvas stage coordinates (`Point2D[]`). Created pure stroke lifecycle manager `freehandManager.ts` (`startStroke`, `appendPointToStroke`, `completeStroke`, `cancelStroke`, `calculateDistance`) with distance-based point sampling threshold (≥ 3px). Created Konva overlay component `FreehandRegionLayer.tsx` rendering live smooth magenta stroke outlines (`#a855f7`), start point markers (`#c084fc`), vertex indicators, and semi-transparent closed polygon fills (`rgba(168, 85, 247, 0.18)`). Refactored `CanvasStage.tsx` and `LayoutCanvas.tsx` with explicit tool mode switching (`"select" | "pan" | "freehand_region"`), tool control buttons (`Select`, `Select Region`, `Clear Region`), visual toolbar mode feedback, and Escape key stroke cancellation. Added unit test suite `freehand.test.ts` integrated into `src/editor/runTests.ts`. Updated module documentation in `freehand/README.md`. Preserved full Task 5.4 object selection, furniture dragging, rotation, resizing, snapping, and viewport navigation behaviors.
+- **Status:** `SUCCESS (100% Unit Tests & npm run build Passed)`
+- **Files Created/Updated:**
+  - [`frontend/src/editor/freehand/freehandTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehandTypes.ts) (`FreehandStroke`, `EditorToolMode`)
+  - [`frontend/src/editor/freehand/freehandManager.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehandManager.ts) (Pure stroke start, sampling append, complete, cancel helpers)
+  - [`frontend/src/editor/freehand/FreehandRegionLayer.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/FreehandRegionLayer.tsx) (Live stroke Konva render layer)
+  - [`frontend/src/editor/freehand/freehand.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehand.test.ts) (Freehand stroke unit tests)
+  - [`frontend/src/editor/freehand/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/index.ts) (Module exports)
+  - [`frontend/src/editor/freehand/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/README.md) (Architecture & boundary documentation)
+  - [`frontend/src/editor/canvas/CanvasStage.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/CanvasStage.tsx) (Integrated freehand drawing pointer handlers, drawing cursor, and FreehandRegionLayer)
+  - [`frontend/src/editor/canvas/LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx) (Integrated tool mode buttons, freehand stroke state, and clear region action)
+  - [`frontend/src/editor/runTests.ts`](file:///d:/Layouts%20AI/frontend/src/editor/runTests.ts) (Updated test runner to include `runFreehandTests()`)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 6.1 completion status and history log)
+- **Test Execution Results:**
+  - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand)**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 236 modules in 11.93s)
+
 ---
+
 
 *Maintained continuously across all development steps.*
 

@@ -1,19 +1,26 @@
-# Freehand Region Drawing Tool
+# Freehand Region Selection Module (Task 6.1)
 
 ## 📌 Purpose & Overview
-User stroke capture, screen-to-world matrix conversion, stroke smoothing, and live polygon area preview.
+Captures user freehand pointer strokes on the 2D floor plan canvas to define arbitrary spatial working regions for AI-assisted layout generation.
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `frontend/src/editor/freehand`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
+## 🏗️ Architecture & Stroke Lifecycle
+```
+User Pointer Down (on stage)
+        ↓
+startStroke({ x, y }) [screen-space pixels]
+        ↓
+User Pointer Move
+        ↓
+appendPointToStroke() [distance sampling threshold ≥ 3px]
+        ↓
+Live Overlay Rendering (FreehandRegionLayer: magenta #a855f7)
+        ↓
+User Pointer Up
+        ↓
+completeStroke() → FreehandStroke { isDrawing: false, isClosed: true }
+```
 
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
-
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
-
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## 🔒 Invariants & Task Boundaries
+- **Screen-Space Storage:** Task 6.1 captures and stores points purely in screen-space canvas stage coordinates (`Point2D[]`).
+- **No Authoritative Geometry:** Task 6.1 does NOT convert points to world coordinates, call Shapely, perform polygon clipping, or estimate area/centroids. (Those belong to Task 6.2 and 6.3).
+- **Zero Furniture / Viewport Interruption:** Freehand drawing mode (`"freehand_region"`) is explicitly isolated from normal furniture selection/dragging and viewport panning modes (`"select"`, `"pan"`).

@@ -1,7 +1,7 @@
 /**
- * Konva Canvas Stage Component.
+ * Konva Canvas Stage Component (Task 5.2, 5.3, 5.4 & Task 6.1).
  * Handles responsive sizing, CAD free canvas pan, cursor-anchored zoom, double-click zoom-to-point,
- * and floor-plan rendering via RendererAdapter.
+ * floor-plan rendering via RendererAdapter, and Task 6.1 Freehand Region Stroke Capture.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
@@ -14,6 +14,9 @@ import { FloorPlanRenderModel } from "../renderer/renderTypes";
 import { KonvaFloorPlanRenderer } from "../renderer/KonvaRendererAdapter";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange } from "../transforms/transformTypes";
+import { EditorToolMode, FreehandStroke } from "../freehand/freehandTypes";
+import { startStroke, appendPointToStroke, completeStroke } from "../freehand/freehandManager";
+import { FreehandRegionLayer } from "../freehand/FreehandRegionLayer";
 
 interface CanvasStageProps {
   viewport: Viewport;
@@ -28,6 +31,10 @@ interface CanvasStageProps {
   snapGuides?: SnapGuideLine[];
   onFitView?: (fitFn: () => void) => void;
   onContainerResize?: (size: { width: number; height: number }) => void;
+  // Task 6.1 Freehand Stroke Capture Props
+  toolMode?: EditorToolMode;
+  freehandStroke?: FreehandStroke | null;
+  onStrokeChange?: (stroke: FreehandStroke | null) => void;
 }
 
 export const CanvasStage: React.FC<CanvasStageProps> = ({
@@ -43,6 +50,9 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   snapGuides = [],
   onFitView,
   onContainerResize,
+  toolMode = "select",
+  freehandStroke = null,
+  onStrokeChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -92,17 +102,18 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
     onFitView?.(fitView);
   }, [onFitView, fitView]);
 
-  // Escape key listener to clear selection
+  // Escape key listener to clear selection or freehand stroke
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onSelectObject?.(null);
         onSnapGuidesChange?.([]);
+        onStrokeChange?.(null);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onSelectObject, onSnapGuidesChange]);
+  }, [onSelectObject, onSnapGuidesChange, onStrokeChange]);
 
   // Cursor-anchored wheel zoom
   const handleWheel = useCallback(
@@ -134,7 +145,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
     [viewport, onViewportChange]
   );
 
-  // Mouse move for coordinate updates & active panning
+  // Mouse move for coordinates, active panning, and live freehand stroke recording
   const handleMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const stage = stageRef.current;
@@ -145,6 +156,16 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         onCursorMove(screenToWorld(pointer, viewport));
       }
 
+      // 1. Task 6.1 Freehand Region Drawing Active
+      if (toolMode === "freehand_region" && freehandStroke && freehandStroke.isDrawing && pointer) {
+        const updated = appendPointToStroke(freehandStroke, pointer);
+        if (updated !== freehandStroke) {
+          onStrokeChange?.(updated);
+        }
+        return;
+      }
+
+      // 2. Viewport Panning Active
       if (isPanning) {
         const dx = e.evt.clientX - panStartRef.current.x;
         const dy = e.evt.clientY - panStartRef.current.y;
@@ -157,17 +178,29 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         });
       }
     },
-    [isPanning, viewport, onViewportChange, onCursorMove]
+    [toolMode, freehandStroke, isPanning, viewport, onViewportChange, onCursorMove, onStrokeChange]
   );
 
-  // Mouse down for free canvas panning & selection
+  // Mouse down for freehand drawing start vs free canvas panning & selection
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+
+      const pointer = stage.getPointerPosition();
       const targetIsStage = e.target === e.target.getStage();
       const isMiddleClick = e.evt.button === 1;
       const isShiftLeftClick = e.evt.button === 0 && e.evt.shiftKey;
 
-      // If left click on an interactive object (furniture, wall, door, window, column) -> do not pan
+      // Task 6.1: Freehand Region Drawing Mode
+      if (toolMode === "freehand_region" && e.evt.button === 0 && !isShiftLeftClick && pointer) {
+        onSelectObject?.(null);
+        const newStroke = startStroke(pointer);
+        onStrokeChange?.(newStroke);
+        return;
+      }
+
+      // Normal Mode: Left click on an interactive object (furniture, wall, door, window, column) -> do not pan
       if (!targetIsStage && e.evt.button === 0 && !e.evt.shiftKey) {
         return;
       }
@@ -182,12 +215,24 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         }
       }
     },
-    [onSelectObject]
+    [toolMode, onSelectObject, onStrokeChange]
   );
 
+  // Mouse up to complete freehand stroke or end panning
   const handleMouseUp = useCallback(() => {
+    if (toolMode === "freehand_region" && freehandStroke && freehandStroke.isDrawing) {
+      const finished = completeStroke(freehandStroke);
+      onStrokeChange?.(finished);
+    }
     setIsPanning(false);
-  }, []);
+  }, [toolMode, freehandStroke, onStrokeChange]);
+
+  // Compute cursor style based on tool mode and active pan
+  const cursorStyle = React.useMemo(() => {
+    if (isPanning) return "grabbing";
+    if (toolMode === "freehand_region") return "crosshair";
+    return "default";
+  }, [isPanning, toolMode]);
 
   return (
     <div
@@ -198,7 +243,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         position: "relative",
         overflow: "hidden",
         backgroundColor: "#0f172a",
-        cursor: isPanning ? "grabbing" : "crosshair",
+        cursor: cursorStyle,
       }}
     >
       <Stage
@@ -233,6 +278,11 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
               snapGuides={snapGuides}
             />
           )}
+        </Layer>
+
+        {/* Task 6.1 Freehand Region Drawing Layer */}
+        <Layer>
+          <FreehandRegionLayer stroke={freehandStroke} />
         </Layer>
       </Stage>
     </div>
