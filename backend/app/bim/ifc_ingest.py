@@ -41,6 +41,17 @@ except ImportError:
     HAS_SHAPELY = False
 
 
+def _safe_by_type(ifc_file: Any, type_name: str) -> List[Any]:
+    """Safely query ifc_file by entity type name, returning [] if not supported by the IFC schema version."""
+    if not hasattr(ifc_file, "by_type"):
+        return []
+    try:
+        return list(ifc_file.by_type(type_name))
+    except Exception:
+        return []
+
+
+
 
 class GeometryStatus(str, Enum):
     """Status of geometry extraction for a BIM entity."""
@@ -313,7 +324,7 @@ class IFCIngestor:
                 warnings.append(f"IfcOpenShell geometry settings warning: {str(err)}")
 
         # Query mandatory 5 element types (including IfcWallStandardCase)
-        wall_entities = ifc_file.by_type("IfcWall") + ifc_file.by_type("IfcWallStandardCase")
+        wall_entities = _safe_by_type(ifc_file, "IfcWall") + _safe_by_type(ifc_file, "IfcWallStandardCase")
         seen_wall_ids = set()
         dedup_walls = []
         for w in wall_entities:
@@ -321,18 +332,31 @@ class IFCIngestor:
                 seen_wall_ids.add(w.id())
                 dedup_walls.append(w)
 
-        door_entities = ifc_file.by_type("IfcDoor")
-        window_entities = ifc_file.by_type("IfcWindow")
-        column_entities = ifc_file.by_type("IfcColumn")
-        space_entities = ifc_file.by_type("IfcSpace")
+        door_entities = _safe_by_type(ifc_file, "IfcDoor")
+        window_entities = _safe_by_type(ifc_file, "IfcWindow")
+        column_entities = _safe_by_type(ifc_file, "IfcColumn")
+        space_entities = _safe_by_type(ifc_file, "IfcSpace")
+        furnishing_entities = (
+            _safe_by_type(ifc_file, "IfcFurnishingElement") +
+            _safe_by_type(ifc_file, "IfcSystemFurnitureElement") +
+            _safe_by_type(ifc_file, "IfcBuildingElementProxy") +
+            _safe_by_type(ifc_file, "IfcFlowTerminal")
+        )
+        seen_furn_ids = set()
+        dedup_furn = []
+        for f in furnishing_entities:
+            if f.id() not in seen_furn_ids:
+                seen_furn_ids.add(f.id())
+                dedup_furn.append(f)
 
         walls = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in dedup_walls]
         doors = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in door_entities]
         windows = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in window_entities]
         columns = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in column_entities]
         spaces = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in space_entities]
+        furniture = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in dedup_furn]
 
-        all_elements = walls + doors + windows + columns + spaces
+        all_elements = walls + doors + windows + columns + spaces + furniture
 
         # GlobalId uniqueness check across parsed source
         seen_guids = set()
@@ -522,7 +546,7 @@ class IFCIngestor:
             pass
 
         try:
-            projects = ifc_file.by_type("IfcProject")
+            projects = _safe_by_type(ifc_file, "IfcProject")
             if projects:
                 project = projects[0]
                 units_in_context = getattr(project, "UnitsInContext", None)
@@ -555,7 +579,7 @@ class IFCIngestor:
                                             val = getattr(val_comp, "wrappedValue", None)
                                             if val is not None:
                                                 scale_to_meters = float(val)
-        except (AttributeError, KeyError, ValueError, TypeError):
+        except Exception:
             pass
 
         if abs(scale_to_meters - 0.3048) < 1e-4 and unit_name == "METRE":
@@ -595,15 +619,15 @@ class IFCIngestor:
                     if hasattr(fn, "originating_system"):
                         meta["exporter_application"] = str(fn.originating_system)
 
-            projects = ifc_file.by_type("IfcProject")
+            projects = _safe_by_type(ifc_file, "IfcProject")
             if projects:
                 meta["project_name"] = getattr(projects[0], "Name", None)
 
-            buildings = ifc_file.by_type("IfcBuilding")
+            buildings = _safe_by_type(ifc_file, "IfcBuilding")
             if buildings:
                 meta["building_name"] = getattr(buildings[0], "Name", None)
 
-            map_conversions = ifc_file.by_type("IfcMapConversion") if hasattr(ifc_file, "by_type") else []
+            map_conversions = _safe_by_type(ifc_file, "IfcMapConversion")
             if map_conversions:
                 mc = map_conversions[0]
                 meta["map_conversion"] = {
@@ -613,7 +637,7 @@ class IFCIngestor:
                     "scale": getattr(mc, "Scale", None),
                 }
 
-            projected_crs = ifc_file.by_type("IfcProjectedCRS") if hasattr(ifc_file, "by_type") else []
+            projected_crs = _safe_by_type(ifc_file, "IfcProjectedCRS")
             if projected_crs:
                 crs = projected_crs[0]
                 meta["projected_crs"] = {
@@ -621,7 +645,7 @@ class IFCIngestor:
                     "geodetic_datum": getattr(crs, "GeodeticDatum", None),
                 }
 
-        except (AttributeError, KeyError, ValueError, TypeError):
+        except Exception:
             pass
 
         return meta

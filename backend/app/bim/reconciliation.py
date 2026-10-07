@@ -79,15 +79,32 @@ class GeometryReconciler:
             parsed_ifc.doors +
             parsed_ifc.windows +
             parsed_ifc.columns +
-            parsed_ifc.spaces
+            parsed_ifc.spaces +
+            getattr(parsed_ifc, "furniture", [])
         )
 
         for elem in all_elements:
             if elem.geometry_status == GeometryStatus.VALID and elem.geometry_coordinates:
+                raw_cat = elem.element_type.replace("Ifc", "").upper()
+                if "WALL" in raw_cat:
+                    cat_name = "WALL"
+                elif "DOOR" in raw_cat:
+                    cat_name = "DOOR"
+                elif "WINDOW" in raw_cat:
+                    cat_name = "WINDOW"
+                elif "COLUMN" in raw_cat:
+                    cat_name = "COLUMN"
+                elif "SPACE" in raw_cat or "ROOM" in raw_cat:
+                    cat_name = "SPACE"
+                elif "FURNISH" in raw_cat or "PROXY" in raw_cat or "SYSTEMFURNITURE" in raw_cat or "FLOWTERMINAL" in raw_cat:
+                    cat_name = "FURNITURE"
+                else:
+                    cat_name = raw_cat
+
                 elements_geom.append({
                     "id": elem.internal_id,
                     "global_id": elem.ifc_global_id,
-                    "category": elem.element_type.replace("Ifc", "").upper(),
+                    "category": cat_name,
                     "type": elem.geometry_type.value if hasattr(elem.geometry_type, "value") else str(elem.geometry_type),
                     "coordinates": elem.geometry_coordinates,
                     "boundary": elem.boundary_vertices,

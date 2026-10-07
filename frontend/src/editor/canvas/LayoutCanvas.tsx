@@ -168,7 +168,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         borderRadius: "8px",
         overflow: "hidden",
         border: "1px solid #334155",
-        backgroundColor: "#0f172a",
+        backgroundColor: "#000000",
         position: "relative",
       }}
     >

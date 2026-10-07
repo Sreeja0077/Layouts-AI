@@ -120,6 +120,18 @@ export const App: React.FC<AppProps> = ({
     localStorage.setItem("layouts_ai_active_floor_plan_id", res.floor_plan_id);
     localStorage.setItem("layouts_ai_active_tab", "editor");
 
+    listFloorPlans(res.project_id)
+      .then((fps) => {
+        const clean = fps.filter(
+          (fp) =>
+            !fp.name.toLowerCase().includes("sample_floor_plan") &&
+            !fp.name.toLowerCase().includes("test plan") &&
+            fp.id !== "fp_501"
+        );
+        setUserFloorPlans(clean.map((f) => ({ id: f.id, name: f.name })));
+      })
+      .catch(() => {});
+
     if (res.verification_report) {
       setReport(res.verification_report);
       setEditorRenderModel(reportToRenderModel(res.verification_report));

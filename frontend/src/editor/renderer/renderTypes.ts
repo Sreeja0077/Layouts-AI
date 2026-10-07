@@ -91,6 +91,7 @@ export interface RenderFurniture {
   depthMeters: number;
   rotationDeg: number;
   isLocked?: boolean;
+  geometry?: RenderGeometry;
 }
 
 /** Complete renderer-neutral architectural floor plan render model */

@@ -38,6 +38,16 @@ export interface KonvaRendererProps {
  * Konva implementation of the RendererAdapter interface.
  */
 export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
+  private static SPACE_COLOR_PALETTE = [
+    { fill: "rgba(55, 65, 81, 0.65)", stroke: "rgba(156, 163, 175, 0.5)", text: "#e5e7eb" },    // Slate / Office
+    { fill: "rgba(120, 53, 15, 0.55)", stroke: "rgba(217, 119, 6, 0.5)", text: "#fde68a" },    // Warm Wood / Exec Suite
+    { fill: "rgba(30, 58, 138, 0.55)", stroke: "rgba(96, 165, 250, 0.5)", text: "#bfdbfe" },   // Deep Navy / Meeting Room
+    { fill: "rgba(63, 63, 70, 0.65)", stroke: "rgba(161, 161, 170, 0.5)", text: "#f4f4f5" },   // Charcoal / Reception
+    { fill: "rgba(15, 118, 110, 0.55)", stroke: "rgba(45, 212, 191, 0.5)", text: "#ccfbf1" },  // Teal / Lounge
+    { fill: "rgba(124, 45, 18, 0.55)", stroke: "rgba(251, 146, 60, 0.5)", text: "#ffedd5" },   // Amber / Corridor
+    { fill: "rgba(74, 4, 78, 0.55)", stroke: "rgba(192, 132, 252, 0.5)", text: "#f3e8ff" },   // Purple / Storage
+  ];
+
   private renderPolygonGeometry(
     id: string,
     geometry: RenderGeometry,
@@ -73,7 +83,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                     key={`hole-${id}-${polyIdx}-${holeIdx}`}
                     points={holePts}
                     closed
-                    fill="#0f172a"
+                    fill="#000000"
                     stroke={styles.stroke || "#94a3b8"}
                     strokeWidth={styles.strokeWidth ?? 1}
                   />
@@ -87,36 +97,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   }
 
   renderFloorPlan(model: Readonly<FloorPlanRenderModel>, viewport: Viewport): JSX.Element {
-    const boundaryPointsFlat = model.boundary.flatMap((pt) => {
-      const s = worldToScreen(pt, viewport);
-      return [s.x, s.y];
-    });
-
     return (
       <Group key={`fp-${model.id}`}>
-        {/* Room Outer Boundary */}
-        {boundaryPointsFlat.length >= 6 && (
-          <Line
-            points={boundaryPointsFlat}
-            closed
-            stroke="#38bdf8"
-            strokeWidth={2}
-            fill="rgba(56, 189, 248, 0.06)"
-          />
-        )}
-
-        {/* Room Name Label */}
-        {model.name && model.boundary.length > 0 && (
-          <Text
-            text={`${model.name} (${model.id})`}
-            x={worldToScreen(model.boundary[0], viewport).x + 10}
-            y={worldToScreen(model.boundary[0], viewport).y + 10}
-            fill="#94a3b8"
-            fontSize={14}
-            fontFamily="Inter, sans-serif"
-          />
-        )}
-
         {/* Architectural Layers */}
         {this.renderSpaces(model.spaces || [], viewport)}
         {this.renderWalls(model.walls, viewport)}
@@ -131,16 +113,48 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   renderSpaces(spaces: ReadonlyArray<RenderSpace>, viewport: Viewport): JSX.Element {
     return (
       <Group key="layer-spaces">
-        {spaces.map((space) => {
-          if (space.geometry) {
-            return this.renderPolygonGeometry(space.id, space.geometry, viewport, {
-              fill: "rgba(168, 85, 247, 0.08)",
-              stroke: "rgba(168, 85, 247, 0.3)",
-              strokeWidth: 1,
-              dash: [4, 4],
-            });
+        {spaces.map((space, idx) => {
+          if (!space.geometry) return null;
+          const style = KonvaRendererAdapterImpl.SPACE_COLOR_PALETTE[
+            idx % KonvaRendererAdapterImpl.SPACE_COLOR_PALETTE.length
+          ];
+
+          let centroidScreen = { x: 0, y: 0 };
+          const firstPoly = space.geometry.polygons[0];
+          if (firstPoly && firstPoly.exterior.length > 0) {
+            const sumX = firstPoly.exterior.reduce((acc, pt) => acc + pt.x, 0);
+            const sumY = firstPoly.exterior.reduce((acc, pt) => acc + pt.y, 0);
+            const worldCentroid = {
+              x: sumX / firstPoly.exterior.length,
+              y: sumY / firstPoly.exterior.length,
+            };
+            centroidScreen = worldToScreen(worldCentroid, viewport);
           }
-          return null;
+
+          return (
+            <Group key={`space-grp-${space.id || idx}`}>
+              {this.renderPolygonGeometry(space.id, space.geometry, viewport, {
+                fill: style.fill,
+                stroke: style.stroke,
+                strokeWidth: 1.5,
+              })}
+              {firstPoly && firstPoly.exterior.length > 0 && (
+                <Text
+                  text={space.name || `Space ${idx + 1}`}
+                  x={centroidScreen.x - 50}
+                  y={centroidScreen.y - 8}
+                  width={100}
+                  align="center"
+                  fontSize={Math.max(10, Math.min(13, 0.45 * viewport.scale))}
+                  fill={style.text}
+                  fontFamily="Inter, sans-serif"
+                  fontStyle="bold"
+                  opacity={0.85}
+                  listening={false}
+                />
+              )}
+            </Group>
+          );
         })}
       </Group>
     );
@@ -152,8 +166,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {walls.map((wall) => {
           if (wall.geometry) {
             return this.renderPolygonGeometry(wall.id, wall.geometry, viewport, {
-              fill: wall.isExterior ? "#cbd5e1" : "#94a3b8",
-              stroke: "#334155",
+              fill: "#27272a",
+              stroke: "#e2e8f0",
               strokeWidth: 1.5,
             });
           }
@@ -164,8 +178,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
               <Line
                 key={`wall-${wall.id}`}
                 points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-                stroke={wall.isExterior ? "#f1f5f9" : "#cbd5e1"}
-                strokeWidth={Math.max(2, wall.thicknessMeters * viewport.scale)}
+                stroke="#cbd5e1"
+                strokeWidth={Math.max(4, wall.thicknessMeters * viewport.scale)}
                 lineCap="round"
               />
             );
@@ -182,14 +196,14 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {doors.map((door) => {
           if (door.geometry) {
             return this.renderPolygonGeometry(door.id, door.geometry, viewport, {
-              fill: "rgba(245, 158, 11, 0.3)",
-              stroke: "#f59e0b",
-              strokeWidth: 1.5,
+              fill: "rgba(37, 99, 235, 0.75)",
+              stroke: "#60a5fa",
+              strokeWidth: 2,
             });
           }
           if (door.position) {
             const sPos = worldToScreen(door.position, viewport);
-            const sWidth = door.widthMeters * viewport.scale;
+            const sWidth = Math.min(door.widthMeters * viewport.scale, 28);
             const swingAngle = door.swingAngleDeg ?? 90;
             const rotation = door.rotationDeg ?? 0;
             return (
@@ -199,12 +213,12 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                   rotation={0}
                   innerRadius={0}
                   outerRadius={sWidth}
-                  fill="rgba(251, 191, 36, 0.15)"
-                  stroke="#f59e0b"
-                  strokeWidth={1.5}
+                  fill="rgba(59, 130, 246, 0.3)"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
                   dash={[3, 3]}
                 />
-                <Line points={[0, 0, sWidth, 0]} stroke="#f59e0b" strokeWidth={2} />
+                <Line points={[0, 0, sWidth, 0]} stroke="#60a5fa" strokeWidth={2.5} />
               </Group>
             );
           }
@@ -220,9 +234,9 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {windows.map((win) => {
           if (win.geometry) {
             return this.renderPolygonGeometry(win.id, win.geometry, viewport, {
-              fill: "rgba(56, 189, 248, 0.4)",
-              stroke: "#0284c7",
-              strokeWidth: 1.5,
+              fill: "rgba(6, 182, 212, 0.6)",
+              stroke: "#22d3ee",
+              strokeWidth: 2,
             });
           }
           if (win.start && win.end) {
@@ -232,9 +246,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
               <Line
                 key={`win-${win.id}`}
                 points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-                stroke="#38bdf8"
-                strokeWidth={Math.max(3, (win.thicknessMeters || 0.15) * viewport.scale)}
-                dash={[4, 4]}
+                stroke="#00f0ff"
+                strokeWidth={Math.max(4, (win.thicknessMeters || 0.15) * viewport.scale)}
                 lineCap="square"
               />
             );
@@ -251,9 +264,9 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {columns.map((col) => {
           if (col.geometry) {
             return this.renderPolygonGeometry(col.id, col.geometry, viewport, {
-              fill: "rgba(239, 68, 68, 0.5)",
-              stroke: "#dc2626",
-              strokeWidth: 1.5,
+              fill: "#f59e0b",
+              stroke: "#fde047",
+              strokeWidth: 2,
             });
           }
           if (col.position) {
@@ -267,9 +280,10 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 y={sPos.y - sH / 2}
                 width={sW}
                 height={sH}
-                fill="rgba(239, 68, 68, 0.25)"
-                stroke="#ef4444"
-                strokeWidth={1.5}
+                fill="#f59e0b"
+                stroke="#fde047"
+                strokeWidth={2}
+                cornerRadius={1}
               />
             );
           }
@@ -283,6 +297,13 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-furniture">
         {furniture.map((item) => {
+          if (item.geometry) {
+            return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+              fill: "rgba(180, 83, 9, 0.7)",
+              stroke: "#f59e0b",
+              strokeWidth: 1.5,
+            });
+          }
           const sPos = worldToScreen(item.position, viewport);
           const sW = item.widthMeters * viewport.scale;
           const sD = item.depthMeters * viewport.scale;
@@ -293,8 +314,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 y={-sD / 2}
                 width={sW}
                 height={sD}
-                fill={item.isLocked ? "rgba(148, 163, 184, 0.3)" : "rgba(99, 102, 241, 0.25)"}
-                stroke={item.isLocked ? "#94a3b8" : "#6366f1"}
+                fill={item.isLocked ? "rgba(148, 163, 184, 0.4)" : "rgba(180, 83, 9, 0.55)"}
+                stroke={item.isLocked ? "#94a3b8" : "#f59e0b"}
                 strokeWidth={1.5}
                 cornerRadius={2}
               />
@@ -302,8 +323,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 text={item.itemType}
                 x={-sW / 2 + 2}
                 y={-sD / 2 + 2}
-                fontSize={Math.max(10, Math.min(12, sW / 4))}
-                fill="#e2e8f0"
+                fontSize={Math.max(9, Math.min(11, sW / 4))}
+                fill="#fef08a"
                 fontFamily="Inter, sans-serif"
               />
             </Group>
@@ -357,11 +378,6 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
     }
   }, [selectedObjectId, model, viewport]);
 
-  const boundaryPointsFlat = model.boundary.flatMap((pt) => {
-    const s = worldToScreen(pt, viewport);
-    return [s.x, s.y];
-  });
-
   return (
     <Group>
       {/* Snap Guide Lines Layer */}
@@ -379,156 +395,8 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
         );
       })}
 
-      {/* Room Outer Boundary */}
-      {boundaryPointsFlat.length >= 6 && (
-        <Line
-          points={boundaryPointsFlat}
-          closed
-          stroke="#38bdf8"
-          strokeWidth={2}
-          fill="rgba(56, 189, 248, 0.06)"
-          listening={false}
-        />
-      )}
-
-      {/* Room Name Label */}
-      {model.name && model.boundary.length > 0 && (
-        <Text
-          text={`${model.name} (${model.id})`}
-          x={worldToScreen(model.boundary[0], viewport).x + 10}
-          y={worldToScreen(model.boundary[0], viewport).y + 10}
-          fill="#94a3b8"
-          fontSize={14}
-          fontFamily="Inter, sans-serif"
-          listening={false}
-        />
-      )}
-
-      {/* Architectural Walls */}
-      <Group key="layer-walls">
-        {model.walls.map((wall) => {
-          const sStart = worldToScreen(wall.start, viewport);
-          const sEnd = worldToScreen(wall.end, viewport);
-          const isSelected = selectedObjectId === wall.id;
-          return (
-            <Line
-              key={`wall-${wall.id}`}
-              points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-              stroke={isSelected ? "#38bdf8" : wall.isExterior ? "#f1f5f9" : "#cbd5e1"}
-              strokeWidth={Math.max(2, wall.thicknessMeters * viewport.scale) + (isSelected ? 2 : 0)}
-              lineCap="round"
-              onClick={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(wall.id);
-              }}
-              onTap={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(wall.id);
-              }}
-            />
-          );
-        })}
-      </Group>
-
-      {/* Windows */}
-      <Group key="layer-windows">
-        {model.windows.map((win) => {
-          const sStart = worldToScreen(win.start, viewport);
-          const sEnd = worldToScreen(win.end, viewport);
-          const isSelected = selectedObjectId === win.id;
-          return (
-            <Line
-              key={`win-${win.id}`}
-              points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-              stroke={isSelected ? "#38bdf8" : "#38bdf8"}
-              strokeWidth={Math.max(3, (win.thicknessMeters || 0.15) * viewport.scale) + (isSelected ? 2 : 0)}
-              dash={[4, 4]}
-              lineCap="square"
-              onClick={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(win.id);
-              }}
-              onTap={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(win.id);
-              }}
-            />
-          );
-        })}
-      </Group>
-
-      {/* Doors */}
-      <Group key="layer-doors">
-        {model.doors.map((door) => {
-          const sPos = worldToScreen(door.position, viewport);
-          const sWidth = door.widthMeters * viewport.scale;
-          const swingAngle = door.swingAngleDeg ?? 90;
-          const rotation = door.rotationDeg ?? 0;
-          const isSelected = selectedObjectId === door.id;
-          return (
-            <Group
-              key={`door-${door.id}`}
-              x={sPos.x}
-              y={sPos.y}
-              rotation={rotation}
-              onClick={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(door.id);
-              }}
-              onTap={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(door.id);
-              }}
-            >
-              <Arc
-                angle={swingAngle}
-                rotation={0}
-                innerRadius={0}
-                outerRadius={sWidth}
-                fill="rgba(251, 191, 36, 0.15)"
-                stroke={isSelected ? "#38bdf8" : "#f59e0b"}
-                strokeWidth={isSelected ? 2.5 : 1.5}
-                dash={[3, 3]}
-              />
-              <Line
-                points={[0, 0, sWidth, 0]}
-                stroke={isSelected ? "#38bdf8" : "#f59e0b"}
-                strokeWidth={isSelected ? 3 : 2}
-              />
-            </Group>
-          );
-        })}
-      </Group>
-
-      {/* Columns */}
-      <Group key="layer-columns">
-        {model.columns.map((col) => {
-          const sPos = worldToScreen(col.position, viewport);
-          const sW = col.widthMeters * viewport.scale;
-          const sH = col.heightMeters * viewport.scale;
-          const isSelected = selectedObjectId === col.id;
-          return (
-            <Rect
-              key={`col-${col.id}`}
-              x={sPos.x - sW / 2}
-              y={sPos.y - sH / 2}
-              width={sW}
-              height={sH}
-              fill="rgba(239, 68, 68, 0.25)"
-              stroke={isSelected ? "#38bdf8" : "#ef4444"}
-              strokeWidth={isSelected ? 3 : 1.5}
-              onClick={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(col.id);
-              }}
-              onTap={(e) => {
-                e.cancelBubble = true;
-                onSelectObject?.(col.id);
-              }}
-            />
-          );
-        })}
-      </Group>
+      {/* Architectural Layers rendered via konvaRendererAdapter */}
+      {konvaRendererAdapter.renderFloorPlan(model, viewport)}
 
       {/* Furniture Layer */}
       <Group key="layer-furniture">

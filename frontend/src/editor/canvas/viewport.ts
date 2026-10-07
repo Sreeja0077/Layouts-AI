@@ -8,12 +8,12 @@ export const DEFAULT_MAX_SCALE = 500;
 export const DEFAULT_INITIAL_SCALE = 40;
 
 export function worldToScreen(worldPt: Point2D, viewport: Viewport): Point2D {
-  return { x: worldPt.x * viewport.scale + viewport.x, y: worldPt.y * viewport.scale + viewport.y };
+  return { x: worldPt.x * viewport.scale + viewport.x, y: -worldPt.y * viewport.scale + viewport.y };
 }
 
 export function screenToWorld(screenPt: Point2D, viewport: Viewport): Point2D {
   if (viewport.scale <= 0) return { x: 0, y: 0 };
-  return { x: (screenPt.x - viewport.x) / viewport.scale, y: (screenPt.y - viewport.y) / viewport.scale };
+  return { x: (screenPt.x - viewport.x) / viewport.scale, y: -(screenPt.y - viewport.y) / viewport.scale };
 }
 
 export function clampScale(scale: number, minScale = DEFAULT_MIN_SCALE, maxScale = DEFAULT_MAX_SCALE): number {
@@ -27,7 +27,7 @@ export function zoomAtPoint(pointerScreenPt: Point2D, zoomFactor: number, curren
   return {
     scale: newScale,
     x: pointerScreenPt.x - worldPtUnderPointer.x * newScale,
-    y: pointerScreenPt.y - worldPtUnderPointer.y * newScale,
+    y: pointerScreenPt.y + worldPtUnderPointer.y * newScale,
   };
 }
 
@@ -47,7 +47,7 @@ export function fitBounds(points: Point2D[], containerWidth: number, containerHe
   return {
     scale,
     x: containerWidth / 2 - ((minX + maxX) / 2) * scale,
-    y: containerHeight / 2 - ((minY + maxY) / 2) * scale,
+    y: containerHeight / 2 + ((minY + maxY) / 2) * scale,
   };
 }
 

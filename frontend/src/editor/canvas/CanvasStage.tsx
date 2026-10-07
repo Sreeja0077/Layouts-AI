@@ -290,7 +290,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         height: "100%",
         position: "relative",
         overflow: "hidden",
-        backgroundColor: "#0f172a",
+        backgroundColor: "#000000",
         cursor: cursorStyle,
       }}
     >

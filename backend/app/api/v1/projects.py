@@ -265,11 +265,17 @@ async def upload_floor_plan(
 
     actual_proj_id = project_obj.id
 
-    # Resolve existing FloorPlan by exact ID or UUID string
-    fp_query = db.query(FloorPlan).filter(FloorPlan.project_id == actual_proj_id)
+    # Resolve existing FloorPlan ONLY if floor_plan_id is explicitly provided (for new revision uploads)
+    fp_obj = None
     if floor_plan_id:
-        fp_query = fp_query.filter((FloorPlan.id == floor_plan_id) | (FloorPlan.id == fp_uuid))
-    fp_obj = fp_query.first()
+        fp_obj = (
+            db.query(FloorPlan)
+            .filter(
+                FloorPlan.project_id == actual_proj_id,
+                (FloorPlan.id == floor_plan_id) | (FloorPlan.id == fp_uuid)
+            )
+            .first()
+        )
 
     fp_display_name = floor_plan_name or clean_filename
     if not fp_obj:
@@ -416,11 +422,11 @@ async def get_ingestion_status(
     report_dict = record.verification_report or {}
     all_elements = report_dict.get("all_elements_geometry", [])
 
-    walls_count = sum(1 for e in all_elements if e.get("category") == "WALL")
-    doors_count = sum(1 for e in all_elements if e.get("category") == "DOOR")
-    windows_count = sum(1 for e in all_elements if e.get("category") == "WINDOW")
-    columns_count = sum(1 for e in all_elements if e.get("category") == "COLUMN")
-    spaces_count = sum(1 for e in all_elements if e.get("category") == "SPACE")
+    walls_count = sum(1 for e in all_elements if "WALL" in str(e.get("category", "")).upper())
+    doors_count = sum(1 for e in all_elements if "DOOR" in str(e.get("category", "")).upper())
+    windows_count = sum(1 for e in all_elements if "WINDOW" in str(e.get("category", "")).upper())
+    columns_count = sum(1 for e in all_elements if "COLUMN" in str(e.get("category", "")).upper())
+    spaces_count = sum(1 for e in all_elements if "SPACE" in str(e.get("category", "")).upper() or "ROOM" in str(e.get("category", "")).upper())
 
     lifecycle_status = record.verification_status
     if lifecycle_status in ("VERIFIED", "READY", "PENDING"):
