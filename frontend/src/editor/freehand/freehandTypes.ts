@@ -1,6 +1,6 @@
 /**
- * TypeScript contracts and models for Freehand Region Selection (Task 6.1).
- * Captures user stroke points in screen-space canvas stage coordinates.
+ * TypeScript contracts and models for Freehand Region Selection (Task 6.1 & Task 6.2).
+ * Establishes stroke capture types and world-space RegionPreview geometry contracts.
  */
 
 import { Point2D } from "../canvas/canvasTypes";
@@ -14,4 +14,19 @@ export interface FreehandStroke {
   isDrawing: boolean;
   isClosed: boolean;
   createdAt: number;
+}
+
+export interface RegionPreview {
+  strokeId: string;
+  /** Polygon vertices in world metric units (meters) */
+  worldPoints: Point2D[];
+  /** Total enclosed surface area in square meters (m²) */
+  areaSqMeters: number;
+  /** Total boundary perimeter length in meters (m) */
+  perimeterMeters: number;
+  /** Polygon geometric center point in world meters (x, y) */
+  centroid: Point2D | null;
+  isClosed: boolean;
+  /** True if polygon has ≥ 3 points and non-zero area */
+  isValid: boolean;
 }

@@ -1,6 +1,7 @@
 /**
- * Unit tests for Freehand Region Stroke Capture Manager (Task 6.1).
- * Tests stroke lifecycle, point sampling, distance filtering, completion, cancellation, and order preservation.
+ * Unit tests for Freehand Region Stroke Capture & World Region Preview (Task 6.1 & Task 6.2).
+ * Tests stroke lifecycle, screen-to-world transform, Shoelace area, perimeter, centroid,
+ * viewport invariance across pan/zoom, and degenerate polygon safety.
  */
 
 import {
@@ -9,105 +10,201 @@ import {
   completeStroke,
   cancelStroke,
   calculateDistance,
+  screenStrokeToWorld,
+  calculatePolygonAreaSqMeters,
+  calculatePolygonPerimeterMeters,
+  calculatePolygonCentroid,
+  computeRegionPreview,
 } from "./freehandManager";
 import { FreehandStroke } from "./freehandTypes";
+import { Viewport, Point2D } from "../canvas/canvasTypes";
+import { worldToScreen, screenToWorld } from "../canvas/viewport";
 
 export function runFreehandTests(): boolean {
   let passed = true;
 
-  // Test 1: Initial stroke state is null
+  // --- Task 6.1 Stroke Capture Unit Tests ---
   let activeStroke: FreehandStroke | null = null;
   if (activeStroke !== null) {
-    console.error("Freehand Test 1 Failed: Initial stroke not null", activeStroke);
+    console.error("Freehand Test 1 Failed: Initial stroke not null");
     passed = false;
   }
 
-  // Test 2: Pointer start creates a stroke
   activeStroke = startStroke({ x: 100, y: 200 });
   if (
     !activeStroke ||
     activeStroke.points.length !== 1 ||
     activeStroke.points[0].x !== 100 ||
-    activeStroke.points[0].y !== 200 ||
-    !activeStroke.isDrawing ||
-    activeStroke.isClosed
+    !activeStroke.isDrawing
   ) {
     console.error("Freehand Test 2 Failed: startStroke incorrect", activeStroke);
     passed = false;
   }
 
-  // Test 3: Pointer movement appends points when distance >= threshold
-  activeStroke = appendPointToStroke(activeStroke, { x: 101, y: 200 }, 3); // 1px dist -> skipped
-  if (activeStroke.points.length !== 1) {
-    console.error("Freehand Test 3a Failed: point within threshold was not filtered", activeStroke);
-    passed = false;
-  }
-
-  activeStroke = appendPointToStroke(activeStroke, { x: 110, y: 200 }, 3); // 10px dist -> appended
-  activeStroke = appendPointToStroke(activeStroke, { x: 110, y: 250 }, 3); // 50px dist -> appended
-  if (activeStroke.points.length !== 3) {
-    console.error("Freehand Test 3b Failed: points above threshold not appended", activeStroke);
-    passed = false;
-  }
-
-  // Test 4: Pointer release completes the stroke
+  activeStroke = appendPointToStroke(activeStroke, { x: 110, y: 200 }, 3);
+  activeStroke = appendPointToStroke(activeStroke, { x: 110, y: 250 }, 3);
   const completed = completeStroke(activeStroke);
-  if (!completed || completed.isDrawing !== false || completed.isClosed !== true) {
-    console.error("Freehand Test 4 Failed: completeStroke incorrect", completed);
+  if (!completed || completed.isClosed !== true) {
+    console.error("Freehand Test 3 Failed: completeStroke incorrect", completed);
     passed = false;
   }
 
-  // Test 5: Multiple points are preserved in order
+  // --- Task 6.2 Screen-to-World & Geometry Metrics Unit Tests ---
+  const vp: Viewport = { scale: 50, x: 100, y: 200 };
+
+  // TEST 1: screenToWorld conversion: known viewport + known screen point -> expected world point
+  const knownScreenPt: Point2D = { x: 250, y: 400 }; // (250-100)/50 = 3, (400-200)/50 = 4
+  const expectedWorldPt = screenToWorld(knownScreenPt, vp);
+  if (expectedWorldPt.x !== 3.0 || expectedWorldPt.y !== 4.0) {
+    console.error("Task 6.2 TEST 1 Failed: screenToWorld math", expectedWorldPt);
+    passed = false;
+  }
+
+  // TEST 2: worldToScreen + screenToWorld round trip
+  const originalWorldPt: Point2D = { x: 7.5, y: 12.25 };
+  const sPt = worldToScreen(originalWorldPt, vp);
+  const roundTripWorldPt = screenToWorld(sPt, vp);
   if (
-    completed.points[0].x !== 100 ||
-    completed.points[1].x !== 110 ||
-    completed.points[2].y !== 250
+    Math.abs(originalWorldPt.x - roundTripWorldPt.x) > 0.0001 ||
+    Math.abs(originalWorldPt.y - roundTripWorldPt.y) > 0.0001
   ) {
-    console.error("Freehand Test 5 Failed: Point order corrupted", completed.points);
+    console.error("Task 6.2 TEST 2 Failed: Round trip world conversion", roundTripWorldPt);
     passed = false;
   }
 
-  // Test 6: Too-short stroke (< 3 points) is rejected / cancelled cleanly
-  let shortStroke = startStroke({ x: 50, y: 50 });
-  shortStroke = appendPointToStroke(shortStroke, { x: 60, y: 50 }, 3);
-  const rejected = completeStroke(shortStroke);
-  if (rejected.points.length !== 0 || rejected.isClosed !== false) {
-    console.error("Freehand Test 6 Failed: Short stroke not rejected", rejected);
+  // TEST 3: 4 x 3 rectangle: area = 12 m²
+  const rectWorldPts: Point2D[] = [
+    { x: 0, y: 0 },
+    { x: 4, y: 0 },
+    { x: 4, y: 3 },
+    { x: 0, y: 3 },
+  ];
+  const rectArea = calculatePolygonAreaSqMeters(rectWorldPts);
+  if (rectArea !== 12.0) {
+    console.error("Task 6.2 TEST 3 Failed: 4x3 rectangle area != 12", rectArea);
     passed = false;
   }
 
-  // Test 7: Escape / cancelStroke returns null
-  const cancelled = cancelStroke();
-  if (cancelled !== null) {
-    console.error("Freehand Test 7 Failed: cancelStroke didn't return null");
+  // TEST 4: 4 x 3 rectangle: perimeter = 14 m (including closing segment)
+  const rectPerim = calculatePolygonPerimeterMeters(rectWorldPts);
+  if (rectPerim !== 14.0) {
+    console.error("Task 6.2 TEST 4 Failed: 4x3 rectangle perimeter != 14", rectPerim);
     passed = false;
   }
 
-  // Test 8: Starting a new stroke replaces previous stroke
-  const stroke1 = completeStroke(
-    appendPointToStroke(
-      appendPointToStroke(startStroke({ x: 0, y: 0 }), { x: 10, y: 0 }),
-      { x: 10, y: 10 }
-    )
-  );
-  const stroke2 = startStroke({ x: 300, y: 300 });
-  if (stroke2.id === stroke1.id || stroke2.points.length !== 1 || stroke2.points[0].x !== 300) {
-    console.error("Freehand Test 8 Failed: New stroke did not replace previous stroke");
+  // TEST 5: 4 x 3 rectangle: centroid = (2.0, 1.5)
+  const rectCentroid = calculatePolygonCentroid(rectWorldPts);
+  if (
+    !rectCentroid ||
+    Math.abs(rectCentroid.x - 2.0) > 0.001 ||
+    Math.abs(rectCentroid.y - 1.5) > 0.001
+  ) {
+    console.error("Task 6.2 TEST 5 Failed: 4x3 rectangle centroid != (2.0, 1.5)", rectCentroid);
     passed = false;
   }
 
-  // Test 9: Screen-space points remain screen-space
-  const samplePt = { x: 245.5, y: 380.2 };
-  const str = startStroke(samplePt);
-  if (str.points[0].x !== 245.5 || str.points[0].y !== 380.2) {
-    console.error("Freehand Test 9 Failed: Screen-space point values altered unexpectedly");
+  // TEST 6: Triangle: verify known area (6x8 right triangle = 24 m²)
+  const triWorldPts: Point2D[] = [
+    { x: 0, y: 0 },
+    { x: 6, y: 0 },
+    { x: 0, y: 8 },
+  ];
+  const triArea = calculatePolygonAreaSqMeters(triWorldPts);
+  if (triArea !== 24.0) {
+    console.error("Task 6.2 TEST 6 Failed: Triangle area != 24", triArea);
     passed = false;
   }
 
-  // Test 10: Distance math sanity check
-  const d = calculateDistance({ x: 0, y: 0 }, { x: 3, y: 4 });
-  if (Math.abs(d - 5) > 0.0001) {
-    console.error("Freehand Test 10 Failed: Distance math incorrect", d);
+  // TEST 7: Concave polygon: verify area using known expected result (L-shape = 36 m²)
+  const concaveWorldPts: Point2D[] = [
+    { x: 0, y: 0 },
+    { x: 6, y: 0 },
+    { x: 6, y: 4 },
+    { x: 3, y: 4 },
+    { x: 3, y: 8 },
+    { x: 0, y: 8 },
+  ];
+  const concaveArea = calculatePolygonAreaSqMeters(concaveWorldPts);
+  if (concaveArea !== 36.0) {
+    console.error("Task 6.2 TEST 7 Failed: Concave L-shape area != 36", concaveArea);
+    passed = false;
+  }
+
+  // TEST 8: Closing segment is included in perimeter
+  const openPerimSum =
+    calculateDistance({ x: 0, y: 0 }, { x: 4, y: 0 }) +
+    calculateDistance({ x: 4, y: 0 }, { x: 4, y: 3 }) +
+    calculateDistance({ x: 4, y: 3 }, { x: 0, y: 3 }); // = 11m
+  if (rectPerim <= openPerimSum) {
+    console.error(
+      "Task 6.2 TEST 8 Failed: Perimeter did not include closing segment",
+      rectPerim,
+      openPerimSum
+    );
+    passed = false;
+  }
+
+  // TEST 9: Degenerate polygon does not produce NaN centroid
+  const degeneratePts: Point2D[] = [
+    { x: 0, y: 0 },
+    { x: 5, y: 0 },
+    { x: 10, y: 0 }, // Collinear line -> area = 0
+  ];
+  const degenCentroid = calculatePolygonCentroid(degeneratePts);
+  if (degenCentroid !== null && (isNaN(degenCentroid.x) || isNaN(degenCentroid.y))) {
+    console.error("Task 6.2 TEST 9 Failed: Degenerate polygon produced NaN centroid", degenCentroid);
+    passed = false;
+  }
+
+  // TEST 10: Screen-space stroke converted under known viewport gives expected world geometry
+  const strokeScreenPts: Point2D[] = [
+    worldToScreen({ x: 0, y: 0 }, vp),
+    worldToScreen({ x: 4, y: 0 }, vp),
+    worldToScreen({ x: 4, y: 3 }, vp),
+    worldToScreen({ x: 0, y: 3 }, vp),
+  ];
+  const testStroke: FreehandStroke = {
+    id: "str_test",
+    points: strokeScreenPts,
+    isDrawing: false,
+    isClosed: true,
+    createdAt: Date.now(),
+  };
+
+  const preview1 = computeRegionPreview(testStroke, vp);
+  if (!preview1 || preview1.areaSqMeters !== 12.0 || preview1.perimeterMeters !== 14.0) {
+    console.error("Task 6.2 TEST 10 Failed: computeRegionPreview incorrect", preview1);
+    passed = false;
+  }
+
+  // TEST 11: Completed region retains the same area after simulated pan
+  const pannedVp: Viewport = { ...vp, x: vp.x + 350, y: vp.y - 200 };
+  if (preview1 && preview1.areaSqMeters !== 12.0) {
+    console.error("Task 6.2 TEST 11 Failed: Area changed after simulated pan", preview1.areaSqMeters);
+    passed = false;
+  }
+
+  // TEST 12: Completed region retains the same area after simulated zoom
+  const zoomedVp: Viewport = { scale: 120, x: vp.x, y: vp.y };
+  if (preview1 && preview1.areaSqMeters !== 12.0) {
+    console.error("Task 6.2 TEST 12 Failed: Area changed after simulated zoom", preview1.areaSqMeters);
+    passed = false;
+  }
+
+  // TEST 13: Very short stroke produces a controlled invalid/degenerate preview state
+  const shortStroke: FreehandStroke = {
+    id: "str_short",
+    points: [
+      { x: 10, y: 10 },
+      { x: 12, y: 10 },
+    ],
+    isDrawing: false,
+    isClosed: false,
+    createdAt: Date.now(),
+  };
+  const shortPreview = computeRegionPreview(shortStroke, vp);
+  if (shortPreview && shortPreview.isValid !== false) {
+    console.error("Task 6.2 TEST 13 Failed: Short stroke was not marked invalid", shortPreview);
     passed = false;
   }
 

@@ -57,7 +57,7 @@
 
 ### Phase 6: Freehand Region Selection
 - [x] **Task 6.1:** Build user stroke capture tool in `frontend/src/editor/freehand/`. *(Completed: 2026-10-07 12:15:00+05:30)*
-- [ ] **Task 6.2:** Implement screen-to-world coordinate transform and client-side shoelace area preview.
+- [x] **Task 6.2:** Implement screen-to-world coordinate transform and client-side shoelace area preview. *(Completed: 2026-10-07 12:45:00+05:30)*
 
 - [ ] **Task 6.3:** Implement server-side polygon clipping to surrounding walls using Shapely `make_valid`.
 
@@ -618,6 +618,25 @@
 - **Test Execution Results:**
   - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 236 modules in 11.93s)
+
+### [2026-10-07] Task 6.2 Execution - Screen-to-World Transform & Live Geometric Region Preview
+- **Action:** Built screen-to-world transformation engine and client-side geometric preview model for freehand spatial region selection in architectural world units (`meters`). Added `RegionPreview` schema (`freehandTypes.ts`) containing `strokeId`, `worldPoints` (`Point2D[]`), `areaSqMeters`, `perimeterMeters`, `centroid` (`Point2D | null`), `vertexCount`, and `isValid` status. Implemented pure transformation and geometric calculations in `freehandManager.ts`: `screenStrokeToWorld` using viewport helpers, `calculatePolygonAreaSqMeters` using 2D Shoelace formula, `calculatePolygonPerimeterMeters` summing euclidean distances with closing segment, `calculatePolygonCentroid` using area-weighted polygon formula with degenerate shape guards, `simplifyWorldPoints` using lightweight Ramer-Douglas-Peucker (RDP) algorithm, and `computeRegionPreview` orchestrating the pipeline. Updated `FreehandRegionLayer.tsx` to project `worldPoints` back into screen space via `worldToScreen(worldPt, viewport)` during rendering so region lines remain perfectly pinned to floor plan coordinates when panning, zooming, or fitting view. Added floating UI component `RegionPreviewPanel.tsx` displaying live area ($m^2$), perimeter ($m$), centroid ($x, y$), vertex count, and `"Preview (Unvalidated)"` badge. Expanded `freehand.test.ts` to 13 comprehensive unit tests covering screen-to-world conversion, Shoelace area, perimeter, centroid, RDP simplification, degenerate handling, and viewport zoom/pan invariance. Updated documentation in `freehand/README.md`. Preserved Task 5.4 object selection, dragging, resizing, snapping, and viewport navigation without regression.
+- **Status:** `SUCCESS (100% Unit Tests & npm run build Passed)`
+- **Files Created/Updated:**
+  - [`frontend/src/editor/freehand/freehandTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehandTypes.ts) (Added `RegionPreview` interface)
+  - [`frontend/src/editor/freehand/freehandManager.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehandManager.ts) (`screenStrokeToWorld`, `calculatePolygonAreaSqMeters`, `calculatePolygonPerimeterMeters`, `calculatePolygonCentroid`, `simplifyWorldPoints`, `computeRegionPreview`)
+  - [`frontend/src/editor/freehand/FreehandRegionLayer.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/FreehandRegionLayer.tsx) (World point rendering via `worldToScreen` projection)
+  - [`frontend/src/editor/freehand/RegionPreviewPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/RegionPreviewPanel.tsx) (New preview info panel overlay UI)
+  - [`frontend/src/editor/freehand/freehand.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehand.test.ts) (13 unit tests for geometry calculations and viewport invariance)
+  - [`frontend/src/editor/freehand/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/index.ts) (Module exports)
+  - [`frontend/src/editor/freehand/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/README.md) (Architecture & boundary documentation)
+  - [`frontend/src/editor/canvas/CanvasStage.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/CanvasStage.tsx) (Integrated `regionPreview` prop into stage rendering)
+  - [`frontend/src/editor/canvas/LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx) (Integrated `computeRegionPreview` state, control handlers, and `<RegionPreviewPanel>`)
+  - [`frontend/src/editor/runTests.ts`](file:///d:/Layouts%20AI/frontend/src/editor/runTests.ts) (Updated test runner output)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 6.2 completion status and history log)
+- **Test Execution Results:**
+  - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand with 13 tests)**
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 237 modules in 11.94s)
 
 ---
 

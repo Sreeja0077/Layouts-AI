@@ -1,7 +1,7 @@
 /**
  * Top-level reusable Konva 2D Architectural Canvas wrapper.
  * Combines responsive CanvasStage, Drafting Grid, Viewport Control Bar, World Coordinates Status Bar,
- * Task 5.4 Object Manipulation, and Task 6.1 Freehand Region Stroke Capture.
+ * Task 5.4 Object Manipulation, Task 6.1 Freehand Region Stroke Capture, and Task 6.2 Live World Region Preview.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
@@ -18,9 +18,11 @@ import { applyTransform } from "../transforms/transformManager";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange } from "../transforms/transformTypes";
 import { selectionManager } from "../selection/selectionManager";
-import { EditorToolMode, FreehandStroke } from "../freehand/freehandTypes";
+import { EditorToolMode, FreehandStroke, RegionPreview } from "../freehand/freehandTypes";
+import { computeRegionPreview } from "../freehand/freehandManager";
+import { RegionPreviewPanel } from "../freehand/RegionPreviewPanel";
 
-// Default sample floor plan render model for Task 5.3, 5.4 & 6.1 validation
+// Default sample floor plan render model for Task 5.3, 5.4, 6.1 & 6.2 validation
 const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
   id: "rm_101",
   name: "Executive Office Suite A",
@@ -65,9 +67,10 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [snapGuides, setSnapGuides] = useState<SnapGuideLine[]>([]);
 
-  // Task 6.1 State
+  // Task 6.1 & 6.2 Freehand State
   const [toolMode, setToolMode] = useState<EditorToolMode>("select");
   const [freehandStroke, setFreehandStroke] = useState<FreehandStroke | null>(null);
+  const [regionPreview, setRegionPreview] = useState<RegionPreview | null>(null);
 
   const [viewport, setViewport] = useState<Viewport>({
     scale: initialScale,
@@ -88,6 +91,25 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
       setActiveModel(renderModel);
     }
   }, [renderModel]);
+
+  // Compute and lock world region preview when freehand stroke updates
+  const handleStrokeChange = useCallback(
+    (stroke: FreehandStroke | null) => {
+      setFreehandStroke(stroke);
+      if (!stroke) {
+        setRegionPreview(null);
+      } else {
+        const preview = computeRegionPreview(stroke, viewport);
+        setRegionPreview(preview);
+      }
+    },
+    [viewport]
+  );
+
+  const handleClearRegion = useCallback(() => {
+    setFreehandStroke(null);
+    setRegionPreview(null);
+  }, []);
 
   // Viewport Control Button Actions
   const handleZoomIn = useCallback(() => {
@@ -159,9 +181,9 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
             <span style={{ color: "#a855f7", fontWeight: 600, fontSize: "0.875rem" }}>
               SELECT REGION ACTIVE — Click & drag on floor plan to outline working area
             </span>
-          ) : freehandStroke?.isClosed ? (
+          ) : regionPreview?.isClosed && regionPreview.isValid ? (
             <span style={{ color: "#c084fc", fontWeight: 600, fontSize: "0.875rem" }}>
-              Region Captured ({freehandStroke.points.length} points) — Ready for geometry analysis
+              Region Captured ({regionPreview.areaSqMeters.toFixed(2)} m²) — Ready for geometry analysis
             </span>
           ) : (
             <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
@@ -216,8 +238,8 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           {freehandStroke && (
             <button
               className="btn-ctrl"
-              onClick={() => setFreehandStroke(null)}
-              title="Clear captured freehand stroke"
+              onClick={handleClearRegion}
+              title="Clear captured freehand region"
               style={{ borderColor: "#ef4444", color: "#f87171" }}
             >
               Clear Region
@@ -245,8 +267,12 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           onContainerResize={setContainerSize}
           toolMode={toolMode}
           freehandStroke={freehandStroke}
-          onStrokeChange={setFreehandStroke}
+          regionPreview={regionPreview}
+          onStrokeChange={handleStrokeChange}
         />
+
+        {/* Task 6.2 Region Preview Info Panel */}
+        <RegionPreviewPanel regionPreview={regionPreview} onClear={handleClearRegion} />
       </div>
 
       {/* Bottom Status & Coordinates Display */}
@@ -265,7 +291,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         <div>
           World Coordinates: X = {cursorWorldPt.x.toFixed(2)} m, Y = {cursorWorldPt.y.toFixed(2)} m
         </div>
-        <div style={{ color: selectedObjectId ? "#38bdf8" : freehandStroke ? "#c084fc" : "#94a3b8", fontWeight: (selectedObjectId || freehandStroke) ? 600 : 400 }}>
+        <div style={{ color: selectedObjectId ? "#38bdf8" : regionPreview ? "#c084fc" : "#94a3b8", fontWeight: (selectedObjectId || regionPreview) ? 600 : 400 }}>
           {selectedFurniture && (
             <>
               Selected Furniture: [{selectedFurniture.id}] {selectedFurniture.itemType} | Pos: ({selectedFurniture.position.x}m, {selectedFurniture.position.y}m) | Size: {selectedFurniture.widthMeters}m × {selectedFurniture.depthMeters}m | Rot: {selectedFurniture.rotationDeg}° {selectedFurniture.isLocked ? "🔒 [Locked]" : " (Editable)"}
@@ -275,10 +301,10 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           {selectedDoor && <>{`Selected Door: [${selectedDoor.id}] (Read-Only Aperture)`}</>}
           {selectedWindow && <>{`Selected Window: [${selectedWindow.id}] (Read-Only Aperture)`}</>}
           {selectedColumn && <>{`Selected Column: [${selectedColumn.id}] (Read-Only Structure)`}</>}
-          {!selectedObjectId && freehandStroke?.isClosed && (
-            <>{`Freehand Region: Captured (${freehandStroke.points.length} points) [Screen Space]`}</>
+          {!selectedObjectId && regionPreview?.isClosed && (
+            <>{`Region Preview: ${regionPreview.areaSqMeters.toFixed(2)} m² | Perim: ${regionPreview.perimeterMeters.toFixed(2)} m | Centroid: (${regionPreview.centroid?.x.toFixed(2)}m, ${regionPreview.centroid?.y.toFixed(2)}m)`}</>
           )}
-          {!selectedObjectId && !freehandStroke?.isClosed && "Selected: None"}
+          {!selectedObjectId && !regionPreview?.isClosed && "Selected: None"}
         </div>
         <div>
           Tool: {toolMode.toUpperCase()} | Scale: {viewport.scale.toFixed(1)} px/m

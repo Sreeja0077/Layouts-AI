@@ -1,7 +1,7 @@
 /**
- * Konva Canvas Stage Component (Task 5.2, 5.3, 5.4 & Task 6.1).
+ * Konva Canvas Stage Component (Task 5.2, 5.3, 5.4, 6.1 & 6.2).
  * Handles responsive sizing, CAD free canvas pan, cursor-anchored zoom, double-click zoom-to-point,
- * floor-plan rendering via RendererAdapter, and Task 6.1 Freehand Region Stroke Capture.
+ * floor-plan rendering via RendererAdapter, and Task 6.1/6.2 Freehand Region Stroke Capture & Preview.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
@@ -14,7 +14,7 @@ import { FloorPlanRenderModel } from "../renderer/renderTypes";
 import { KonvaFloorPlanRenderer } from "../renderer/KonvaRendererAdapter";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange } from "../transforms/transformTypes";
-import { EditorToolMode, FreehandStroke } from "../freehand/freehandTypes";
+import { EditorToolMode, FreehandStroke, RegionPreview } from "../freehand/freehandTypes";
 import { startStroke, appendPointToStroke, completeStroke } from "../freehand/freehandManager";
 import { FreehandRegionLayer } from "../freehand/FreehandRegionLayer";
 
@@ -31,9 +31,10 @@ interface CanvasStageProps {
   snapGuides?: SnapGuideLine[];
   onFitView?: (fitFn: () => void) => void;
   onContainerResize?: (size: { width: number; height: number }) => void;
-  // Task 6.1 Freehand Stroke Capture Props
+  // Task 6.1 / 6.2 Freehand Region Props
   toolMode?: EditorToolMode;
   freehandStroke?: FreehandStroke | null;
+  regionPreview?: RegionPreview | null;
   onStrokeChange?: (stroke: FreehandStroke | null) => void;
 }
 
@@ -52,6 +53,7 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   onContainerResize,
   toolMode = "select",
   freehandStroke = null,
+  regionPreview = null,
   onStrokeChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -280,9 +282,13 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
           )}
         </Layer>
 
-        {/* Task 6.1 Freehand Region Drawing Layer */}
+        {/* Task 6.1 & 6.2 Freehand Region Drawing & Preview Layer */}
         <Layer>
-          <FreehandRegionLayer stroke={freehandStroke} />
+          <FreehandRegionLayer
+            stroke={freehandStroke}
+            regionPreview={regionPreview}
+            viewport={viewport}
+          />
         </Layer>
       </Stage>
     </div>
