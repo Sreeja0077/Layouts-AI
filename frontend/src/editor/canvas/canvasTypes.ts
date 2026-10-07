@@ -31,4 +31,8 @@ export interface LayoutCanvasProps {
   renderModel?: FloorPlanRenderModel;
   demoModel?: FloorPlanRenderModel;
   className?: string;
+  onSwitchFloorPlan?: (projectId: string, floorPlanId: string) => void;
+  onGoToUpload?: () => void;
+  availableFloorPlans?: Array<{ id: string; name: string }>;
+  activeFloorPlanId?: string;
 }

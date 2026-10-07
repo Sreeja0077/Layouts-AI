@@ -1,5 +1,16 @@
-import { GeometryVerificationReport } from "../types/verification";
-import { FloorPlanRenderModel, RenderWall, RenderDoor, RenderWindow, RenderColumn, RenderFurniture } from "../editor/renderer/renderTypes";
+import { GeometryVerificationReport, ElementGeometry } from "../types/verification";
+import {
+  FloorPlanRenderModel,
+  RenderWall,
+  RenderDoor,
+  RenderWindow,
+  RenderColumn,
+  RenderFurniture,
+  RenderSpace,
+  RenderGeometry,
+  PolygonRing,
+  RenderPolygon,
+} from "../editor/renderer/renderTypes";
 
 const API_BASE = "/api/v1";
 
@@ -167,6 +178,54 @@ export async function listFloorPlans(projectId: string): Promise<FloorPlanItem[]
   return resp.json();
 }
 
+/** Helper to parse GeoJSON polygon/multipolygon from element geometry into RenderGeometry */
+function parseRenderGeometry(elem: ElementGeometry): RenderGeometry | undefined {
+  const type =
+    elem.type ||
+    (Array.isArray(elem.coordinates) &&
+    Array.isArray(elem.coordinates[0]) &&
+    Array.isArray(elem.coordinates[0][0]) &&
+    Array.isArray(elem.coordinates[0][0][0])
+      ? "MultiPolygon"
+      : "Polygon");
+  const polygons: RenderPolygon[] = [];
+
+  if (type === "MultiPolygon" && Array.isArray(elem.coordinates)) {
+    const multi = elem.coordinates as number[][][][];
+    for (const polyCoords of multi) {
+      if (!Array.isArray(polyCoords) || polyCoords.length === 0) continue;
+      const exterior: PolygonRing = (polyCoords[0] || []).map((pt: number[]) => ({ x: pt[0], y: pt[1] }));
+      const holes: PolygonRing[] = (polyCoords.slice(1) || []).map((hole: number[][]) =>
+        (hole || []).map((pt: number[]) => ({ x: pt[0], y: pt[1] }))
+      );
+      if (exterior.length > 0) {
+        polygons.push({ exterior, holes: holes.length > 0 ? holes : undefined });
+      }
+    }
+  } else if (type === "Polygon" && Array.isArray(elem.coordinates)) {
+    const polyCoords = elem.coordinates as number[][][];
+    if (polyCoords.length > 0) {
+      const exterior: PolygonRing = (polyCoords[0] || []).map((pt: number[]) => ({ x: pt[0], y: pt[1] }));
+      const holes: PolygonRing[] = (polyCoords.slice(1) || []).map((hole: number[][]) =>
+        (hole || []).map((pt: number[]) => ({ x: pt[0], y: pt[1] }))
+      );
+      if (exterior.length > 0) {
+        polygons.push({ exterior, holes: holes.length > 0 ? holes : undefined });
+      }
+    }
+  }
+
+  if (polygons.length === 0 && elem.boundary && Array.isArray(elem.boundary)) {
+    const pts = elem.boundary as number[][];
+    if (pts.length >= 3) {
+      const exterior: PolygonRing = pts.map((pt) => ({ x: pt[0], y: pt[1] }));
+      polygons.push({ exterior });
+    }
+  }
+
+  return polygons.length > 0 ? { polygons } : undefined;
+}
+
 /**
  * Utility to convert backend GeometryVerificationReport elements into interactive Konva FloorPlanRenderModel.
  * Accurately extracts full 2D polygon footprints from IFC/DXF geometry models.
@@ -176,6 +235,7 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
   const doors: RenderDoor[] = [];
   const windows: RenderWindow[] = [];
   const columns: RenderColumn[] = [];
+  const spaces: RenderSpace[] = [];
   const furniture: RenderFurniture[] = [];
 
   const allPoints: Array<{ x: number; y: number }> = [];
@@ -204,62 +264,58 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
   (report.all_elements_geometry || []).forEach((elem, index) => {
     const cat = (elem.category || "").toUpperCase();
     const pts = extract2DPts(elem);
-    if (pts.length === 0) return;
-
     pts.forEach((p) => allPoints.push(p));
+    const renderGeom = parseRenderGeometry(elem);
 
     if (cat === "WALL") {
-      if (pts.length === 2) {
-        walls.push({
-          id: elem.id || elem.global_id || `wall_${index}`,
-          start: pts[0],
-          end: pts[1],
-          thicknessMeters: 0.2,
-          isExterior: true,
-        });
-      } else if (pts.length > 2) {
-        for (let i = 0; i < pts.length; i++) {
-          const pStart = pts[i];
-          const pEnd = pts[(i + 1) % pts.length];
-          const dist = Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y);
-          if (dist > 0.01) {
-            walls.push({
-              id: `${elem.id || elem.global_id || "wall_" + index}_seg_${i}`,
-              start: pStart,
-              end: pEnd,
-              thicknessMeters: 0.15,
-              isExterior: true,
-            });
-          }
-        }
-      }
+      const startPt = pts[0] || { x: 0, y: 0 };
+      const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
+      walls.push({
+        id: elem.id || elem.global_id || `wall_${index}`,
+        start: startPt,
+        end: endPt,
+        thicknessMeters: 0.2,
+        isExterior: true,
+        geometry: renderGeom,
+      });
     } else if (cat === "DOOR") {
-      const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
-      const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+      const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
+      const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
       doors.push({
         id: elem.id || elem.global_id || `door_${index}`,
         position: { x: centerX, y: centerY },
         widthMeters: 0.9,
         swingAngleDeg: 90,
+        geometry: renderGeom,
       });
     } else if (cat === "WINDOW") {
-      if (pts.length >= 2) {
-        windows.push({
-          id: elem.id || elem.global_id || `win_${index}`,
-          start: pts[0],
-          end: pts[1],
-          thicknessMeters: 0.2,
-        });
-      }
+      const startPt = pts[0] || { x: 0, y: 0 };
+      const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
+      windows.push({
+        id: elem.id || elem.global_id || `win_${index}`,
+        start: startPt,
+        end: endPt,
+        thicknessMeters: 0.2,
+        geometry: renderGeom,
+      });
     } else if (cat === "COLUMN") {
-      const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
-      const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+      const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
+      const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
       columns.push({
         id: elem.id || elem.global_id || `col_${index}`,
         position: { x: centerX, y: centerY },
         widthMeters: 0.6,
         heightMeters: 0.6,
+        geometry: renderGeom,
       });
+    } else if (cat === "SPACE") {
+      if (renderGeom) {
+        spaces.push({
+          id: elem.id || elem.global_id || `space_${index}`,
+          name: elem.type || "Space",
+          geometry: renderGeom,
+        });
+      }
     }
   });
 
@@ -299,6 +355,7 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
     doors,
     windows,
     columns,
+    spaces,
     furniture,
   };
 }

@@ -14,6 +14,7 @@ import {
 import {
   reportToRenderModel,
   fetchIngestionStatus,
+  listFloorPlans,
   IngestionStatusResponse,
 } from "./api/ingestion";
 import { FloorPlanRenderModel } from "./editor/renderer/renderTypes";
@@ -27,8 +28,12 @@ export const App: React.FC<AppProps> = ({
   projectId: initialProjectId = "proj_101",
   floorPlanId: initialFloorPlanId = "fp_501",
 }) => {
-  const [activeProjectId, setActiveProjectId] = useState<string>(initialProjectId);
-  const [activeFloorPlanId, setActiveFloorPlanId] = useState<string>(initialFloorPlanId);
+  const [activeProjectId, setActiveProjectId] = useState<string>(() => {
+    return localStorage.getItem("layouts_ai_active_project_id") || initialProjectId;
+  });
+  const [activeFloorPlanId, setActiveFloorPlanId] = useState<string>(() => {
+    return localStorage.getItem("layouts_ai_active_floor_plan_id") || initialFloorPlanId;
+  });
 
   const [report, setReport] = useState<GeometryVerificationReport | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -36,9 +41,42 @@ export const App: React.FC<AppProps> = ({
 
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"workspace" | "editor" | "diagnostics">("workspace");
+  const [activeTab, setActiveTab] = useState<"workspace" | "editor" | "diagnostics">(() => {
+    const saved = localStorage.getItem("layouts_ai_active_tab");
+    return (saved as any) || "workspace";
+  });
 
   const [editorRenderModel, setEditorRenderModel] = useState<FloorPlanRenderModel | undefined>(undefined);
+
+  const [userFloorPlans, setUserFloorPlans] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (activeProjectId) {
+      listFloorPlans(activeProjectId)
+        .then((fps) => {
+          const clean = fps.filter(
+            (fp) =>
+              !fp.name.toLowerCase().includes("sample_floor_plan") &&
+              !fp.name.toLowerCase().includes("test plan") &&
+              fp.id !== "fp_501"
+          );
+          setUserFloorPlans(clean.map((f) => ({ id: f.id, name: f.name })));
+        })
+        .catch(() => {});
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (activeProjectId) localStorage.setItem("layouts_ai_active_project_id", activeProjectId);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (activeFloorPlanId) localStorage.setItem("layouts_ai_active_floor_plan_id", activeFloorPlanId);
+  }, [activeFloorPlanId]);
+
+  useEffect(() => {
+    if (activeTab) localStorage.setItem("layouts_ai_active_tab", activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeProjectId && activeFloorPlanId) {
@@ -54,6 +92,20 @@ export const App: React.FC<AppProps> = ({
       setReport(data);
       setEditorRenderModel(reportToRenderModel(data));
     } catch (err: any) {
+      // If primary report load fails (e.g. initial demo fp_501 purged), load latest user floor plan for project
+      try {
+        const fps = await listFloorPlans(pId);
+        if (fps && fps.length > 0) {
+          const latestFp = fps[fps.length - 1];
+          setActiveFloorPlanId(latestFp.id);
+          const data = await fetchVerificationReport(pId, latestFp.id);
+          setReport(data);
+          setEditorRenderModel(reportToRenderModel(data));
+          return;
+        }
+      } catch {
+        // Ignored fallback
+      }
       setError(err.message || "No verification report available for this floor plan.");
       setReport(null);
     } finally {
@@ -64,6 +116,9 @@ export const App: React.FC<AppProps> = ({
   const handleOpenEditor = (res: IngestionStatusResponse) => {
     setActiveProjectId(res.project_id);
     setActiveFloorPlanId(res.floor_plan_id);
+    localStorage.setItem("layouts_ai_active_project_id", res.project_id);
+    localStorage.setItem("layouts_ai_active_floor_plan_id", res.floor_plan_id);
+    localStorage.setItem("layouts_ai_active_tab", "editor");
 
     if (res.verification_report) {
       setReport(res.verification_report);
@@ -79,6 +134,9 @@ export const App: React.FC<AppProps> = ({
   const handleOpenExistingFloorPlan = async (pId: string, fpId: string) => {
     setActiveProjectId(pId);
     setActiveFloorPlanId(fpId);
+    localStorage.setItem("layouts_ai_active_project_id", pId);
+    localStorage.setItem("layouts_ai_active_floor_plan_id", fpId);
+    localStorage.setItem("layouts_ai_active_tab", "editor");
     setLoading(true);
     try {
       const res = await fetchIngestionStatus(pId, fpId);
@@ -227,7 +285,13 @@ export const App: React.FC<AppProps> = ({
 
       {activeTab === "editor" && (
         <main style={{ padding: "16px", display: "flex", flexDirection: "column", flex: 1, height: "calc(100vh - 64px)" }}>
-          <LayoutCanvas renderModel={editorRenderModel} />
+          <LayoutCanvas
+            renderModel={editorRenderModel}
+            activeFloorPlanId={activeFloorPlanId}
+            availableFloorPlans={userFloorPlans}
+            onSwitchFloorPlan={handleOpenExistingFloorPlan}
+            onGoToUpload={() => setActiveTab("workspace")}
+          />
         </main>
       )}
 

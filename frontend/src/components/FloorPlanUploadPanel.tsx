@@ -21,7 +21,9 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
   onOpenExistingFloorPlan,
 }) => {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("proj_101");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => {
+    return localStorage.getItem("layouts_ai_active_project_id") || "proj_101";
+  });
   const [recentFloorPlans, setRecentFloorPlans] = useState<FloorPlanItem[]>([]);
 
   const [floorPlanName, setFloorPlanName] = useState<string>("");
@@ -50,7 +52,10 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
     try {
       const list = await listProjects();
       setProjects(list);
-      if (list.length > 0) {
+      const savedProj = localStorage.getItem("layouts_ai_active_project_id");
+      if (savedProj && list.some(p => p.id === savedProj)) {
+        setSelectedProjectId(savedProj);
+      } else if (list.length > 0) {
         setSelectedProjectId(list[0].id);
       }
     } catch (err) {
@@ -61,7 +66,12 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
   const loadFloorPlansForProject = async (projId: string) => {
     try {
       const fps = await listFloorPlans(projId);
-      setRecentFloorPlans(fps);
+      const userFps = fps.filter(fp =>
+        !fp.name.toLowerCase().includes("sample_floor_plan") &&
+        !fp.name.toLowerCase().includes("test plan") &&
+        fp.id !== "fp_501"
+      );
+      setRecentFloorPlans(userFps);
     } catch (err) {
       setRecentFloorPlans([]);
     }
@@ -148,6 +158,8 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
       setUploadState("READY");
       setIngestionResult(result);
       loadFloorPlansForProject(selectedProjectId);
+      // Instantly open uploaded file in 2D Canvas Editor
+      onOpenEditor(result);
     } catch (err: any) {
       setUploadState("ERROR");
       setErrorMessage(err.message || "BIM/DXF ingestion failed. Please check file formatting.");

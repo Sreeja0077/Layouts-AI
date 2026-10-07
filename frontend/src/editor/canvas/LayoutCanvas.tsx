@@ -48,6 +48,7 @@ const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
   columns: [
     { id: "col1", position: { x: 9, y: 4 }, widthMeters: 0.6, heightMeters: 0.6 },
   ],
+  spaces: [],
   furniture: [
     { id: "f1", catalogItemId: "desk_exec", itemType: "EXECUTIVE_DESK", position: { x: 3, y: 4 }, widthMeters: 1.8, depthMeters: 0.9, rotationDeg: 0, isLocked: false },
     { id: "f2", catalogItemId: "chair_exec", itemType: "TASK_CHAIR", position: { x: 3, y: 5.2 }, widthMeters: 0.6, depthMeters: 0.6, rotationDeg: 0, isLocked: false },
@@ -61,6 +62,10 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   renderModel,
   demoModel,
   className = "",
+  onSwitchFloorPlan,
+  onGoToUpload,
+  availableFloorPlans,
+  activeFloorPlanId,
 }) => {
   const initialModel = renderModel || demoModel || SAMPLE_FLOOR_PLAN_RENDER_MODEL;
   const [activeModel, setActiveModel] = useState<FloorPlanRenderModel>(initialModel);
@@ -179,14 +184,49 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           zIndex: 10,
         }}
       >
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {onGoToUpload && (
+            <button
+              className="btn-ctrl"
+              onClick={onGoToUpload}
+              title="Go to Upload & Floor Plans Panel"
+              style={{ backgroundColor: "#0284c7", color: "#ffffff", borderColor: "#0284c7", fontWeight: 700, padding: "4px 12px" }}
+            >
+              + Upload / Sidebar
+            </button>
+          )}
+
+          {availableFloorPlans && availableFloorPlans.length > 0 && onSwitchFloorPlan && (
+            <select
+              value={activeFloorPlanId || ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const savedProj = localStorage.getItem("layouts_ai_active_project_id") || "proj_101";
+                  onSwitchFloorPlan(savedProj, e.target.value);
+                }
+              }}
+              style={{
+                backgroundColor: "#0f172a",
+                border: "1px solid #38bdf8",
+                color: "#f8fafc",
+                borderRadius: "6px",
+                padding: "5px 12px",
+                fontSize: "0.8125rem",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {availableFloorPlans.map((fp) => (
+                <option key={fp.id} value={fp.id}>
+                  📄 {fp.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           {toolMode === "freehand_region" ? (
             <span style={{ color: "#a855f7", fontWeight: 600, fontSize: "0.875rem" }}>
-              SELECT REGION ACTIVE — Click & drag on floor plan to outline working area
-            </span>
-          ) : regionPreview?.isClosed && regionPreview.isValid ? (
-            <span style={{ color: "#c084fc", fontWeight: 600, fontSize: "0.875rem" }}>
-              Region Captured ({regionPreview.areaSqMeters.toFixed(2)} m²) — Ready for geometry analysis
+              SELECT REGION ACTIVE — Click & drag to outline working area
             </span>
           ) : (
             <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
@@ -194,7 +234,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
             </span>
           )}
           <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
-            (Wheel zooms at cursor • Left-drag empty canvas to pan • Esc to clear)
+            (Wheel zooms • Left-drag pan)
           </span>
         </div>
 

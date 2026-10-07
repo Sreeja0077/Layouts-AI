@@ -13,7 +13,9 @@ import {
   RenderDoor,
   RenderWindow,
   RenderColumn,
+  RenderSpace,
   RenderFurniture,
+  RenderGeometry,
 } from "./renderTypes";
 import { RendererAdapter } from "./RendererAdapter";
 import { Viewport } from "../canvas/canvasTypes";
@@ -36,6 +38,54 @@ export interface KonvaRendererProps {
  * Konva implementation of the RendererAdapter interface.
  */
 export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
+  private renderPolygonGeometry(
+    id: string,
+    geometry: RenderGeometry,
+    viewport: Viewport,
+    styles: { fill?: string; stroke?: string; strokeWidth?: number; dash?: number[] }
+  ): JSX.Element {
+    return (
+      <Group key={`geom-${id}`}>
+        {geometry.polygons.map((poly, polyIdx) => {
+          const extPts = poly.exterior.flatMap((pt) => {
+            const s = worldToScreen(pt, viewport);
+            return [s.x, s.y];
+          });
+          if (extPts.length < 6) return null;
+          return (
+            <React.Fragment key={`poly-${id}-${polyIdx}`}>
+              <Line
+                points={extPts}
+                closed
+                fill={styles.fill || "transparent"}
+                stroke={styles.stroke || "#94a3b8"}
+                strokeWidth={styles.strokeWidth ?? 1.5}
+                dash={styles.dash}
+              />
+              {poly.holes?.map((hole, holeIdx) => {
+                const holePts = hole.flatMap((pt) => {
+                  const s = worldToScreen(pt, viewport);
+                  return [s.x, s.y];
+                });
+                if (holePts.length < 6) return null;
+                return (
+                  <Line
+                    key={`hole-${id}-${polyIdx}-${holeIdx}`}
+                    points={holePts}
+                    closed
+                    fill="#0f172a"
+                    stroke={styles.stroke || "#94a3b8"}
+                    strokeWidth={styles.strokeWidth ?? 1}
+                  />
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
+      </Group>
+    );
+  }
+
   renderFloorPlan(model: Readonly<FloorPlanRenderModel>, viewport: Viewport): JSX.Element {
     const boundaryPointsFlat = model.boundary.flatMap((pt) => {
       const s = worldToScreen(pt, viewport);
@@ -68,6 +118,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         )}
 
         {/* Architectural Layers */}
+        {this.renderSpaces(model.spaces || [], viewport)}
         {this.renderWalls(model.walls, viewport)}
         {this.renderWindows(model.windows, viewport)}
         {this.renderDoors(model.doors, viewport)}
@@ -77,21 +128,49 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     );
   }
 
+  renderSpaces(spaces: ReadonlyArray<RenderSpace>, viewport: Viewport): JSX.Element {
+    return (
+      <Group key="layer-spaces">
+        {spaces.map((space) => {
+          if (space.geometry) {
+            return this.renderPolygonGeometry(space.id, space.geometry, viewport, {
+              fill: "rgba(168, 85, 247, 0.08)",
+              stroke: "rgba(168, 85, 247, 0.3)",
+              strokeWidth: 1,
+              dash: [4, 4],
+            });
+          }
+          return null;
+        })}
+      </Group>
+    );
+  }
+
   renderWalls(walls: ReadonlyArray<RenderWall>, viewport: Viewport): JSX.Element {
     return (
       <Group key="layer-walls">
         {walls.map((wall) => {
-          const sStart = worldToScreen(wall.start, viewport);
-          const sEnd = worldToScreen(wall.end, viewport);
-          return (
-            <Line
-              key={`wall-${wall.id}`}
-              points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-              stroke={wall.isExterior ? "#f1f5f9" : "#cbd5e1"}
-              strokeWidth={Math.max(2, wall.thicknessMeters * viewport.scale)}
-              lineCap="round"
-            />
-          );
+          if (wall.geometry) {
+            return this.renderPolygonGeometry(wall.id, wall.geometry, viewport, {
+              fill: wall.isExterior ? "#cbd5e1" : "#94a3b8",
+              stroke: "#334155",
+              strokeWidth: 1.5,
+            });
+          }
+          if (wall.start && wall.end) {
+            const sStart = worldToScreen(wall.start, viewport);
+            const sEnd = worldToScreen(wall.end, viewport);
+            return (
+              <Line
+                key={`wall-${wall.id}`}
+                points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
+                stroke={wall.isExterior ? "#f1f5f9" : "#cbd5e1"}
+                strokeWidth={Math.max(2, wall.thicknessMeters * viewport.scale)}
+                lineCap="round"
+              />
+            );
+          }
+          return null;
         })}
       </Group>
     );
@@ -101,29 +180,35 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-doors">
         {doors.map((door) => {
-          const sPos = worldToScreen(door.position, viewport);
-          const sWidth = door.widthMeters * viewport.scale;
-          const swingAngle = door.swingAngleDeg ?? 90;
-          const rotation = door.rotationDeg ?? 0;
-          return (
-            <Group key={`door-${door.id}`} x={sPos.x} y={sPos.y} rotation={rotation}>
-              <Arc
-                angle={swingAngle}
-                rotation={0}
-                innerRadius={0}
-                outerRadius={sWidth}
-                fill="rgba(251, 191, 36, 0.15)"
-                stroke="#f59e0b"
-                strokeWidth={1.5}
-                dash={[3, 3]}
-              />
-              <Line
-                points={[0, 0, sWidth, 0]}
-                stroke="#f59e0b"
-                strokeWidth={2}
-              />
-            </Group>
-          );
+          if (door.geometry) {
+            return this.renderPolygonGeometry(door.id, door.geometry, viewport, {
+              fill: "rgba(245, 158, 11, 0.3)",
+              stroke: "#f59e0b",
+              strokeWidth: 1.5,
+            });
+          }
+          if (door.position) {
+            const sPos = worldToScreen(door.position, viewport);
+            const sWidth = door.widthMeters * viewport.scale;
+            const swingAngle = door.swingAngleDeg ?? 90;
+            const rotation = door.rotationDeg ?? 0;
+            return (
+              <Group key={`door-${door.id}`} x={sPos.x} y={sPos.y} rotation={rotation}>
+                <Arc
+                  angle={swingAngle}
+                  rotation={0}
+                  innerRadius={0}
+                  outerRadius={sWidth}
+                  fill="rgba(251, 191, 36, 0.15)"
+                  stroke="#f59e0b"
+                  strokeWidth={1.5}
+                  dash={[3, 3]}
+                />
+                <Line points={[0, 0, sWidth, 0]} stroke="#f59e0b" strokeWidth={2} />
+              </Group>
+            );
+          }
+          return null;
         })}
       </Group>
     );
@@ -133,18 +218,28 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-windows">
         {windows.map((win) => {
-          const sStart = worldToScreen(win.start, viewport);
-          const sEnd = worldToScreen(win.end, viewport);
-          return (
-            <Line
-              key={`win-${win.id}`}
-              points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-              stroke="#38bdf8"
-              strokeWidth={Math.max(3, (win.thicknessMeters || 0.15) * viewport.scale)}
-              dash={[4, 4]}
-              lineCap="square"
-            />
-          );
+          if (win.geometry) {
+            return this.renderPolygonGeometry(win.id, win.geometry, viewport, {
+              fill: "rgba(56, 189, 248, 0.4)",
+              stroke: "#0284c7",
+              strokeWidth: 1.5,
+            });
+          }
+          if (win.start && win.end) {
+            const sStart = worldToScreen(win.start, viewport);
+            const sEnd = worldToScreen(win.end, viewport);
+            return (
+              <Line
+                key={`win-${win.id}`}
+                points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
+                stroke="#38bdf8"
+                strokeWidth={Math.max(3, (win.thicknessMeters || 0.15) * viewport.scale)}
+                dash={[4, 4]}
+                lineCap="square"
+              />
+            );
+          }
+          return null;
         })}
       </Group>
     );
@@ -154,21 +249,31 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-columns">
         {columns.map((col) => {
-          const sPos = worldToScreen(col.position, viewport);
-          const sW = col.widthMeters * viewport.scale;
-          const sH = col.heightMeters * viewport.scale;
-          return (
-            <Rect
-              key={`col-${col.id}`}
-              x={sPos.x - sW / 2}
-              y={sPos.y - sH / 2}
-              width={sW}
-              height={sH}
-              fill="rgba(239, 68, 68, 0.25)"
-              stroke="#ef4444"
-              strokeWidth={1.5}
-            />
-          );
+          if (col.geometry) {
+            return this.renderPolygonGeometry(col.id, col.geometry, viewport, {
+              fill: "rgba(239, 68, 68, 0.5)",
+              stroke: "#dc2626",
+              strokeWidth: 1.5,
+            });
+          }
+          if (col.position) {
+            const sPos = worldToScreen(col.position, viewport);
+            const sW = col.widthMeters * viewport.scale;
+            const sH = col.heightMeters * viewport.scale;
+            return (
+              <Rect
+                key={`col-${col.id}`}
+                x={sPos.x - sW / 2}
+                y={sPos.y - sH / 2}
+                width={sW}
+                height={sH}
+                fill="rgba(239, 68, 68, 0.25)"
+                stroke="#ef4444"
+                strokeWidth={1.5}
+              />
+            );
+          }
+          return null;
         })}
       </Group>
     );

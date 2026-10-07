@@ -1,7 +1,11 @@
 /**
- * Renderer-neutral data models for Layouts AI 2D Editor (Task 5.3).
+ * Renderer-neutral data models for Layouts AI 2D Editor.
  * Represents architectural render entities in world metric coordinates (meters, degrees).
  * CRITICAL: Zero Konva, React-Konva, or canvas DOM dependencies.
+ *
+ * Supports both:
+ * - Legacy simplified primitives (line-segment walls, point-based doors)
+ * - Full IFC polygon geometry for imported BIM elements
  */
 
 export interface RenderPoint {
@@ -9,12 +13,35 @@ export interface RenderPoint {
   y: number;
 }
 
+/** A closed polygon ring (exterior or hole) */
+export type PolygonRing = RenderPoint[];
+
+/** Full polygon geometry preserving holes */
+export interface RenderPolygon {
+  /** Exterior ring */
+  exterior: PolygonRing;
+  /** Interior holes (if any) */
+  holes?: PolygonRing[];
+}
+
+/**
+ * Actual 2D footprint geometry from IFC.
+ * Can be a single polygon or multiple disconnected polygons (MultiPolygon).
+ */
+export interface RenderGeometry {
+  /** Individual polygon components */
+  polygons: RenderPolygon[];
+}
+
 export interface RenderWall {
   id: string;
-  start: RenderPoint;
-  end: RenderPoint;
+  /** Legacy: wall as line segment */
+  start?: RenderPoint;
+  end?: RenderPoint;
   thicknessMeters: number;
   isExterior?: boolean;
+  /** Full polygon geometry from IFC (preferred for imported walls) */
+  geometry?: RenderGeometry;
 }
 
 export interface RenderDoor {
@@ -24,13 +51,18 @@ export interface RenderDoor {
   rotationDeg?: number;
   swingAngleDeg?: number;
   swingDirection?: "INSIDE_LEFT" | "INSIDE_RIGHT" | "OUTSIDE_LEFT" | "OUTSIDE_RIGHT";
+  /** Full polygon geometry from IFC (preferred for imported doors) */
+  geometry?: RenderGeometry;
 }
 
 export interface RenderWindow {
   id: string;
-  start: RenderPoint;
-  end: RenderPoint;
+  /** Legacy: window as line segment */
+  start?: RenderPoint;
+  end?: RenderPoint;
   thicknessMeters?: number;
+  /** Full polygon geometry from IFC (preferred for imported windows) */
+  geometry?: RenderGeometry;
 }
 
 export interface RenderColumn {
@@ -39,6 +71,15 @@ export interface RenderColumn {
   widthMeters: number;
   heightMeters: number;
   shape?: "RECTANGULAR" | "CIRCULAR";
+  /** Full polygon geometry from IFC (preferred for imported columns) */
+  geometry?: RenderGeometry;
+}
+
+export interface RenderSpace {
+  id: string;
+  name?: string;
+  /** Full polygon geometry from IFC */
+  geometry: RenderGeometry;
 }
 
 export interface RenderFurniture {
@@ -61,5 +102,8 @@ export interface FloorPlanRenderModel {
   doors: RenderDoor[];
   windows: RenderWindow[];
   columns: RenderColumn[];
+  spaces: RenderSpace[];
   furniture: RenderFurniture[];
+  /** World-space origin used for coordinate normalization */
+  worldOrigin?: RenderPoint;
 }

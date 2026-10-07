@@ -460,7 +460,16 @@ class IFCIngestor:
             try:
                 shape = ifcopenshell_geom.create_shape(geom_settings, entity)
                 raw_verts = shape.geometry.verts
-                verts = transform_shape_verts(raw_verts, shape)
+                use_world = False
+                if geom_settings is not None:
+                    try:
+                        use_world = bool(geom_settings.get(geom_settings.USE_WORLD_COORDINATES))
+                    except Exception:
+                        pass
+                if use_world:
+                    verts = list(raw_verts)
+                else:
+                    verts = transform_shape_verts(raw_verts, shape)
                 faces = shape.geometry.faces
 
                 g_type, g_coords, b_verts, g_status, g_err = project_shape_to_2d_footprint(

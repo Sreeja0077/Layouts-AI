@@ -45,6 +45,7 @@ export function runSnappingTests(): boolean {
     doors: [],
     windows: [],
     columns: [],
+    spaces: [],
     furniture: [
       { id: "f1", catalogItemId: "d1", itemType: "DESK", position: { x: 5.0, y: 2.0 }, widthMeters: 1.6, depthMeters: 0.8, rotationDeg: 0 },
     ],

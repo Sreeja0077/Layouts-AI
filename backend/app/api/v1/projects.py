@@ -83,6 +83,22 @@ def ensure_user_exists(db: Session, user: AuthenticatedUser) -> str:
     return user_uuid
 
 
+def purge_demo_test_floor_plans(db: Session):
+    """Purge seed demo/test floor plans from database so only real user uploads are stored/listed."""
+    try:
+        demo_fps = db.query(FloorPlan).filter(
+            (FloorPlan.name.ilike("%sample_floor_plan%")) |
+            (FloorPlan.name.ilike("%test plan%")) |
+            (FloorPlan.id == "fp_501")
+        ).all()
+        for fp in demo_fps:
+            db.query(FloorPlanSourceVersionModel).filter(FloorPlanSourceVersionModel.floor_plan_id == fp.id).delete(synchronize_session=False)
+            db.delete(fp)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[FloorPlanSourceVersionModel]:
     """Query database for latest FloorPlanSourceVersionModel matching normalized floor_plan_id UUID."""
     fp_uuid = ensure_uuid(floor_plan_id)
@@ -97,6 +113,7 @@ def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[Floo
 @router.get("/", response_model=List[Dict[str, Any]])
 async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """List all projects for current organization from PostgreSQL."""
+    purge_demo_test_floor_plans(db)
     db_projects = db.query(Project).all()
     if not db_projects:
         # Guarantee default project exists if DB is newly initialized
@@ -112,7 +129,11 @@ async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 
     results = []
     for proj in db_projects:
-        fp_count = db.query(FloorPlan).filter(FloorPlan.project_id == proj.id).count()
+        fp_count = db.query(FloorPlan).filter(
+            FloorPlan.project_id == proj.id,
+            ~FloorPlan.name.ilike("%sample_floor_plan%"),
+            ~FloorPlan.name.ilike("%test plan%"),
+        ).count()
         results.append({
             "id": proj.id,
             "name": proj.name,
@@ -120,7 +141,6 @@ async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
             "floor_plans_count": fp_count,
         })
     return results
-
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -155,11 +175,18 @@ async def create_project(payload: Dict[str, Any], db: Session = Depends(get_db))
 @router.get("/{project_id}/floor-plans")
 async def list_floor_plans(project_id: str, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """List floor plans for a specific project from PostgreSQL."""
+    purge_demo_test_floor_plans(db)
     proj_uuid = ensure_uuid(project_id)
     fps = db.query(FloorPlan).filter(FloorPlan.project_id == proj_uuid).all()
     if not fps:
-        # Fallback query by string prefix or exact string ID match
-        fps = db.query(FloorPlan).all()
+        # Fallback query by exact string ID match
+        fps = db.query(FloorPlan).filter(FloorPlan.project_id == project_id).all()
+
+    # Exclude any seed/test floor plans
+    user_fps = [
+        fp for fp in fps
+        if not ("sample_floor_plan" in (fp.name or "").lower() or "test plan" in (fp.name or "").lower() or fp.id == "fp_501")
+    ]
 
     return [
         {
@@ -169,7 +196,7 @@ async def list_floor_plans(project_id: str, db: Session = Depends(get_db)) -> Li
             "floor_number": fp.floor_number,
             "current_working_revision_id": fp.current_working_revision_id or "rev_001",
         }
-        for fp in fps
+        for fp in user_fps
     ]
 
 

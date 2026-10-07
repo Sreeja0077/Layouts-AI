@@ -16,6 +16,7 @@ export function runTransformTests(): boolean {
     doors: [],
     windows: [],
     columns: [],
+    spaces: [],
     furniture: [
       { id: "f1", catalogItemId: "desk1", itemType: "DESK", position: { x: 3.0, y: 4.0 }, widthMeters: 1.8, depthMeters: 0.9, rotationDeg: 0, isLocked: false },
       { id: "f_locked", catalogItemId: "cab1", itemType: "CABINET", position: { x: 8.0, y: 2.0 }, widthMeters: 1.0, depthMeters: 0.5, rotationDeg: 0, isLocked: true },

@@ -38,6 +38,51 @@ interface CanvasStageProps {
   onStrokeChange?: (stroke: FreehandStroke | null) => void;
 }
 
+function getModelBoundingPoints(model: FloorPlanRenderModel): Point2D[] {
+  const points: Point2D[] = [];
+
+  const collectGeomPts = (geom?: any) => {
+    if (!geom || !Array.isArray(geom.polygons)) return;
+    for (const poly of geom.polygons) {
+      if (Array.isArray(poly.exterior)) {
+        for (const pt of poly.exterior) {
+          if (typeof pt.x === "number" && typeof pt.y === "number") {
+            points.push(pt);
+          }
+        }
+      }
+    }
+  };
+
+  for (const wall of model.walls) {
+    if (wall.geometry) collectGeomPts(wall.geometry);
+    if (wall.start) points.push(wall.start);
+    if (wall.end) points.push(wall.end);
+  }
+
+  for (const door of model.doors) {
+    if (door.geometry) collectGeomPts(door.geometry);
+    else if (door.position) points.push(door.position);
+  }
+
+  for (const win of model.windows) {
+    if (win.geometry) collectGeomPts(win.geometry);
+    if (win.start) points.push(win.start);
+    if (win.end) points.push(win.end);
+  }
+
+  for (const col of model.columns) {
+    if (col.geometry) collectGeomPts(col.geometry);
+    else if (col.position) points.push(col.position);
+  }
+
+  for (const space of model.spaces || []) {
+    if (space.geometry) collectGeomPts(space.geometry);
+  }
+
+  return points.length > 0 ? points : model.boundary;
+}
+
 export const CanvasStage: React.FC<CanvasStageProps> = ({
   viewport,
   onViewportChange,
@@ -86,7 +131,8 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   // Fit bounds helper
   const fitView = useCallback(() => {
     if (renderModel && containerSize.width > 0 && containerSize.height > 0) {
-      const fittedVp = fitBounds(renderModel.boundary, containerSize.width, containerSize.height);
+      const boundingPts = getModelBoundingPoints(renderModel);
+      const fittedVp = fitBounds(boundingPts, containerSize.width, containerSize.height);
       onViewportChange(fittedVp);
     }
   }, [renderModel, containerSize, onViewportChange]);

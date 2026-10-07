@@ -17,6 +17,7 @@ export function runSelectionTests(): boolean {
     doors: [{ id: "d1", position: { x: 3, y: 0 }, widthMeters: 0.9 }],
     windows: [],
     columns: [{ id: "c1", position: { x: 5, y: 5 }, widthMeters: 0.6, heightMeters: 0.6 }],
+    spaces: [],
     furniture: [
       { id: "f1", catalogItemId: "desk_exec", itemType: "EXECUTIVE_DESK", position: { x: 2, y: 2 }, widthMeters: 1.6, depthMeters: 0.8, rotationDeg: 0, isLocked: false },
       { id: "f_locked", catalogItemId: "cab_fixed", itemType: "STORAGE_CABINET", position: { x: 8, y: 2 }, widthMeters: 1.0, depthMeters: 0.5, rotationDeg: 0, isLocked: true },

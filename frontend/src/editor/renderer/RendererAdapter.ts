@@ -10,6 +10,7 @@ import {
   RenderDoor,
   RenderWindow,
   RenderColumn,
+  RenderSpace,
   RenderFurniture,
 } from "./renderTypes";
 import { Viewport } from "../canvas/canvasTypes";
@@ -17,6 +18,9 @@ import { Viewport } from "../canvas/canvasTypes";
 export interface RendererAdapter<TOutput = unknown> {
   /** Renders the complete floor plan model */
   renderFloorPlan(model: Readonly<FloorPlanRenderModel>, viewport: Viewport): TOutput;
+
+  /** Renders room spaces */
+  renderSpaces(spaces: ReadonlyArray<RenderSpace>, viewport: Viewport): TOutput;
 
   /** Renders architectural walls */
   renderWalls(walls: ReadonlyArray<RenderWall>, viewport: Viewport): TOutput;

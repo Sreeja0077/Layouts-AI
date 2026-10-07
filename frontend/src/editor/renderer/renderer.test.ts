@@ -24,6 +24,9 @@ class MockRendererAdapter implements RendererAdapter<string> {
   renderColumns(columns: ReadonlyArray<any>, _viewport: Viewport): string {
     return `Columns:${columns.length}`;
   }
+  renderSpaces(spaces: ReadonlyArray<any>, _viewport: Viewport): string {
+    return `Spaces:${spaces.length}`;
+  }
   renderFurniture(furniture: ReadonlyArray<any>, _viewport: Viewport): string {
     return `Furniture:${furniture.length}`;
   }
@@ -55,6 +58,7 @@ export function runRendererAdapterTests(): boolean {
     columns: [
       { id: "c1", position: { x: 5, y: 5 }, widthMeters: 0.6, heightMeters: 0.6 },
     ],
+    spaces: [],
     furniture: [
       { id: "f1", catalogItemId: "desk_exec", itemType: "EXECUTIVE_DESK", position: { x: 3, y: 3 }, widthMeters: 1.6, depthMeters: 0.8, rotationDeg: 0 },
     ],

@@ -167,6 +167,30 @@ class GeometryReconciler:
                     severity="WARNING",
                     message=f"Failed to compute outer boundary union from space polygons: {str(err)}"
                 ))
+        else:
+            # Fallback: compute boundary union from wall footprint polygons
+            valid_wall_polys = []
+            for w in parsed_ifc.walls:
+                if w.geometry_status == GeometryStatus.VALID and w.geometry_coordinates:
+                    try:
+                        poly = self._coords_to_shapely(w.geometry_type, w.geometry_coordinates)
+                        if poly is not None and not poly.is_empty and poly.is_valid:
+                            valid_wall_polys.append(poly)
+                    except Exception:
+                        pass
+            if valid_wall_polys:
+                try:
+                    unioned_walls = unary_union(valid_wall_polys)
+                    if not unioned_walls.is_valid:
+                        unioned_walls = unioned_walls.buffer(0)
+                    if not unioned_walls.is_empty:
+                        hull = unioned_walls.convex_hull
+                        if hull.is_valid and not hull.is_empty:
+                            g_type, g_coords, b_compat = shapely_to_geometry_model(hull)
+                            boundary_geom_model = Geometry2D(type=g_type, coordinates=g_coords)
+                            boundary_compat = b_compat
+                except Exception:
+                    pass
 
         elem_summary = {
             "walls": len(parsed_ifc.walls),
