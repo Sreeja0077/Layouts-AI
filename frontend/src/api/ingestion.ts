@@ -263,11 +263,22 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
 
   (report.all_elements_geometry || []).forEach((elem, index) => {
     const cat = (elem.category || "").toUpperCase();
+    const subtype = (elem.subtype || elem.category || "OTHER").toUpperCase();
+    const sourceIfcType = elem.element_type || "IfcEntity";
+
     const pts = extract2DPts(elem);
     pts.forEach((p) => allPoints.push(p));
     const renderGeom = parseRenderGeometry(elem);
 
-    if (cat.includes("WALL")) {
+    let cleanName = elem.name || elem.element_type || elem.category || `Item ${index + 1}`;
+    if (cleanName === "Polygon" || cleanName === "MultiPolygon") {
+      cleanName = elem.element_type || `Item ${index + 1}`;
+    }
+
+    const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
+    const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
+
+    if (cat === "WALL" || cat.includes("WALL")) {
       const startPt = pts[0] || { x: 0, y: 0 };
       const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
       walls.push({
@@ -278,9 +289,7 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         isExterior: true,
         geometry: renderGeom,
       });
-    } else if (cat.includes("DOOR")) {
-      const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
-      const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
+    } else if (cat === "DOOR" || cat.includes("DOOR")) {
       doors.push({
         id: elem.id || elem.global_id || `door_${index}`,
         position: { x: centerX, y: centerY },
@@ -288,7 +297,24 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         swingAngleDeg: 90,
         geometry: renderGeom,
       });
-    } else if (cat.includes("WINDOW")) {
+      furniture.push({
+        id: elem.id || elem.global_id || `door_${index}`,
+        catalogItemId: elem.global_id || elem.id,
+        itemType: "DOOR",
+        subtype: "DOOR",
+        category: "FURNITURE_ITEM",
+        sourceIfcType,
+        name: cleanName,
+        position: { x: centerX, y: centerY },
+        widthMeters: 0.9,
+        depthMeters: 0.2,
+        rotationDeg: 0,
+        isLocked: true,
+        isImported: true,
+        geometry: renderGeom,
+        properties: elem.properties || {},
+      });
+    } else if (cat === "WINDOW" || cat.includes("WINDOW")) {
       const startPt = pts[0] || { x: 0, y: 0 };
       const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
       windows.push({
@@ -298,9 +324,24 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         thicknessMeters: 0.2,
         geometry: renderGeom,
       });
-    } else if (cat.includes("COLUMN")) {
-      const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
-      const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
+      furniture.push({
+        id: elem.id || elem.global_id || `win_${index}`,
+        catalogItemId: elem.global_id || elem.id,
+        itemType: "WINDOW",
+        subtype: "WINDOW",
+        category: "FURNITURE_ITEM",
+        sourceIfcType,
+        name: cleanName,
+        position: { x: centerX, y: centerY },
+        widthMeters: 1.0,
+        depthMeters: 0.2,
+        rotationDeg: 0,
+        isLocked: true,
+        isImported: true,
+        geometry: renderGeom,
+        properties: elem.properties || {},
+      });
+    } else if (cat === "COLUMN" || cat.includes("COLUMN")) {
       columns.push({
         id: elem.id || elem.global_id || `col_${index}`,
         position: { x: centerX, y: centerY },
@@ -308,27 +349,31 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         heightMeters: 0.6,
         geometry: renderGeom,
       });
-    } else if (cat.includes("SPACE") || cat.includes("ROOM")) {
+    } else if (cat === "SPACE" || cat.includes("SPACE") || cat.includes("ROOM")) {
       if (renderGeom) {
         spaces.push({
           id: elem.id || elem.global_id || `space_${index}`,
-          name: elem.type || "Space",
+          name: cleanName.includes("IfcSpace") ? `Room ${spaces.length + 1}` : cleanName,
           geometry: renderGeom,
         });
       }
-    } else if (cat.includes("FURNITURE") || cat.includes("FURNISH") || cat.includes("PROXY") || cat.includes("TERMINAL") || cat.includes("ASSET")) {
-      const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
-      const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
+    } else {
       furniture.push({
         id: elem.id || elem.global_id || `furn_${index}`,
-        catalogItemId: "ifc_item",
-        itemType: elem.id?.split("_")[0] || "Furniture",
+        catalogItemId: elem.global_id || elem.id,
+        itemType: subtype,
+        subtype,
+        category: "FURNITURE_ITEM",
+        sourceIfcType,
+        name: cleanName,
         position: { x: centerX, y: centerY },
         widthMeters: 1.0,
         depthMeters: 0.8,
         rotationDeg: 0,
-        isLocked: false,
+        isLocked: true,
+        isImported: true,
         geometry: renderGeom,
+        properties: elem.properties || {},
       });
     }
   });

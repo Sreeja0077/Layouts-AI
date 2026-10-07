@@ -84,14 +84,20 @@ export interface RenderSpace {
 
 export interface RenderFurniture {
   id: string;
-  catalogItemId: string;
+  catalogItemId?: string;
   itemType: string;
+  subtype?: string;
+  category?: string;
+  sourceIfcType?: string;
+  name?: string;
   position: RenderPoint;
   widthMeters: number;
   depthMeters: number;
   rotationDeg: number;
   isLocked?: boolean;
+  isImported?: boolean;
   geometry?: RenderGeometry;
+  properties?: Record<string, any>;
 }
 
 /** Complete renderer-neutral architectural floor plan render model */

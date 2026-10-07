@@ -60,6 +60,7 @@ def test_real_ifc_geometry_reconciliation():
     assert report.elements_summary.get("doors") == 21
     assert report.elements_summary.get("windows") == 30
     assert report.elements_summary.get("columns") == 18
+    assert report.elements_summary.get("furniture_items") == 114
 
     # Independently compute Shapely sum of valid space geometry areas
     expected_area = 0.0
@@ -95,7 +96,7 @@ def test_real_ifc_geometry_reconciliation():
     else:
         assert report.boundary_polygon == []
 
-    assert len(report.all_elements_geometry) == 306
+    assert len(report.all_elements_geometry) == 418
 
     print(f"REAL IFC GEOMETRY RECONCILIATION PASSED: {report.total_rooms_count} rooms, {report.total_net_area_sqm} sqm.")
 

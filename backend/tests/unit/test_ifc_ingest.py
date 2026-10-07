@@ -188,16 +188,17 @@ def test_real_ifc_ingest_parsing():
     print(f"[Real IFC Ingestion Test] Scale Factor to Meters: {result.source_metadata.get('unit_scale_to_meters')}")
 
     # 1. Total elements and counts
-    assert result.total_elements_count == 306, f"Expected 306 elements, got {result.total_elements_count}"
+    assert result.total_elements_count == 420, f"Expected 420 elements, got {result.total_elements_count}"
     assert result.valid_geometry_count > 0, "No valid geometries extracted!"
     assert len(result.walls) == 225
     assert len(result.doors) == 21
     assert len(result.windows) == 30
     assert len(result.columns) == 18
     assert len(result.spaces) == 12
+    assert len(result.furniture) == 114, f"Expected 114 furniture items, got {len(result.furniture)}"
 
     # 2. Verify element GlobalIds, geometry status, typed Geometry2D, and boundaries
-    all_elements = result.walls + result.doors + result.windows + result.columns + result.spaces
+    all_elements = result.walls + result.doors + result.windows + result.columns + result.spaces + result.furniture
     valid_wall_areas = []
 
     for elem in all_elements:
@@ -205,6 +206,9 @@ def test_real_ifc_ingest_parsing():
         assert elem.global_id == elem.ifc_global_id, "global_id and ifc_global_id mismatch!"
         assert elem.element_type and elem.element_type.startswith("Ifc"), f"Invalid element_type {elem.element_type}"
         assert elem.internal_id.startswith(elem.element_type.lower()), f"Invalid internal_id {elem.internal_id}"
+        assert elem.name not in ("Polygon", "MultiPolygon"), f"Placeholder name '{elem.name}' found on {elem.ifc_global_id}"
+        assert hasattr(elem, "category") and len(elem.category) > 0
+        assert hasattr(elem, "subtype") and len(elem.subtype) > 0
 
         if elem.geometry_status == GeometryStatus.VALID:
             assert elem.geometry_type in (GeometryType.POLYGON, GeometryType.MULTIPOLYGON)
@@ -237,7 +241,7 @@ def test_real_ifc_ingest_parsing():
     assert result.file_name == REAL_IFC_FILE.name
     assert result.source_metadata.get("exporter_application") is not None
 
-    print(f"REAL IFC FILE PARSING VERIFIED: {result.valid_geometry_count} valid elements, {len(unique_areas)} distinct wall areas.")
+    print(f"REAL IFC FILE PARSING VERIFIED: {result.valid_geometry_count} valid elements, {len(result.furniture)} furniture items, {len(unique_areas)} distinct wall areas.")
 
 
 def test_pydantic_serialization():
@@ -249,7 +253,8 @@ def test_pydantic_serialization():
     result = ingestor.parse_file(str(REAL_IFC_FILE))
 
     dump_dict = result.model_dump()
-    assert dump_dict["total_elements_count"] == 306
+    assert dump_dict["total_elements_count"] == 420
+    assert len(dump_dict["furniture"]) == 114
 
     json_str = result.model_dump_json()
     assert isinstance(json_str, str) and len(json_str) > 1000
@@ -257,6 +262,7 @@ def test_pydantic_serialization():
     parsed_back = json.loads(json_str)
     assert parsed_back["file_name"] == REAL_IFC_FILE.name
     assert len(parsed_back["walls"]) == 225
+    assert len(parsed_back["furniture"]) == 114
 
     # Inspect first wall's typed geometry container in JSON
     wall_json = parsed_back["walls"][0]
@@ -265,6 +271,30 @@ def test_pydantic_serialization():
     assert isinstance(wall_json["geometry"]["coordinates"], list)
 
     print("PYDANTIC JSON SERIALIZATION TEST PASSED: Clean JSON serialization verified!")
+
+
+def test_furniture_item_extraction_and_subtype_preservation():
+    """
+    Focused Unit Test for Unified Furniture / Items Extraction & Subtype Preservation:
+    Verifies that furniture items are extracted into IFCParsedFloorPlan.furniture,
+    preserve GlobalId, element_type, name, category, subtype, and actual geometry.
+    """
+    ingestor = IFCIngestor()
+    result = ingestor.parse_file(str(REAL_IFC_FILE))
+
+    assert hasattr(result, "furniture"), "IFCParsedFloorPlan missing furniture field!"
+    assert len(result.furniture) == 114, f"Expected 114 furniture items, got {len(result.furniture)}"
+
+    subtypes_found = set()
+    for item in result.furniture:
+        assert item.category == "FURNITURE_ITEM", f"Expected category FURNITURE_ITEM, got {item.category}"
+        assert item.ifc_global_id and len(item.ifc_global_id) > 0
+        assert item.element_type and len(item.element_type) > 0
+        assert item.name not in ("Polygon", "MultiPolygon"), f"Placeholder name found: {item.name}"
+        subtypes_found.add(item.subtype)
+
+    print(f"FURNITURE SUBTYPES EXTRACTED: {subtypes_found}")
+    assert len(subtypes_found) > 0, "No furniture subtypes derived!"
 
 
 def test_forced_geometry_failure_regression(monkeypatch=None):
@@ -295,9 +325,9 @@ def test_forced_geometry_failure_regression(monkeypatch=None):
         ingestor = IFCIngestor()
         result = ingestor.parse_file(str(REAL_IFC_FILE))
 
-        assert result.total_elements_count == 306
+        assert result.total_elements_count == 420
         assert result.valid_geometry_count == 0, "All geometry extractions should fail when shape creation crashes!"
-        assert result.failed_geometry_count == 306
+        assert result.failed_geometry_count == 420
         assert len(result.extraction_warnings) > 0
 
         wall = result.walls[0]
@@ -331,14 +361,15 @@ def test_repeated_ifc_parsing_and_no_retained_references():
     for i in range(3):
         result = ingestor.parse_file(str(REAL_IFC_FILE))
 
-        assert result.total_elements_count == 306
-        assert result.valid_geometry_count == 306
-        assert result.failed_geometry_count == 0
+        assert result.total_elements_count == 420
+        assert result.valid_geometry_count == 418
+        assert result.failed_geometry_count == 2
         assert len(result.walls) == 225
         assert len(result.doors) == 21
         assert len(result.windows) == 30
         assert len(result.columns) == 18
         assert len(result.spaces) == 12
+        assert len(result.furniture) == 114
 
         # Verify returned data contains no raw IfcOpenShell or C++ instances
         all_elements = result.walls + result.doors + result.windows + result.columns + result.spaces

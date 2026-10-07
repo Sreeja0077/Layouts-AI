@@ -297,39 +297,222 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-furniture">
         {furniture.map((item) => {
-          if (item.geometry) {
-            return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-              fill: "rgba(180, 83, 9, 0.7)",
-              stroke: "#f59e0b",
-              strokeWidth: 1.5,
-            });
+          const subtype = (item.subtype || item.itemType || "OTHER").toUpperCase();
+          const sourceIfcType = (item.sourceIfcType || "").toUpperCase();
+
+          if (subtype === "DOOR" || sourceIfcType === "IFCDOOR") {
+            if (item.geometry) {
+              return this.renderDoorPlanSymbol(item, viewport);
+            }
           }
-          const sPos = worldToScreen(item.position, viewport);
-          const sW = item.widthMeters * viewport.scale;
-          const sD = item.depthMeters * viewport.scale;
-          return (
-            <Group key={`furn-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-              <Rect
-                x={-sW / 2}
-                y={-sD / 2}
-                width={sW}
-                height={sD}
-                fill={item.isLocked ? "rgba(148, 163, 184, 0.4)" : "rgba(180, 83, 9, 0.55)"}
-                stroke={item.isLocked ? "#94a3b8" : "#f59e0b"}
-                strokeWidth={1.5}
-                cornerRadius={2}
-              />
-              <Text
-                text={item.itemType}
-                x={-sW / 2 + 2}
-                y={-sD / 2 + 2}
-                fontSize={Math.max(9, Math.min(11, sW / 4))}
-                fill="#fef08a"
-                fontFamily="Inter, sans-serif"
-              />
-            </Group>
-          );
+          if (subtype === "WINDOW" || sourceIfcType === "IFCWINDOW") {
+            if (item.geometry) {
+              return this.renderWindowPlanSymbol(item, viewport);
+            }
+          }
+          if (subtype === "CHAIR") {
+            return this.renderChairPlanSymbol(item, viewport);
+          }
+          if (subtype === "TABLE") {
+            return this.renderTablePlanSymbol(item, viewport);
+          }
+          if (subtype === "DESK") {
+            return this.renderDeskPlanSymbol(item, viewport);
+          }
+          if (subtype === "CABINET" || subtype === "STORAGE") {
+            return this.renderCabinetPlanSymbol(item, viewport);
+          }
+          if (subtype === "SOFA") {
+            return this.renderSofaPlanSymbol(item, viewport);
+          }
+          if (subtype === "SANITARY") {
+            return this.renderSanitaryPlanSymbol(item, viewport);
+          }
+          if (subtype === "EQUIPMENT" || subtype === "FIXTURE") {
+            return this.renderEquipmentPlanSymbol(item, viewport);
+          }
+
+          return this.renderGenericFurnitureSymbol(item, viewport);
         })}
+      </Group>
+    );
+  }
+
+  private renderDoorPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(37, 99, 235, 0.75)",
+        stroke: "#60a5fa",
+        strokeWidth: 2,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = Math.min(item.widthMeters * viewport.scale, 28);
+    return (
+      <Group key={`door-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
+        <Arc angle={90} rotation={0} innerRadius={0} outerRadius={sW} fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" strokeWidth={2} dash={[3, 3]} />
+        <Line points={[0, 0, sW, 0]} stroke="#60a5fa" strokeWidth={2.5} />
+      </Group>
+    );
+  }
+
+  private renderWindowPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(6, 182, 212, 0.6)",
+        stroke: "#22d3ee",
+        strokeWidth: 2,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = (item.depthMeters || 0.2) * viewport.scale;
+    return (
+      <Rect key={`win-sym-${item.id}`} x={sPos.x - sW / 2} y={sPos.y - sD / 2} width={sW} height={sD} fill="rgba(6, 182, 212, 0.6)" stroke="#22d3ee" strokeWidth={2} />
+    );
+  }
+
+  private renderChairPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(217, 119, 6, 0.75)",
+        stroke: "#fbbf24",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`chair-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(217, 119, 6, 0.75)" stroke="#fbbf24" strokeWidth={1.5} cornerRadius={3} />
+        <Line points={[-sW / 2 + 2, -sD / 2 + 2, sW / 2 - 2, -sD / 2 + 2]} stroke="#fef08a" strokeWidth={2} />
+      </Group>
+    );
+  }
+
+  private renderTablePlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(180, 83, 9, 0.7)",
+        stroke: "#f59e0b",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`tbl-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.7)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
+      </Group>
+    );
+  }
+
+  private renderDeskPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(180, 83, 9, 0.75)",
+        stroke: "#f59e0b",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`desk-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.75)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
+      </Group>
+    );
+  }
+
+  private renderCabinetPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(71, 85, 105, 0.7)",
+        stroke: "#94a3b8",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`cab-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(71, 85, 105, 0.7)" stroke="#94a3b8" strokeWidth={1.5} cornerRadius={1} />
+      </Group>
+    );
+  }
+
+  private renderSofaPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(99, 102, 241, 0.7)",
+        stroke: "#818cf8",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`sofa-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(99, 102, 241, 0.7)" stroke="#818cf8" strokeWidth={1.5} cornerRadius={4} />
+      </Group>
+    );
+  }
+
+  private renderSanitaryPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(14, 116, 144, 0.7)",
+        stroke: "#06b6d4",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(14, 116, 144, 0.7)" stroke="#06b6d4" strokeWidth={1.5} cornerRadius={4} />
+      </Group>
+    );
+  }
+
+  private renderEquipmentPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(15, 118, 110, 0.7)",
+        stroke: "#14b8a6",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`eq-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(15, 118, 110, 0.7)" stroke="#14b8a6" strokeWidth={1.5} cornerRadius={1} />
+      </Group>
+    );
+  }
+
+  private renderGenericFurnitureSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    if (item.geometry) {
+      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
+        fill: "rgba(180, 83, 9, 0.65)",
+        stroke: "#f59e0b",
+        strokeWidth: 1.5,
+      });
+    }
+    const sPos = worldToScreen(item.position, viewport);
+    const sW = item.widthMeters * viewport.scale;
+    const sD = item.depthMeters * viewport.scale;
+    return (
+      <Group key={`gen-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.65)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
       </Group>
     );
   }

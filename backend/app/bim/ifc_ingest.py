@@ -244,6 +244,61 @@ def project_shape_to_2d_footprint(
         return None, None, [], GeometryStatus.FAILED, f"IFC_GEOMETRY_UNION_FAILED: {str(exc)}"
 
 
+def derive_semantic_category_and_subtype(entity: Any) -> Tuple[str, str]:
+    """
+    Deterministically derive (category, subtype) for an IFC entity based on:
+    IFC entity type, Name, ObjectType, PredefinedType, and Tag.
+    category: 'WALL' | 'DOOR' | 'WINDOW' | 'COLUMN' | 'SPACE' | 'FURNITURE_ITEM'
+    subtype: 'DOOR' | 'WINDOW' | 'CHAIR' | 'TABLE' | 'DESK' | 'CABINET' | 'SOFA' | 'STORAGE' | 'SANITARY' | 'EQUIPMENT' | 'FIXTURE' | 'STAIR' | 'RAILING' | 'OTHER'
+    """
+    ifc_type = entity.is_a().upper() if hasattr(entity, "is_a") else ""
+    name = (getattr(entity, "Name", "") or "").upper()
+    obj_type = (getattr(entity, "ObjectType", "") or "").upper()
+    predef_type = (str(getattr(entity, "PredefinedType", "")) if hasattr(entity, "PredefinedType") else "").upper()
+
+    combined_text = f"{ifc_type} {name} {obj_type} {predef_type}"
+
+    # Structural mapping
+    if "WALL" in ifc_type:
+        return "WALL", "OTHER"
+    if "COLUMN" in ifc_type:
+        return "COLUMN", "OTHER"
+    if "SPACE" in ifc_type or "ROOM" in ifc_type:
+        return "SPACE", "OTHER"
+
+    # Doors and Windows
+    if "DOOR" in ifc_type:
+        return "DOOR", "DOOR"
+    if "WINDOW" in ifc_type:
+        return "WINDOW", "WINDOW"
+
+    # Furniture / Architectural Item Subtypes
+    if "CHAIR" in combined_text or "SEAT" in combined_text or "STOOL" in combined_text or "BENCH" in combined_text:
+        return "FURNITURE_ITEM", "CHAIR"
+    if "DESK" in combined_text or "WORKSTATION" in combined_text:
+        return "FURNITURE_ITEM", "DESK"
+    if "TABLE" in combined_text or "DINING" in combined_text or "CONFERENCE" in combined_text:
+        return "FURNITURE_ITEM", "TABLE"
+    if "SOFA" in combined_text or "COUCH" in combined_text or "ARMCHAIR" in combined_text or "SETTEE" in combined_text:
+        return "FURNITURE_ITEM", "SOFA"
+    if "CABINET" in combined_text or "SHELF" in combined_text or "CREDENCE" in combined_text or "BOOKCASE" in combined_text or "DRAWER" in combined_text:
+        return "FURNITURE_ITEM", "CABINET"
+    if "STORAGE" in combined_text or "LOCKER" in combined_text or "CLOSET" in combined_text or "WARDROBE" in combined_text:
+        return "FURNITURE_ITEM", "STORAGE"
+    if "SANITARY" in ifc_type or "SINK" in combined_text or "TOILET" in combined_text or "BASIN" in combined_text or "URINAL" in combined_text or "SHOWER" in combined_text or "BATH" in combined_text or "WC" in combined_text:
+        return "FURNITURE_ITEM", "SANITARY"
+    if "LIGHT" in combined_text or "LAMP" in combined_text or "FIXTURE" in combined_text or "PANEL" in combined_text or "RECEPTACLE" in combined_text or "SWITCH" in combined_text:
+        return "FURNITURE_ITEM", "FIXTURE"
+    if "EQUIPMENT" in combined_text or "HVAC" in combined_text or "PUMP" in combined_text or "FAN" in combined_text or "APPLIANCE" in combined_text or "TV" in combined_text or "MONITOR" in combined_text or "PRINTER" in combined_text or "FLOWTERMINAL" in ifc_type:
+        return "FURNITURE_ITEM", "EQUIPMENT"
+    if "STAIR" in combined_text:
+        return "FURNITURE_ITEM", "STAIR"
+    if "RAILING" in combined_text:
+        return "FURNITURE_ITEM", "RAILING"
+
+    return "FURNITURE_ITEM", "OTHER"
+
+
 class ExtractedElement(BaseModel):
     """Extracted structural or spatial element from BIM model."""
     model_config = ConfigDict(extra="forbid")
@@ -251,7 +306,9 @@ class ExtractedElement(BaseModel):
     internal_id: str = Field(..., description="Internal element identifier")
     ifc_global_id: str = Field(..., description="IFC GlobalUniqueId (GlobalId)")
     global_id: str = Field(..., description="IFC GlobalUniqueId for backward compatibility")
-    element_type: str = Field(..., description="IFC entity type (e.g., 'IfcWall', 'IfcDoor', 'IfcSpace')")
+    element_type: str = Field(..., description="IFC entity type (e.g., 'IfcWall', 'IfcDoor', 'IfcSpace', 'IfcFurnishingElement')")
+    category: str = Field(default="FURNITURE_ITEM", description="Application category e.g. 'WALL', 'DOOR', 'WINDOW', 'COLUMN', 'SPACE', 'FURNITURE_ITEM'")
+    subtype: str = Field(default="OTHER", description="Semantic subtype e.g. 'DOOR', 'WINDOW', 'CHAIR', 'TABLE', 'DESK', 'CABINET', 'SOFA', 'STORAGE', 'SANITARY', 'EQUIPMENT', 'FIXTURE', 'STAIR', 'RAILING', 'OTHER'")
     name: str = Field(..., description="Element name or label")
     geometry_status: GeometryStatus = Field(default=GeometryStatus.VALID, description="Status of geometry extraction")
     geometry_type: Optional[GeometryType] = Field(default=None, description="Shapely/GeoJSON geometry type ('Polygon' or 'MultiPolygon')")
@@ -279,6 +336,7 @@ class IFCParsedFloorPlan(BaseModel):
     windows: List[ExtractedElement] = Field(default_factory=list)
     columns: List[ExtractedElement] = Field(default_factory=list)
     spaces: List[ExtractedElement] = Field(default_factory=list)
+    furniture: List[ExtractedElement] = Field(default_factory=list, description="Extracted non-structural furnishing and equipment items")
     source_metadata: Dict[str, Any] = Field(default_factory=dict, description="Project & file level provenance metadata")
     extraction_warnings: List[str] = Field(default_factory=list, description="Non-fatal extraction warnings")
 
@@ -339,8 +397,14 @@ class IFCIngestor:
         furnishing_entities = (
             _safe_by_type(ifc_file, "IfcFurnishingElement") +
             _safe_by_type(ifc_file, "IfcSystemFurnitureElement") +
+            _safe_by_type(ifc_file, "IfcFurniture") +
             _safe_by_type(ifc_file, "IfcBuildingElementProxy") +
-            _safe_by_type(ifc_file, "IfcFlowTerminal")
+            _safe_by_type(ifc_file, "IfcEquipmentElement") +
+            _safe_by_type(ifc_file, "IfcSanitaryTerminal") +
+            _safe_by_type(ifc_file, "IfcFlowTerminal") +
+            _safe_by_type(ifc_file, "IfcStair") +
+            _safe_by_type(ifc_file, "IfcStairFlight") +
+            _safe_by_type(ifc_file, "IfcRailing")
         )
         seen_furn_ids = set()
         dedup_furn = []
@@ -381,6 +445,7 @@ class IFCIngestor:
             windows=windows,
             columns=columns,
             spaces=spaces,
+            furniture=furniture,
             source_metadata=project_meta,
             extraction_warnings=warnings,
         )
@@ -410,7 +475,12 @@ class IFCIngestor:
             global_id = "MISSING_GLOBAL_ID"
             warnings.append(f"MISSING_GLOBAL_ID: Element type {entity.is_a()} id={entity.id()} lacks standard IFC GlobalId.")
 
-        name = getattr(entity, "Name", None) or entity.is_a()
+        category, subtype = derive_semantic_category_and_subtype(entity)
+
+        raw_name = getattr(entity, "Name", None)
+        if not raw_name or str(raw_name) in ("Polygon", "MultiPolygon"):
+            raw_name = getattr(entity, "ObjectType", None) or entity.is_a()
+        name = str(raw_name)
 
         element_metadata = {
             "source_file": file_name,
@@ -427,6 +497,8 @@ class IFCIngestor:
             ifc_global_id=global_id,
             global_id=global_id,
             element_type=entity.is_a(),
+            category=category,
+            subtype=subtype,
             name=name,
             geometry_status=geom_status,
             geometry_type=geom_type,

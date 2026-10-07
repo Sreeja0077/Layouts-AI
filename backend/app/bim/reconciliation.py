@@ -52,7 +52,7 @@ class GeometryVerificationReport(BaseModel):
     total_net_area_sqm: float = Field(..., description="Total floor net area in square meters calculated from geometry")
     boundary_polygon: List[List[float]] = Field(default_factory=list, description="Simple exterior ring vertices [[x,y],...] for backward compatibility")
     boundary_geometry: Optional[Geometry2D] = Field(default=None, description="Authoritative GeoJSON Geometry2D (Polygon or MultiPolygon with holes)")
-    elements_summary: Dict[str, int] = Field(default_factory=dict, description="Counts of extracted walls, doors, windows, columns, spaces")
+    elements_summary: Dict[str, Any] = Field(default_factory=dict, description="Counts of extracted walls, doors, windows, columns, spaces, furniture_items")
     all_elements_geometry: List[Dict[str, Any]] = Field(default_factory=list, description="List of vector elements for read-only UI rendering")
     warnings: List[GeometryAnomalyWarning] = Field(default_factory=list)
     reviewer_user_id: Optional[str] = Field(None, description="User ID of Layouts Team reviewer who verified/rejected")
@@ -85,29 +85,22 @@ class GeometryReconciler:
 
         for elem in all_elements:
             if elem.geometry_status == GeometryStatus.VALID and elem.geometry_coordinates:
-                raw_cat = elem.element_type.replace("Ifc", "").upper()
-                if "WALL" in raw_cat:
-                    cat_name = "WALL"
-                elif "DOOR" in raw_cat:
-                    cat_name = "DOOR"
-                elif "WINDOW" in raw_cat:
-                    cat_name = "WINDOW"
-                elif "COLUMN" in raw_cat:
-                    cat_name = "COLUMN"
-                elif "SPACE" in raw_cat or "ROOM" in raw_cat:
-                    cat_name = "SPACE"
-                elif "FURNISH" in raw_cat or "PROXY" in raw_cat or "SYSTEMFURNITURE" in raw_cat or "FLOWTERMINAL" in raw_cat:
-                    cat_name = "FURNITURE"
-                else:
-                    cat_name = raw_cat
+                cat_name = elem.category if hasattr(elem, "category") and elem.category else "FURNITURE_ITEM"
+                sub_type = elem.subtype if hasattr(elem, "subtype") and elem.subtype else "OTHER"
+                elem_name = elem.name if (elem.name and elem.name not in ("Polygon", "MultiPolygon")) else elem.element_type
 
                 elements_geom.append({
                     "id": elem.internal_id,
                     "global_id": elem.ifc_global_id,
                     "category": cat_name,
+                    "subtype": sub_type,
+                    "element_type": elem.element_type,
+                    "name": elem_name,
+                    "geometry_type": elem.geometry_type.value if hasattr(elem.geometry_type, "value") else str(elem.geometry_type),
                     "type": elem.geometry_type.value if hasattr(elem.geometry_type, "value") else str(elem.geometry_type),
                     "coordinates": elem.geometry_coordinates,
                     "boundary": elem.boundary_vertices,
+                    "properties": elem.properties,
                 })
 
         # Reconcile Spaces
@@ -209,13 +202,23 @@ class GeometryReconciler:
                 except Exception:
                     pass
 
-        elem_summary = {
+        furniture_items = getattr(parsed_ifc, "furniture", [])
+
+        furniture_breakdown: Dict[str, int] = {}
+        for item in furniture_items:
+            st = item.subtype.lower() if hasattr(item, "subtype") and item.subtype else "other"
+            furniture_breakdown[st] = furniture_breakdown.get(st, 0) + 1
+
+        elem_summary: Dict[str, Any] = {
             "walls": len(parsed_ifc.walls),
             "doors": len(parsed_ifc.doors),
             "windows": len(parsed_ifc.windows),
             "columns": len(parsed_ifc.columns),
             "spaces": len(parsed_ifc.spaces),
+            "furniture_items": len(furniture_items),
         }
+        if furniture_breakdown:
+            elem_summary["furniture_breakdown"] = furniture_breakdown
 
         has_critical_error = any(w.severity == "CRITICAL" for w in warnings)
 
