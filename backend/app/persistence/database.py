@@ -9,6 +9,10 @@ from typing import Generator, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Database connection URL (defaults to PostgreSQL 16 container)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -20,17 +24,38 @@ def init_database_engine():
     """
     Initialize SQLAlchemy engine.
     Authoritative PostgreSQL engine with pool_pre_ping enabled.
-    Explicit SQLite support is active only when DATABASE_URL starts with 'sqlite://'.
-    No silent fallback to SQLite occurs if PostgreSQL or driver is unavailable.
+    Explicit SQLite support is active when DATABASE_URL starts with 'sqlite://'.
+    When DATABASE_URL is not set in environment, checks if local PostgreSQL is reachable;
+    if unreachable, defaults gracefully to local SQLite ('sqlite:///./layouts_ai.db').
     """
-    url = os.getenv("DATABASE_URL", DATABASE_URL)
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        url = env_url
+    else:
+        # Check if local PostgreSQL server on 5432 is reachable
+        pg_url = "postgresql+psycopg2://postgres:postgres_secure_password@localhost:5432/layouts_ai"
+        try:
+            temp_engine = create_engine(pg_url, pool_pre_ping=True)
+            with temp_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            url = pg_url
+        except Exception:
+            logger.warning(
+                "Local PostgreSQL server at localhost:5432 is unreachable. "
+                "Defaulting to local SQLite database 'sqlite:///./layouts_ai.db'."
+            )
+            url = "sqlite:///./layouts_ai.db"
+
     if url.startswith("sqlite"):
         from sqlalchemy.pool import StaticPool
-        return create_engine(
+        from app.persistence.models import Base
+        engine = create_engine(
             url,
             connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
+            poolclass=StaticPool if url == "sqlite:///:memory:" else None,
         )
+        Base.metadata.create_all(bind=engine)
+        return engine
 
     # Authoritative PostgreSQL engine
     try:

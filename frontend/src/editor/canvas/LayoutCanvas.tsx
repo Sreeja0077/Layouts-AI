@@ -85,12 +85,15 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   const [cursorWorldPt, setCursorWorldPt] = useState<Point2D>({ x: 0, y: 0 });
   const fitViewRef = useRef<(() => void) | null>(null);
 
-  // Sync activeModel if external renderModel prop updates
+  // Sync activeModel if external renderModel prop updates and auto fit bounds to floor plan
   useEffect(() => {
     if (renderModel) {
       setActiveModel(renderModel);
+      if (containerSize.width > 0 && containerSize.height > 0 && renderModel.boundary.length > 0) {
+        setViewport(fitBounds(renderModel.boundary, containerSize.width, containerSize.height));
+      }
     }
-  }, [renderModel]);
+  }, [renderModel, containerSize]);
 
   // Compute and lock world region preview when freehand stroke updates
   const handleStrokeChange = useCallback(

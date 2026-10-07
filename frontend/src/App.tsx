@@ -12,8 +12,8 @@ import {
   rejectFloorPlan,
 } from "./api/verification";
 import {
-  publishFloorPlanVersion,
   reportToRenderModel,
+  fetchIngestionStatus,
   IngestionStatusResponse,
 } from "./api/ingestion";
 import { FloorPlanRenderModel } from "./editor/renderer/renderTypes";
@@ -31,17 +31,19 @@ export const App: React.FC<AppProps> = ({
   const [activeFloorPlanId, setActiveFloorPlanId] = useState<string>(initialFloorPlanId);
 
   const [report, setReport] = useState<GeometryVerificationReport | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const [isRejectModalOpen, setIsRejectModalOpen] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"upload" | "verification" | "editor">("upload");
+  const [activeTab, setActiveTab] = useState<"workspace" | "editor" | "diagnostics">("workspace");
 
   const [editorRenderModel, setEditorRenderModel] = useState<FloorPlanRenderModel | undefined>(undefined);
 
   useEffect(() => {
-    loadReport(activeProjectId, activeFloorPlanId);
+    if (activeProjectId && activeFloorPlanId) {
+      loadReport(activeProjectId, activeFloorPlanId);
+    }
   }, [activeProjectId, activeFloorPlanId]);
 
   const loadReport = async (pId: string, fpId: string) => {
@@ -54,13 +56,12 @@ export const App: React.FC<AppProps> = ({
     } catch (err: any) {
       setError(err.message || "No verification report available for this floor plan.");
       setReport(null);
-      setEditorRenderModel(undefined);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUploadSuccess = (res: IngestionStatusResponse) => {
+  const handleOpenEditor = (res: IngestionStatusResponse) => {
     setActiveProjectId(res.project_id);
     setActiveFloorPlanId(res.floor_plan_id);
 
@@ -71,8 +72,28 @@ export const App: React.FC<AppProps> = ({
       loadReport(res.project_id, res.floor_plan_id);
     }
 
-    // Auto-switch to verification review view
-    setActiveTab("verification");
+    // Direct transition to 2D Canvas Editor
+    setActiveTab("editor");
+  };
+
+  const handleOpenExistingFloorPlan = async (pId: string, fpId: string) => {
+    setActiveProjectId(pId);
+    setActiveFloorPlanId(fpId);
+    setLoading(true);
+    try {
+      const res = await fetchIngestionStatus(pId, fpId);
+      if (res.verification_report) {
+        setReport(res.verification_report);
+        setEditorRenderModel(reportToRenderModel(res.verification_report));
+      } else {
+        await loadReport(pId, fpId);
+      }
+    } catch {
+      await loadReport(pId, fpId);
+    } finally {
+      setLoading(false);
+      setActiveTab("editor");
+    }
   };
 
   const handleVerify = async () => {
@@ -104,43 +125,54 @@ export const App: React.FC<AppProps> = ({
     }
   };
 
-  const handlePublish = async () => {
-    if (!report) return;
-    setIsProcessing(true);
-    try {
-      await publishFloorPlanVersion(activeProjectId, activeFloorPlanId);
-      alert(`Floor Plan baseline published successfully! Navigating to 2D Editor.`);
-      setActiveTab("editor");
-    } catch (err: any) {
-      alert(`Publishing Error: ${err.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   return (
-    <>
-      {report && <VerificationHeader report={report} />}
-
-      {/* Product Flow Navigation Bar */}
-      <div
+    <div style={{ minHeight: "100vh", backgroundColor: "#020617", color: "#f8fafc", display: "flex", flexDirection: "column" }}>
+      {/* Layouts AI Product Shell Header */}
+      <header
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: "12px",
-          padding: "10px 24px",
+          padding: "12px 28px",
           backgroundColor: "#0f172a",
           borderBottom: "1px solid #1e293b",
         }}
       >
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "6px",
+                background: "linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 800,
+                color: "#ffffff",
+                fontSize: "0.875rem",
+              }}
+            >
+              L
+            </div>
+            <span style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em", color: "#f8fafc" }}>
+              Layouts AI
+            </span>
+            <span style={{ fontSize: "0.75rem", backgroundColor: "#1e293b", color: "#94a3b8", padding: "2px 8px", borderRadius: "4px", fontWeight: 600 }}>
+              Architectural Workstation
+            </span>
+          </div>
+        </div>
+
+        {/* Workspace Mode Navigation Bar */}
+        <div style={{ display: "flex", gap: "6px" }}>
           <button
-            onClick={() => setActiveTab("upload")}
+            onClick={() => setActiveTab("workspace")}
             style={{
-              backgroundColor: activeTab === "upload" ? "#0284c7" : "#1e293b",
-              color: "#f8fafc",
-              border: "1px solid #334155",
+              backgroundColor: activeTab === "workspace" ? "#0284c7" : "transparent",
+              color: activeTab === "workspace" ? "#ffffff" : "#94a3b8",
+              border: "none",
               borderRadius: "6px",
               padding: "8px 16px",
               fontWeight: 600,
@@ -148,29 +180,14 @@ export const App: React.FC<AppProps> = ({
               cursor: "pointer",
             }}
           >
-            1. Upload Floor Plan (Task 2.5)
-          </button>
-          <button
-            onClick={() => setActiveTab("verification")}
-            style={{
-              backgroundColor: activeTab === "verification" ? "#0284c7" : "#1e293b",
-              color: "#f8fafc",
-              border: "1px solid #334155",
-              borderRadius: "6px",
-              padding: "8px 16px",
-              fontWeight: 600,
-              fontSize: "0.875rem",
-              cursor: "pointer",
-            }}
-          >
-            2. Layouts Team Verification
+            Floor Plans & Ingestion
           </button>
           <button
             onClick={() => setActiveTab("editor")}
             style={{
-              backgroundColor: activeTab === "editor" ? "#0284c7" : "#1e293b",
-              color: "#f8fafc",
-              border: "1px solid #334155",
+              backgroundColor: activeTab === "editor" ? "#0284c7" : "transparent",
+              color: activeTab === "editor" ? "#ffffff" : "#94a3b8",
+              border: "none",
               borderRadius: "6px",
               padding: "8px 16px",
               fontWeight: 600,
@@ -178,58 +195,57 @@ export const App: React.FC<AppProps> = ({
               cursor: "pointer",
             }}
           >
-            3. 2D Editor & Freehand Region (Task 5.4, 6.1, 6.2)
+            2D Canvas Editor
           </button>
-        </div>
-
-        {report?.verification_status === "VERIFIED" && (
           <button
-            onClick={handlePublish}
-            disabled={isProcessing}
+            onClick={() => setActiveTab("diagnostics")}
             style={{
-              backgroundColor: "#16a34a",
-              color: "#ffffff",
+              backgroundColor: activeTab === "diagnostics" ? "#0284c7" : "transparent",
+              color: activeTab === "diagnostics" ? "#ffffff" : "#94a3b8",
               border: "none",
               borderRadius: "6px",
               padding: "8px 16px",
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: "0.875rem",
-              cursor: isProcessing ? "not-allowed" : "pointer",
+              cursor: "pointer",
             }}
           >
-            {isProcessing ? "Publishing..." : "✓ Publish Version Baseline"}
+            Technical Diagnostics
           </button>
-        )}
-      </div>
+        </div>
+      </header>
 
-      {activeTab === "upload" && (
-        <main className="main-content" style={{ padding: "32px 16px" }}>
-          <FloorPlanUploadPanel onUploadSuccess={handleUploadSuccess} />
+      {/* Main Workspace Body */}
+      {activeTab === "workspace" && (
+        <main style={{ padding: "28px 36px", flex: 1, display: "flex", flexDirection: "column", boxSizing: "border-box", width: "100%" }}>
+          <FloorPlanUploadPanel
+            onOpenEditor={handleOpenEditor}
+            onOpenExistingFloorPlan={handleOpenExistingFloorPlan}
+          />
         </main>
       )}
 
-      {activeTab === "verification" && (
-        <>
+      {activeTab === "editor" && (
+        <main style={{ padding: "16px", display: "flex", flexDirection: "column", flex: 1, height: "calc(100vh - 64px)" }}>
+          <LayoutCanvas renderModel={editorRenderModel} />
+        </main>
+      )}
+
+      {activeTab === "diagnostics" && (
+        <main style={{ padding: "16px", display: "flex", flexDirection: "column", flex: 1 }}>
+          {report && <VerificationHeader report={report} />}
           {loading ? (
             <div className="canvas-container" style={{ color: "#38bdf8", fontSize: "1.125rem", padding: "2rem" }}>
-              Loading floor plan geometry verification report...
+              Loading technical geometry diagnostics...
             </div>
           ) : error || !report ? (
             <div className="canvas-container" style={{ flexDirection: "column", gap: "16px", padding: "2rem", alignItems: "center" }}>
               <div style={{ color: "#f87171", fontSize: "1.125rem", textAlign: "center" }}>
-                {error || "No verification report available for this floor plan."}
-              </div>
-              <div style={{ display: "flex", gap: "12px" }}>
-                <button className="btn-ctrl" onClick={() => loadReport(activeProjectId, activeFloorPlanId)}>
-                  Refresh Report
-                </button>
-                <button className="btn-ctrl" onClick={() => setActiveTab("upload")}>
-                  Upload New Floor Plan
-                </button>
+                {error || "No technical diagnostics available."}
               </div>
             </div>
           ) : (
-            <main className="main-content">
+            <div className="main-content">
               <GeometryPreviewCanvas report={report} />
               <VerificationSummaryPanel
                 report={report}
@@ -237,7 +253,7 @@ export const App: React.FC<AppProps> = ({
                 onRejectClick={() => setIsRejectModalOpen(true)}
                 isProcessing={isProcessing}
               />
-            </main>
+            </div>
           )}
 
           <RejectModal
@@ -246,15 +262,9 @@ export const App: React.FC<AppProps> = ({
             onSubmit={handleRejectSubmit}
             isProcessing={isProcessing}
           />
-        </>
-      )}
-
-      {activeTab === "editor" && (
-        <main className="main-content" style={{ padding: "16px", display: "flex", flexDirection: "column", height: "calc(100vh - 120px)" }}>
-          <LayoutCanvas renderModel={editorRenderModel} />
         </main>
       )}
-    </>
+    </div>
   );
 };
 

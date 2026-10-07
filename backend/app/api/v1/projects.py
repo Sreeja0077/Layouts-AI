@@ -35,7 +35,7 @@ reconciler = GeometryReconciler()
 ALLOWED_VERIFICATION_ROLES = {UserRole.LAYOUT_EXEC, UserRole.LAYOUT_MGR, UserRole.ADMIN}
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "data/uploads")).resolve()
-MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50MB limit
+MAX_UPLOAD_SIZE_BYTES = 1000 * 1024 * 1024  # 1GB limit (large architectural files supported)
 ALLOWED_EXTENSIONS = {".ifc", ".dxf"}
 
 
@@ -212,48 +212,63 @@ async def upload_floor_plan(
     if len(contents) > MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File size ({len(contents)} bytes) exceeds maximum allowed limit of 50MB.",
+            detail=f"File size ({(len(contents) / (1024 * 1024)):.1f}MB) exceeds maximum allowed limit of 1GB.",
         )
 
     clean_filename = sanitize_filename(original_filename)
     proj_uuid = ensure_uuid(project_id)
     fp_uuid = ensure_uuid(floor_plan_id or str(uuid.uuid4()))
 
-    # Ensure Project exists in DB
-    project_obj = db.query(Project).filter(Project.id == proj_uuid).first()
+    # Resolve existing Project by exact ID or UUID string
+    project_obj = (
+        db.query(Project)
+        .filter((Project.id == project_id) | (Project.id == proj_uuid))
+        .first()
+    )
     if not project_obj:
         project_obj = Project(
-            id=proj_uuid,
+            id=project_id,
             name=f"Project {project_id}",
             client_name="Client",
             org_id=ensure_uuid("default_org"),
         )
         db.add(project_obj)
+        db.flush()
 
-    # Ensure FloorPlan exists in DB
-    fp_obj = db.query(FloorPlan).filter(FloorPlan.id == fp_uuid).first()
+    actual_proj_id = project_obj.id
+
+    # Resolve existing FloorPlan by exact ID or UUID string
+    fp_query = db.query(FloorPlan).filter(FloorPlan.project_id == actual_proj_id)
+    if floor_plan_id:
+        fp_query = fp_query.filter((FloorPlan.id == floor_plan_id) | (FloorPlan.id == fp_uuid))
+    fp_obj = fp_query.first()
+
     fp_display_name = floor_plan_name or clean_filename
     if not fp_obj:
+        target_fp_id = fp_uuid
         fp_obj = FloorPlan(
-            id=fp_uuid,
-            project_id=proj_uuid,
+            id=target_fp_id,
+            project_id=actual_proj_id,
             name=fp_display_name,
             building_name=building_name,
             floor_number=floor_number or 1,
         )
         db.add(fp_obj)
+        db.flush()
+
+    actual_fp_id = fp_obj.id
 
     # Calculate next version number for this floor plan
     latest_version = (
         db.query(FloorPlanSourceVersionModel)
-        .filter(FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
+        .filter(FloorPlanSourceVersionModel.floor_plan_id == actual_fp_id)
         .order_by(FloorPlanSourceVersionModel.version_no.desc())
         .first()
     )
     next_version_no = (latest_version.version_no + 1) if latest_version else 1
 
     # Construct deterministic storage directory outside source code
-    version_dir = UPLOAD_DIR / proj_uuid / fp_uuid / "source_versions" / f"v{next_version_no:03d}"
+    version_dir = UPLOAD_DIR / ensure_uuid(actual_proj_id) / ensure_uuid(actual_fp_id) / "source_versions" / f"v{next_version_no:03d}"
     version_dir.mkdir(parents=True, exist_ok=True)
     saved_path = (version_dir / clean_filename).resolve()
 
@@ -281,7 +296,7 @@ async def upload_floor_plan(
     except Exception as exc:
         source_version = FloorPlanSourceVersionModel(
             id=str(uuid.uuid4()),
-            floor_plan_id=fp_uuid,
+            floor_plan_id=actual_fp_id,
             version_no=next_version_no,
             source_type=source_type,
             file_storage_path=str(saved_path),
@@ -296,14 +311,26 @@ async def upload_floor_plan(
         ) from exc
 
     uploader_uuid = ensure_user_exists(db, current_user)
+    # Automatic technical validation: successful geometry extraction directly produces READY status
+    init_status = "READY" if report.is_geometry_valid else "PENDING"
+    is_pub = report.is_geometry_valid
+
+    if is_pub:
+        # Maintain uq_published_source_version unique constraint by unpublishing prior baselines
+        db.query(FloorPlanSourceVersionModel).filter(
+            FloorPlanSourceVersionModel.floor_plan_id == actual_fp_id,
+            FloorPlanSourceVersionModel.is_published == True,
+        ).update({"is_published": False}, synchronize_session=False)
+
     source_version = FloorPlanSourceVersionModel(
         id=str(uuid.uuid4()),
-        floor_plan_id=fp_uuid,
+        floor_plan_id=actual_fp_id,
         version_no=next_version_no,
         source_type=report.source_type,
         file_storage_path=str(saved_path),
         uploaded_by=uploader_uuid,
-        verification_status="PENDING",
+        verification_status=init_status,
+        is_published=is_pub,
         verification_report=report.model_dump(mode="json"),
         ifc_export_metadata=report.source_metadata if hasattr(report, "source_metadata") else {},
     )
@@ -314,10 +341,10 @@ async def upload_floor_plan(
             id=str(uuid.uuid4()),
             actor_id=uploader_uuid,
             action="FLOOR_PLAN_UPLOAD",
-            entity_ref=f"floor_plan:{fp_uuid}",
+            entity_ref=f"floor_plan:{actual_fp_id}",
             details_json={
-                "project_id": project_id,
-                "floor_plan_id": fp_uuid,
+                "project_id": actual_proj_id,
+                "floor_plan_id": actual_fp_id,
                 "version_no": next_version_no,
                 "file_name": clean_filename,
                 "source_type": report.source_type,
@@ -328,18 +355,18 @@ async def upload_floor_plan(
     except SQLAlchemyError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to persist floor plan upload to PostgreSQL: {str(exc)}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to persist floor plan upload: {str(exc)}",
         ) from exc
 
     return {
-        "project_id": project_id,
-        "floor_plan_id": fp_uuid,
+        "project_id": actual_proj_id,
+        "floor_plan_id": actual_fp_id,
         "source_version_id": source_version.id,
         "version_no": next_version_no,
         "file_name": clean_filename,
         "source_type": report.source_type,
-        "status": "PENDING_VERIFICATION",
+        "status": "READY" if report.is_geometry_valid else "PENDING",
         "verification_report": report.model_dump(mode="json"),
     }
 
@@ -367,12 +394,16 @@ async def get_ingestion_status(
     columns_count = sum(1 for e in all_elements if e.get("category") == "COLUMN")
     spaces_count = sum(1 for e in all_elements if e.get("category") == "SPACE")
 
+    lifecycle_status = record.verification_status
+    if lifecycle_status in ("VERIFIED", "READY", "PENDING"):
+        lifecycle_status = "READY"
+
     return {
         "project_id": project_id,
         "floor_plan_id": floor_plan_id,
         "source_version_id": record.id,
         "version_no": record.version_no,
-        "status": record.verification_status,
+        "status": lifecycle_status,
         "source_type": record.source_type,
         "file_name": Path(record.file_storage_path).name,
         "is_published": record.is_published,
@@ -386,6 +417,7 @@ async def get_ingestion_status(
         "warnings": report_dict.get("warnings", []),
         "verification_report": report_dict,
     }
+
 
 
 

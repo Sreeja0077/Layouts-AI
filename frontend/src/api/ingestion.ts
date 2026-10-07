@@ -169,73 +169,132 @@ export async function listFloorPlans(projectId: string): Promise<FloorPlanItem[]
 
 /**
  * Utility to convert backend GeometryVerificationReport elements into interactive Konva FloorPlanRenderModel.
+ * Accurately extracts full 2D polygon footprints from IFC/DXF geometry models.
  */
 export function reportToRenderModel(report: GeometryVerificationReport): FloorPlanRenderModel {
-  const boundaryPts = (report.boundary_polygon || []).map((pt) => ({ x: pt[0], y: pt[1] }));
   const walls: RenderWall[] = [];
   const doors: RenderDoor[] = [];
   const windows: RenderWindow[] = [];
   const columns: RenderColumn[] = [];
   const furniture: RenderFurniture[] = [];
 
-  (report.all_elements_geometry || []).forEach((elem) => {
-    const cat = (elem.category || "").toUpperCase();
-    const coords = elem.coordinates;
+  const allPoints: Array<{ x: number; y: number }> = [];
 
-    if (cat === "WALL" && Array.isArray(coords)) {
-      // Flatten coords if needed to get start/end
-      const pts = (coords as any).flat(3);
-      if (pts.length >= 4) {
+  // Helper to extract 2D points from GeoJSON coordinates or boundary arrays
+  const extract2DPts = (elem: any): Array<{ x: number; y: number }> => {
+    const pts: Array<{ x: number; y: number }> = [];
+    if (Array.isArray(elem.boundary) && elem.boundary.length > 0) {
+      for (const pt of elem.boundary) {
+        if (Array.isArray(pt) && pt.length >= 2 && typeof pt[0] === "number" && typeof pt[1] === "number") {
+          pts.push({ x: pt[0], y: pt[1] });
+        }
+      }
+    }
+    if (pts.length === 0 && elem.coordinates) {
+      const flat = (elem.coordinates as any).flat(4);
+      for (let i = 0; i < flat.length - 1; i += 2) {
+        if (typeof flat[i] === "number" && typeof flat[i + 1] === "number") {
+          pts.push({ x: flat[i], y: flat[i + 1] });
+        }
+      }
+    }
+    return pts;
+  };
+
+  (report.all_elements_geometry || []).forEach((elem, index) => {
+    const cat = (elem.category || "").toUpperCase();
+    const pts = extract2DPts(elem);
+    if (pts.length === 0) return;
+
+    pts.forEach((p) => allPoints.push(p));
+
+    if (cat === "WALL") {
+      if (pts.length === 2) {
         walls.push({
-          id: elem.id || elem.global_id || `wall_${walls.length}`,
-          start: { x: pts[0], y: pts[1] },
-          end: { x: pts[2], y: pts[3] },
+          id: elem.id || elem.global_id || `wall_${index}`,
+          start: pts[0],
+          end: pts[1],
           thicknessMeters: 0.2,
           isExterior: true,
         });
+      } else if (pts.length > 2) {
+        for (let i = 0; i < pts.length; i++) {
+          const pStart = pts[i];
+          const pEnd = pts[(i + 1) % pts.length];
+          const dist = Math.hypot(pEnd.x - pStart.x, pEnd.y - pStart.y);
+          if (dist > 0.01) {
+            walls.push({
+              id: `${elem.id || elem.global_id || "wall_" + index}_seg_${i}`,
+              start: pStart,
+              end: pEnd,
+              thicknessMeters: 0.15,
+              isExterior: true,
+            });
+          }
+        }
       }
-    } else if (cat === "DOOR" && Array.isArray(coords)) {
-      const pts = (coords as any).flat(3);
+    } else if (cat === "DOOR") {
+      const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+      const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+      doors.push({
+        id: elem.id || elem.global_id || `door_${index}`,
+        position: { x: centerX, y: centerY },
+        widthMeters: 0.9,
+        swingAngleDeg: 90,
+      });
+    } else if (cat === "WINDOW") {
       if (pts.length >= 2) {
-        doors.push({
-          id: elem.id || elem.global_id || `door_${doors.length}`,
-          position: { x: pts[0], y: pts[1] },
-          widthMeters: 0.9,
-          swingAngleDeg: 90,
-        });
-      }
-    } else if (cat === "WINDOW" && Array.isArray(coords)) {
-      const pts = (coords as any).flat(3);
-      if (pts.length >= 4) {
         windows.push({
-          id: elem.id || elem.global_id || `win_${windows.length}`,
-          start: { x: pts[0], y: pts[1] },
-          end: { x: pts[2], y: pts[3] },
+          id: elem.id || elem.global_id || `win_${index}`,
+          start: pts[0],
+          end: pts[1],
           thicknessMeters: 0.2,
         });
       }
-    } else if (cat === "COLUMN" && Array.isArray(coords)) {
-      const pts = (coords as any).flat(3);
-      if (pts.length >= 2) {
-        columns.push({
-          id: elem.id || elem.global_id || `col_${columns.length}`,
-          position: { x: pts[0], y: pts[1] },
-          widthMeters: 0.6,
-          heightMeters: 0.6,
-        });
-      }
+    } else if (cat === "COLUMN") {
+      const centerX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+      const centerY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+      columns.push({
+        id: elem.id || elem.global_id || `col_${index}`,
+        position: { x: centerX, y: centerY },
+        widthMeters: 0.6,
+        heightMeters: 0.6,
+      });
     }
   });
 
-  return {
-    id: report.floor_plan_name || "uploaded_fp",
-    name: report.floor_plan_name || "Uploaded Floor Plan",
-    boundary: boundaryPts.length > 0 ? boundaryPts : [
+  let boundaryPts: Array<{ x: number; y: number }> = [];
+  if (Array.isArray(report.boundary_polygon) && report.boundary_polygon.length >= 3) {
+    boundaryPts = report.boundary_polygon.map((pt) => ({ x: pt[0], y: pt[1] }));
+  }
+
+  if (boundaryPts.length === 0 && allPoints.length > 0) {
+    const minX = Math.min(...allPoints.map((p) => p.x));
+    const maxX = Math.max(...allPoints.map((p) => p.x));
+    const minY = Math.min(...allPoints.map((p) => p.y));
+    const maxY = Math.max(...allPoints.map((p) => p.y));
+    const pad = 1.0;
+    boundaryPts = [
+      { x: minX - pad, y: minY - pad },
+      { x: maxX + pad, y: minY - pad },
+      { x: maxX + pad, y: maxY + pad },
+      { x: minX - pad, y: maxY + pad },
+    ];
+  }
+
+  if (boundaryPts.length === 0) {
+    boundaryPts = [
       { x: 0, y: 0 },
       { x: 20, y: 0 },
       { x: 20, y: 15 },
       { x: 0, y: 15 },
-    ],
+    ];
+  }
+
+  return {
+    id: report.floor_plan_name || "uploaded_fp",
+    name: report.floor_plan_name || "Uploaded Floor Plan",
+    boundary: boundaryPts,
     walls,
     doors,
     windows,

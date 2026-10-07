@@ -111,6 +111,37 @@ def shapely_to_geometry_model(
         raise ValueError(f"Unsupported geometry type for 2D footprint: {geom.geom_type}")
 
 
+def transform_shape_verts(verts: Sequence[float], shape: Any) -> List[float]:
+    """Transform local mesh vertices by IfcOpenShell shape placement 4x4 matrix into world space."""
+    matrix_data = None
+    if hasattr(shape, "transformation") and hasattr(shape.transformation, "matrix"):
+        matrix_data = shape.transformation.matrix.data
+    elif hasattr(shape, "matrix"):
+        matrix_data = shape.matrix
+
+    if not matrix_data or len(matrix_data) < 16:
+        return list(verts)
+
+    m = list(matrix_data)
+    if m[:16] == [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]:
+        return list(verts)
+
+    transformed = []
+    num_verts = len(verts) // 3
+    for i in range(num_verts):
+        vx = verts[i * 3]
+        vy = verts[i * 3 + 1]
+        vz = verts[i * 3 + 2]
+
+        tx = m[0] * vx + m[4] * vy + m[8] * vz + m[12]
+        ty = m[1] * vx + m[5] * vy + m[9] * vz + m[13]
+        tz = m[2] * vx + m[6] * vy + m[10] * vz + m[14]
+
+        transformed.extend([tx, ty, tz])
+
+    return transformed
+
+
 def project_shape_to_2d_footprint(
     verts: Sequence[float],
     faces: Sequence[int],
@@ -426,7 +457,8 @@ class IFCIngestor:
         if geom_settings is not None and HAS_IFCOPENSHELL_GEOM and ifcopenshell_geom is not None:
             try:
                 shape = ifcopenshell_geom.create_shape(geom_settings, entity)
-                verts = shape.geometry.verts
+                raw_verts = shape.geometry.verts
+                verts = transform_shape_verts(raw_verts, shape)
                 faces = shape.geometry.faces
 
                 g_type, g_coords, b_verts, g_status, g_err = project_shape_to_2d_footprint(

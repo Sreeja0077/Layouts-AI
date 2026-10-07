@@ -42,7 +42,7 @@
 - [x] **Task 2.2:** Implement DXF 2D CAD fallback parser in `backend/app/bim/dxf_ingest.py`. *(Completed: 2026-10-05 13:56:00+05:30)*
 - [x] **Task 2.3:** Build Layouts Team verification UI flow for ingested floor plan geometry. *(Completed: 2026-10-05 11:24:00+05:30)*
 - [x] **Task 2.4:** Build floor plan version publishing mechanism (`FloorPlanSourceVersion`). *(Completed: 2026-09-30 14:20:00+05:30)*
-- [x] **Task 2.5:** Build browser IFC/DXF upload and floor-plan ingestion entry flow. *(Completed: 2026-10-07 13:45:00+05:30)*
+- [x] **Task 2.5:** Build browser IFC/DXF upload & automatic floor-plan ingestion entry flow (direct READY transition to 2D Editor). *(Completed: 2026-10-07 13:59:00+05:30)*
 
 
 ### Phase 3 & 4: Canonical Floor-Plan Model & Deterministic Geometry Core

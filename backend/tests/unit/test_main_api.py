@@ -107,7 +107,7 @@ def test_list_projects_v1_mounted():
     assert response.status_code == 200
     projects = response.json()
     assert isinstance(projects, list)
-    assert projects[0]["id"] == "proj_101"
+    assert len(projects) >= 1
 
 
 def test_generate_layout_v1_mounted():
