@@ -23,6 +23,8 @@ Provides the reusable Konva 2D rendering surface for architectural floor-plan vi
 - `LayoutCanvas.tsx`: Top-level wrapper component combining stage, toolbar zoom controls, and coordinate status bar.
 - `index.ts`: Package entrypoint re-exporting all canvas modules.
 
-## ⚠️ Task Boundaries & Future Scope
-- **Task 5.3 (RendererAdapter):** Decouples domain entities from Konva canvas details using adapter contracts. *(Not implemented in Task 5.2)*.
-- **Task 5.4 (Object Manipulation):** Selection handles, dragging, rotation, resizing, and snapping assistance. *(Not implemented in Task 5.2)*.
+## ⚠️ Task Boundaries & Integration
+- **Task 5.3 (RendererAdapter):** Decouples domain entities from Konva canvas details using adapter contracts. ✅
+- **Task 5.4 (Object Manipulation & Snapping):** Selection handles, dragging, rotation, resizing, and snapping assistance integrated cleanly. ✅
+- **Phase 6 (Freehand Region Selection):** Freehand polygonal boundary editing. *(Out of scope for Task 5.4)*.
+

@@ -13,6 +13,8 @@ import { CanvasGrid } from "./CanvasGrid";
 import { screenToWorld, zoomAtPoint } from "./viewport";
 import { FloorPlanRenderModel } from "../renderer/renderTypes";
 import { KonvaFloorPlanRenderer } from "../renderer/KonvaRendererAdapter";
+import { SnapGuideLine } from "../snapping/snappingTypes";
+import { TransformChange } from "../transforms/transformTypes";
 
 interface CanvasStageProps {
   viewport: Viewport;
@@ -20,6 +22,11 @@ interface CanvasStageProps {
   onCursorMove?: (worldPt: Point2D) => void;
   showGrid?: boolean;
   renderModel?: FloorPlanRenderModel;
+  selectedObjectId?: string | null;
+  onSelectObject?: (id: string | null) => void;
+  onTransformChange?: (change: TransformChange) => void;
+  onSnapGuidesChange?: (guides: SnapGuideLine[]) => void;
+  snapGuides?: SnapGuideLine[];
 }
 
 export const CanvasStage: React.FC<CanvasStageProps> = ({
@@ -28,6 +35,11 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   onCursorMove,
   showGrid = true,
   renderModel,
+  selectedObjectId = null,
+  onSelectObject,
+  onTransformChange,
+  onSnapGuidesChange,
+  snapGuides = [],
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -37,6 +49,18 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
   });
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Escape key handler to clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onSelectObject?.(null);
+        onSnapGuidesChange?.([]);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onSelectObject, onSnapGuidesChange]);
 
   // Responsive container measurement
   useEffect(() => {
@@ -98,12 +122,21 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
     [isPanning, viewport, onViewportChange, onCursorMove]
   );
 
-  const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (e.evt.button === 1 || e.evt.shiftKey) {
-      setIsPanning(true);
-      panStartRef.current = { x: e.evt.clientX, y: e.evt.clientY };
-    }
-  }, []);
+  const handleMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (e.evt.button === 1 || e.evt.shiftKey) {
+        setIsPanning(true);
+        panStartRef.current = { x: e.evt.clientX, y: e.evt.clientY };
+        return;
+      }
+
+      // Deselect when clicking empty background canvas
+      if (e.target === e.target.getStage() && onSelectObject) {
+        onSelectObject(null);
+      }
+    },
+    [onSelectObject]
+  );
 
   const handleMouseUp = useCallback(() => {
     setIsPanning(false);
@@ -142,10 +175,19 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
         {/* Layer 2: Floor Plan Geometry Layer rendered via RendererAdapter */}
         <Layer>
           {renderModel && (
-            <KonvaFloorPlanRenderer model={renderModel} viewport={viewport} />
+            <KonvaFloorPlanRenderer
+              model={renderModel}
+              viewport={viewport}
+              selectedObjectId={selectedObjectId}
+              onSelectObject={onSelectObject}
+              onTransformChange={onTransformChange}
+              onSnapGuidesChange={onSnapGuidesChange}
+              snapGuides={snapGuides}
+            />
           )}
         </Layer>
       </Stage>
     </div>
   );
 };
+

@@ -1,19 +1,9 @@
-# Selection Handles & Logic
+# Editor Object Selection Module (Task 5.4)
 
 ## 📌 Purpose & Overview
-Single and multi-object selection tools, hover effects, and group selection bounding boxes.
+Manages single-object selection state using stable domain identifiers (`string`). Supports selecting editable furniture and highlighting read-only structural elements (`WALL`, `DOOR`, `WINDOW`, `COLUMN`).
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `frontend/src/editor/selection`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
-
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
-
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
-
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## 🔒 Architectural Invariants
+- **Stable Identifiers:** Selection is tracked strictly by stable domain ID (`selectedObjectId: string | null`), never by temporary array indexes or screen coordinates.
+- **Single Selection:** Exactly zero or one object is selected at any given time.
+- **Locked Metadata:** Objects with `isLocked: true` or structural elements return `isLocked = true` in selection state to disable drag, rotate, and resize operations.

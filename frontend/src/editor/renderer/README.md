@@ -29,5 +29,7 @@ Konva Stage / Layers
 - `index.ts`: Module exports.
 - `renderer.test.ts`: Unit test suite verifying interface adherence, Konva isolation, and input immutability.
 
-## ⚠️ Task Boundaries & Future Scope
-- **Task 5.4 (Object Manipulation):** Selection handles, transformers, dragging, rotation, resizing, and snapping assistance. *(Not implemented in Task 5.3)*.
+## ⚠️ Task Boundaries & Integration
+- **Task 5.4 (Object Manipulation & Snapping):** Interactive Konva Transformer handles, selection highlight rectangle/lines, dragging, rotation, resizing, and snapping assistance guides. ✅
+- **Phase 6 (Freehand Region Selection):** Freehand region tool. *(Out of scope for Task 5.4)*.
+

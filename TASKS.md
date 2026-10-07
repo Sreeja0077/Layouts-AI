@@ -52,7 +52,8 @@
 - [x] **Task 5.1:** Initialize Vite + React + TypeScript setup in `frontend/`. *(Completed: 2026-10-05 16:57:00+05:30)*
 - [x] **Task 5.2:** Build Konva canvas stage with `react-konva` in `frontend/src/editor/canvas/`. *(Completed: 2026-10-05 17:08:00+05:30)*
 - [x] **Task 5.3:** Implement `RendererAdapter` interface decoupling canvas engine from domain logic. *(Completed: 2026-10-05 17:30:00+05:30)*
-- [ ] **Task 5.4:** Add object selection, dragging, rotation, resizing, and snapping assistance.
+- [x] **Task 5.4:** Add object selection, dragging, rotation, resizing, and snapping assistance. *(Completed: 2026-10-07 11:29:00+05:30)*
+
 
 ### Phase 6: Freehand Region Selection
 - [ ] **Task 6.1:** Build user stroke capture tool in `frontend/src/editor/freehand/`.
@@ -566,7 +567,41 @@
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 229 modules in 11.17s)
   - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (151/151 tests in 33.24s)**
 
+### [2026-10-07] Task 5.4 Execution - Object Selection, Dragging, Rotation, Resizing & Snapping
+- **Action:** Built interactive 2D CAD layout editing capabilities for editable furniture objects operating in world metric units (`meters` and `degrees`). Created single-selection state manager in `frontend/src/editor/selection/selectionManager.ts` using stable domain IDs, single selection enforcement, and locked entity guards (`isLocked === true`). Created pure transformation engine in `frontend/src/editor/transforms/transformManager.ts` (`applyTransform`, `normalizeAngleDeg`) supporting immutable model updates, locked object protection, and 0.10m minimum dimension safety bounds. Created real-time snapping engine in `frontend/src/editor/snapping/snapper.ts` (`calculateSnap`, `snapValueToGrid`, `snapPointToGrid`) supporting 0.25m drafting grid snap, 0.10m world tolerance, alignment snapping to nearby furniture centers/wall endpoints, and visual snap guide lines (`SnapGuideLine`). Updated `KonvaFloorPlanRenderer` in `KonvaRendererAdapter.tsx` with interactive `<Transformer>` attachment, selection rectangle highlights (`#38bdf8`), drag move/end snapping, and scale factor to meter dimension calculations on transform end. Updated `CanvasStage.tsx` and `LayoutCanvas.tsx` to centralize editor interaction state, clear selection on empty stage clicks or Escape key, and display selected object parameters in bottom status bar. Built pure unit test suite runner in `src/editor/runTests.ts` covering Viewport, Selection, Snapping, and Transforms. Updated module README documentation in `selection/README.md`, `snapping/README.md`, `transforms/README.md`, `canvas/README.md`, and `renderer/README.md`.
+- **Status:** `SUCCESS (100% Unit Tests, npm ci, npm run build & Backend 151/151 Regression Passed)`
+- **Files Created/Updated:**
+  - [`frontend/src/editor/selection/selectionTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/selection/selectionTypes.ts) (`SelectionState`, `SelectionObjectType`)
+  - [`frontend/src/editor/selection/selectionManager.ts`](file:///d:/Layouts%20AI/frontend/src/editor/selection/selectionManager.ts) (Stable ID selection manager & locked object detector)
+  - [`frontend/src/editor/selection/selection.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/selection/selection.test.ts) (Selection unit tests)
+  - [`frontend/src/editor/selection/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/selection/README.md) (Selection module documentation)
+  - [`frontend/src/editor/selection/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/selection/index.ts) (Exports)
+  - [`frontend/src/editor/snapping/snappingTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/snapping/snappingTypes.ts) (`SnapResult`, `SnapGuideLine`, `SnapType`)
+  - [`frontend/src/editor/snapping/snapper.ts`](file:///d:/Layouts%20AI/frontend/src/editor/snapping/snapper.ts) (0.25m grid snapping, alignment snapping, guide line calculation)
+  - [`frontend/src/editor/snapping/snapping.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/snapping/snapping.test.ts) (Snapping unit tests)
+  - [`frontend/src/editor/snapping/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/snapping/README.md) (Snapping module documentation)
+  - [`frontend/src/editor/snapping/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/snapping/index.ts) (Exports)
+  - [`frontend/src/editor/transforms/transformTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/transforms/transformTypes.ts) (`TransformChange`, `TransformMode`, `MIN_FURNITURE_DIMENSION_METERS`)
+  - [`frontend/src/editor/transforms/transformManager.ts`](file:///d:/Layouts%20AI/frontend/src/editor/transforms/transformManager.ts) (Immutable transform application, locked guards, dimension clamping)
+  - [`frontend/src/editor/transforms/transforms.test.ts`](file:///d:/Layouts%20AI/frontend/src/editor/transforms/transforms.test.ts) (Transform unit tests)
+  - [`frontend/src/editor/transforms/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/transforms/README.md) (Transform module documentation)
+  - [`frontend/src/editor/transforms/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/transforms/index.ts) (Exports)
+  - [`frontend/src/editor/state/editorState.ts`](file:///d:/Layouts%20AI/frontend/src/editor/state/editorState.ts) (`EditorState`, `INITIAL_EDITOR_STATE`)
+  - [`frontend/src/editor/state/README.md`](file:///d:/Layouts%20AI/frontend/src/editor/state/README.md) (State documentation)
+  - [`frontend/src/editor/state/index.ts`](file:///d:/Layouts%20AI/frontend/src/editor/state/index.ts) (Exports)
+  - [`frontend/src/editor/renderer/KonvaRendererAdapter.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/renderer/KonvaRendererAdapter.tsx) (Konva Transformer attachment, selection rects, drag snapping, snap guides layer)
+  - [`frontend/src/editor/canvas/CanvasStage.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/CanvasStage.tsx) (Stage selection/transform forwarding, empty canvas deselection, Escape key handler)
+  - [`frontend/src/editor/canvas/LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx) (Centralized interaction state, transform model updates, status info bar)
+  - [`frontend/src/editor/runTests.ts`](file:///d:/Layouts%20AI/frontend/src/editor/runTests.ts) (Standalone test suite runner)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 5.4 status and history log)
+- **Test Execution Results:**
+  - `npx tsx -e "import { runAllEditorTests } from './src/editor/runTests.ts'; runAllEditorTests();"`: **PASSED (ALL 4 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms)**
+  - `npm ci` (Frontend): **PASSED** (`added 74 packages in 22s`)
+  - `npm run build` (Frontend): **PASSED** (`tsc && vite build` built 234 modules in 10.34s)
+  - `python -m pytest backend/tests/unit backend/tests/integration`: **PASSED (151/151 passed in 36.42s)**
+
 ---
+
 *Maintained continuously across all development steps.*
 
 

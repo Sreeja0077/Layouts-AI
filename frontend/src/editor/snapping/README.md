@@ -1,19 +1,9 @@
-# Snapping & Alignment Engine
+# Editor Snapping Assistance Module (Task 5.4)
 
 ## 📌 Purpose & Overview
-Real-time snapping assistance to nearby walls, adjacent furniture edges, and grid coordinates.
+Provides real-time drafting grid snapping (0.25m step) and object alignment snapping in world metric units (meters). Visual snap guides assist users during object drag operations.
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `frontend/src/editor/snapping`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
-
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
-
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
-
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## 🔒 Architectural Invariants
+- **Metric World Units:** Snapping calculations operate purely in world space (`meters`).
+- **Editor Assistance Only:** Snapping is visual CAD alignment assistance; it is NOT authoritative backend geometry validation.
+- **Configurable Defaults:** `GRID_SNAP_STEP_METERS = 0.25m`, `SNAP_TOLERANCE_METERS = 0.10m`.
