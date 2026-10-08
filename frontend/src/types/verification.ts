@@ -20,6 +20,10 @@ export interface ElementGeometry {
   type: string;
   coordinates: number[][][] | number[][][][] | number[][];
   is_closed?: boolean;
+  storey_id?: string | null;
+  storey_name?: string | null;
+  storey_elevation_m?: number | null;
+  properties?: Record<string, any>;
 }
 
 export interface GeometryVerificationReport {
@@ -33,6 +37,19 @@ export interface GeometryVerificationReport {
   boundary_geometry?: Geometry2D | null;
   elements_summary: Record<string, number>;
   all_elements_geometry: ElementGeometry[];
+  available_storeys?: Array<{
+    name: string;
+    storey_id?: string | null;
+    elevation_m?: number | null;
+    element_count?: number;
+    wall_count?: number;
+    door_count?: number;
+    window_count?: number;
+    column_count?: number;
+    space_count?: number;
+    furniture_count?: number;
+  }>;
+  recommended_storey?: string | null;
   warnings: GeometryAnomalyWarning[];
   reviewer_user_id?: string | null;
   verified_at?: string | null;
