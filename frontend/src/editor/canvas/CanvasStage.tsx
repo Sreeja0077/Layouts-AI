@@ -39,48 +39,13 @@ interface CanvasStageProps {
 }
 
 function getModelBoundingPoints(model: FloorPlanRenderModel): Point2D[] {
-  const points: Point2D[] = [];
-
-  const collectGeomPts = (geom?: any) => {
-    if (!geom || !Array.isArray(geom.polygons)) return;
-    for (const poly of geom.polygons) {
-      if (Array.isArray(poly.exterior)) {
-        for (const pt of poly.exterior) {
-          if (typeof pt.x === "number" && typeof pt.y === "number") {
-            points.push(pt);
-          }
-        }
-      }
-    }
-  };
-
-  for (const wall of model.walls) {
-    if (wall.geometry) collectGeomPts(wall.geometry);
-    if (wall.start) points.push(wall.start);
-    if (wall.end) points.push(wall.end);
+  // The render model boundary is already scoped to the active storey/floor plan.
+  // Do not include unrelated elements from other IFC storeys when fitting the view.
+  if (Array.isArray(model.boundary) && model.boundary.length >= 3) {
+    return model.boundary;
   }
 
-  for (const door of model.doors) {
-    if (door.geometry) collectGeomPts(door.geometry);
-    else if (door.position) points.push(door.position);
-  }
-
-  for (const win of model.windows) {
-    if (win.geometry) collectGeomPts(win.geometry);
-    if (win.start) points.push(win.start);
-    if (win.end) points.push(win.end);
-  }
-
-  for (const col of model.columns) {
-    if (col.geometry) collectGeomPts(col.geometry);
-    else if (col.position) points.push(col.position);
-  }
-
-  for (const space of model.spaces || []) {
-    if (space.geometry) collectGeomPts(space.geometry);
-  }
-
-  return points.length > 0 ? points : model.boundary;
+  return [];
 }
 
 export const CanvasStage: React.FC<CanvasStageProps> = ({
@@ -137,11 +102,14 @@ export const CanvasStage: React.FC<CanvasStageProps> = ({
     }
   }, [renderModel, containerSize, onViewportChange]);
 
-  // Initial fit when model first loads or model ID changes
+  // Initial fit when model first loads or the active IFC storey changes.
   useEffect(() => {
     if (!renderModel || containerSize.width <= 0 || containerSize.height <= 0) return;
-    if (hasFittedRef.current === renderModel.id) return;
-    hasFittedRef.current = renderModel.id;
+
+    const fitKey = `${renderModel.id}::${renderModel.activeStorey || "__all__"}`;
+    if (hasFittedRef.current === fitKey) return;
+
+    hasFittedRef.current = fitKey;
     fitView();
   }, [renderModel, containerSize.width, containerSize.height, fitView]);
 
