@@ -241,6 +241,36 @@ def test_real_ifc_ingest_parsing():
     assert result.file_name == REAL_IFC_FILE.name
     assert result.source_metadata.get("exporter_application") is not None
 
+    # 5. IfcOpenShell shape vertices must be retained in SI metres exactly once.
+    # The fixture contains a wall with a ~25 ft longitudinal footprint, which should
+    # therefore be ~7.62 m after geometry processing, not ~2.32 m (double-scaled).
+    first_valid_wall = next(
+        wall
+        for wall in result.walls
+        if wall.geometry_status == GeometryStatus.VALID
+        and wall.geometry_type == GeometryType.POLYGON
+        and len(wall.boundary_vertices) >= 3
+    )
+    first_wall_poly = Polygon(first_valid_wall.boundary_vertices)
+    wall_span = max(
+        first_wall_poly.bounds[2] - first_wall_poly.bounds[0],
+        first_wall_poly.bounds[3] - first_wall_poly.bounds[1],
+    )
+    assert wall_span > 7.0, (
+        f"IFC geometry appears to have been scaled twice: expected a wall span > 7m, got {wall_span:.3f}m"
+    )
+
+    # 6. IFC entities expose building-storey metadata for floor-specific rendering.
+    space_storeys = {
+        (space.properties or {}).get("storey_name")
+        for space in result.spaces
+        if space.geometry_status == GeometryStatus.VALID
+    }
+    space_storeys.discard(None)
+    assert space_storeys, "Valid IFC spaces must retain storey_name metadata"
+    assert "First Floor" in space_storeys
+    assert "Second Floor" in space_storeys
+
     print(f"REAL IFC FILE PARSING VERIFIED: {result.valid_geometry_count} valid elements, {len(result.furniture)} furniture items, {len(unique_areas)} distinct wall areas.")
 
 
