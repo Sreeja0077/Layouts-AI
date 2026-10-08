@@ -128,6 +128,7 @@ class RoomEntity(BaseModel):
     boundary_polygon: List[Tuple[float, float]] = Field(..., description="Ordered 2D vertices [(x0, y0), (x1, y1)...] in meters")
     net_area_sqm: float = Field(..., gt=0.0, description="Net usable floor area in square meters")
 
+    walls: List[WallEntity] = Field(default_factory=list)
     wall_ids: List[str] = Field(default_factory=list)
     door_ids: List[str] = Field(default_factory=list)
     window_ids: List[str] = Field(default_factory=list)
