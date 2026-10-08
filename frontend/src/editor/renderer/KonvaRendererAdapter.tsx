@@ -48,6 +48,84 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     { fill: "rgba(74, 4, 78, 0.55)", stroke: "rgba(192, 132, 252, 0.5)", text: "#f3e8ff" },   // Purple / Storage
   ];
 
+  private extractOrientedBounds(geometry?: RenderGeometry): {
+    pos: RenderPoint;
+    width: number;
+    depth: number;
+    rotation: number;
+  } {
+    if (!geometry || !geometry.polygons || geometry.polygons.length === 0) {
+      return { pos: { x: 0, y: 0 }, width: 0.9, depth: 0.15, rotation: 0 };
+    }
+    const pts = geometry.polygons[0].exterior;
+    if (!pts || pts.length < 3) {
+      return { pos: { x: 0, y: 0 }, width: 0.9, depth: 0.15, rotation: 0 };
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let maxEdgeLenSq = 0;
+    let maxEdgeAngle = 0;
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const edx = p2.x - p1.x;
+      const edy = p2.y - p1.y;
+      const lenSq = edx * edx + edy * edy;
+      if (lenSq > maxEdgeLenSq) {
+        maxEdgeLenSq = lenSq;
+        maxEdgeAngle = (Math.atan2(edy, edx) * 180) / Math.PI;
+      }
+      if (p1.x < minX) minX = p1.x;
+      if (p1.x > maxX) maxX = p1.x;
+      if (p1.y < minY) minY = p1.y;
+      if (p1.y > maxY) maxY = p1.y;
+    }
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const dx = maxX - minX;
+    const dy = maxY - minY;
+    let width = Math.sqrt(maxEdgeLenSq);
+    if (width < 0.4) width = Math.max(dx, dy);
+    let depth = Math.min(dx, dy);
+
+    if (width < 0.3) width = 0.9;
+    if (depth < 0.05) depth = 0.15;
+
+    let rotation = maxEdgeAngle % 180;
+    if (rotation < 0) rotation += 180;
+
+    return { pos: { x: cx, y: cy }, width, depth, rotation };
+  }
+
+  private getPolygonMetrics(exterior: RenderPoint[]): { area: number; centroid: RenderPoint } {
+    if (!exterior || exterior.length < 3) {
+      return { area: 0, centroid: { x: 0, y: 0 } };
+    }
+    let area = 0;
+    let cx = 0;
+    let cy = 0;
+    const n = exterior.length;
+    for (let i = 0; i < n; i++) {
+      const pt1 = exterior[i];
+      const pt2 = exterior[(i + 1) % n];
+      const cross = pt1.x * pt2.y - pt2.x * pt1.y;
+      area += cross;
+      cx += (pt1.x + pt2.x) * cross;
+      cy += (pt1.y + pt2.y) * cross;
+    }
+    area = Math.abs(area) / 2;
+    if (area > 0.0001) {
+      cx = cx / (6 * area);
+      cy = cy / (6 * area);
+    } else {
+      cx = exterior.reduce((s, p) => s + p.x, 0) / n;
+      cy = exterior.reduce((s, p) => s + p.y, 0) / n;
+    }
+    return { area, centroid: { x: cx, y: cy } };
+  }
+
   private renderPolygonGeometry(
     id: string,
     geometry: RenderGeometry,
@@ -119,26 +197,19 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
             idx % KonvaRendererAdapterImpl.SPACE_COLOR_PALETTE.length
           ];
 
-          let centroidScreen = { x: 0, y: 0 };
           const firstPoly = space.geometry.polygons[0];
-          if (firstPoly && firstPoly.exterior.length > 0) {
-            const sumX = firstPoly.exterior.reduce((acc, pt) => acc + pt.x, 0);
-            const sumY = firstPoly.exterior.reduce((acc, pt) => acc + pt.y, 0);
-            const worldCentroid = {
-              x: sumX / firstPoly.exterior.length,
-              y: sumY / firstPoly.exterior.length,
-            };
-            centroidScreen = worldToScreen(worldCentroid, viewport);
+          if (!firstPoly || firstPoly.exterior.length < 3) return null;
+
+          const { area, centroid } = this.getPolygonMetrics(firstPoly.exterior);
+          const centroidScreen = worldToScreen(centroid, viewport);
+
+          let rawName = (space.name || "").trim();
+          if (!rawName || /^ifcspace/i.test(rawName) || /^polygon$/i.test(rawName) || /^multipolygon$/i.test(rawName)) {
+            rawName = `Room ${idx + 1}`;
           }
 
-          const rawName = (space.name || "").trim();
-          const isGenericSpaceName =
-            !rawName ||
-            /^space$/i.test(rawName) ||
-            /^room$/i.test(rawName) ||
-            /^ifcspace/i.test(rawName) ||
-            /^polygon$/i.test(rawName) ||
-            /^multipolygon$/i.test(rawName);
+          const areaSqm = area;
+          const areaSqFt = Math.round(areaSqm * 10.7639);
 
           return (
             <Group key={`space-grp-${space.id || idx}`}>
@@ -147,21 +218,46 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 stroke: style.stroke,
                 strokeWidth: 1.5,
               })}
-              {firstPoly && firstPoly.exterior.length > 0 && !isGenericSpaceName && (
+
+              {/* Revit 2D Room Tag Badge Box */}
+              <Group x={centroidScreen.x} y={centroidScreen.y}>
+                <Rect
+                  x={-50}
+                  y={-18}
+                  width={100}
+                  height={36}
+                  fill="rgba(15, 23, 42, 0.85)"
+                  stroke="#38bdf8"
+                  strokeWidth={1}
+                  cornerRadius={4}
+                  shadowColor="black"
+                  shadowBlur={4}
+                  shadowOpacity={0.4}
+                />
                 <Text
-                  text={space.name || ""}
-                  x={centroidScreen.x - 60}
-                  y={centroidScreen.y - 8}
-                  width={120}
+                  text={rawName}
+                  x={-48}
+                  y={-14}
+                  width={96}
                   align="center"
-                  fontSize={Math.max(10, Math.min(13, 0.45 * viewport.scale))}
-                  fill={style.text}
-                  fontFamily="Inter, sans-serif"
+                  fontSize={11}
                   fontStyle="bold"
-                  opacity={0.85}
+                  fill="#f8fafc"
+                  fontFamily="Inter, sans-serif"
                   listening={false}
                 />
-              )}
+                <Text
+                  text={`${areaSqm.toFixed(1)} m² • ${areaSqFt} SF`}
+                  x={-48}
+                  y={2}
+                  width={96}
+                  align="center"
+                  fontSize={9}
+                  fill="#94a3b8"
+                  fontFamily="Inter, sans-serif"
+                  listening={false}
+                />
+              </Group>
             </Group>
           );
         })}
@@ -203,35 +299,11 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-doors">
         {doors.map((door) => {
+          let bounds = { pos: door.position, width: door.widthMeters || 0.9, depth: 0.15, rotation: door.rotationDeg || 0 };
           if (door.geometry) {
-            return this.renderPolygonGeometry(door.id, door.geometry, viewport, {
-              fill: "rgba(37, 99, 235, 0.75)",
-              stroke: "#60a5fa",
-              strokeWidth: 2,
-            });
+            bounds = this.extractOrientedBounds(door.geometry);
           }
-          if (door.position) {
-            const sPos = worldToScreen(door.position, viewport);
-            const sWidth = Math.min(door.widthMeters * viewport.scale, 28);
-            const swingAngle = door.swingAngleDeg ?? 90;
-            const rotation = door.rotationDeg ?? 0;
-            return (
-              <Group key={`door-${door.id}`} x={sPos.x} y={sPos.y} rotation={rotation}>
-                <Arc
-                  angle={swingAngle}
-                  rotation={0}
-                  innerRadius={0}
-                  outerRadius={sWidth}
-                  fill="rgba(59, 130, 246, 0.3)"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dash={[3, 3]}
-                />
-                <Line points={[0, 0, sWidth, 0]} stroke="#60a5fa" strokeWidth={2.5} />
-              </Group>
-            );
-          }
-          return null;
+          return this.renderCadDoorSymbol(door.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
         })}
       </Group>
     );
@@ -241,27 +313,16 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key="layer-windows">
         {windows.map((win) => {
+          let bounds = {
+            pos: win.start && win.end ? { x: (win.start.x + win.end.x) / 2, y: (win.start.y + win.end.y) / 2 } : { x: 0, y: 0 },
+            width: win.start && win.end ? Math.hypot(win.end.x - win.start.x, win.end.y - win.start.y) : 1.2,
+            depth: win.thicknessMeters || 0.15,
+            rotation: win.start && win.end ? (Math.atan2(win.end.y - win.start.y, win.end.x - win.start.x) * 180) / Math.PI : 0,
+          };
           if (win.geometry) {
-            return this.renderPolygonGeometry(win.id, win.geometry, viewport, {
-              fill: "rgba(6, 182, 212, 0.6)",
-              stroke: "#22d3ee",
-              strokeWidth: 2,
-            });
+            bounds = this.extractOrientedBounds(win.geometry);
           }
-          if (win.start && win.end) {
-            const sStart = worldToScreen(win.start, viewport);
-            const sEnd = worldToScreen(win.end, viewport);
-            return (
-              <Line
-                key={`win-${win.id}`}
-                points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-                stroke="#00f0ff"
-                strokeWidth={Math.max(4, (win.thicknessMeters || 0.15) * viewport.scale)}
-                lineCap="square"
-              />
-            );
-          }
-          return null;
+          return this.renderCadWindowSymbol(win.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
         })}
       </Group>
     );
@@ -310,14 +371,21 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           const sourceIfcType = (item.sourceIfcType || "").toUpperCase();
 
           if (subtype === "DOOR" || sourceIfcType === "IFCDOOR") {
+            let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
             if (item.geometry) {
-              return this.renderDoorPlanSymbol(item, viewport);
+              bounds = this.extractOrientedBounds(item.geometry);
             }
+            return this.renderCadDoorSymbol(item.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
           }
           if (subtype === "WINDOW" || sourceIfcType === "IFCWINDOW") {
+            let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
             if (item.geometry) {
-              return this.renderWindowPlanSymbol(item, viewport);
+              bounds = this.extractOrientedBounds(item.geometry);
             }
+            return this.renderCadWindowSymbol(item.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
+          }
+          if (subtype === "STAIR" || sourceIfcType === "IFCSTAIR") {
+            return this.renderStairPlanSymbol(item, viewport);
           }
           if (subtype === "CHAIR") {
             return this.renderChairPlanSymbol(item, viewport);
@@ -334,7 +402,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           if (subtype === "SOFA") {
             return this.renderSofaPlanSymbol(item, viewport);
           }
-          if (subtype === "SANITARY") {
+          if (subtype === "SANITARY" || sourceIfcType === "IFCSANITARYTERMINAL" || sourceIfcType === "IFCFLOWTERMINAL") {
             return this.renderSanitaryPlanSymbol(item, viewport);
           }
           if (subtype === "EQUIPMENT" || subtype === "FIXTURE") {
@@ -347,37 +415,167 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     );
   }
 
-  private renderDoorPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
-    if (item.geometry) {
-      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(37, 99, 235, 0.75)",
-        stroke: "#60a5fa",
-        strokeWidth: 2,
-      });
-    }
-    const sPos = worldToScreen(item.position, viewport);
-    const sW = Math.min(item.widthMeters * viewport.scale, 28);
+  private renderCadDoorSymbol(
+    id: string,
+    pos: RenderPoint,
+    widthMeters: number,
+    depthMeters: number,
+    rotationDeg: number,
+    viewport: Viewport
+  ): JSX.Element {
+    const sPos = worldToScreen(pos, viewport);
+    const sW = Math.max(12, widthMeters * viewport.scale);
+    const sD = Math.max(4, depthMeters * viewport.scale);
+
     return (
-      <Group key={`door-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
-        <Arc angle={90} rotation={0} innerRadius={0} outerRadius={sW} fill="rgba(59, 130, 246, 0.3)" stroke="#3b82f6" strokeWidth={2} dash={[3, 3]} />
-        <Line points={[0, 0, sW, 0]} stroke="#60a5fa" strokeWidth={2.5} />
+      <Group key={`door-cad-${id}`} x={sPos.x} y={sPos.y} rotation={rotationDeg}>
+        {/* Wall opening cutout frame */}
+        <Rect
+          x={-sW / 2}
+          y={-sD / 2}
+          width={sW}
+          height={sD}
+          fill="#000000"
+          stroke="rgba(148, 163, 184, 0.4)"
+          strokeWidth={1}
+        />
+        {/* Left Wall Jamb */}
+        <Line
+          points={[-sW / 2, -sD / 2 - 2, -sW / 2, sD / 2 + 2]}
+          stroke="#cbd5e1"
+          strokeWidth={1.5}
+        />
+        {/* Right Wall Jamb */}
+        <Line
+          points={[sW / 2, -sD / 2 - 2, sW / 2, sD / 2 + 2]}
+          stroke="#cbd5e1"
+          strokeWidth={1.5}
+        />
+        {/* 90-degree Door Swing Arc */}
+        <Arc
+          x={-sW / 2}
+          y={0}
+          innerRadius={0}
+          outerRadius={sW}
+          angle={90}
+          rotation={-90}
+          fill="rgba(56, 189, 248, 0.08)"
+          stroke="#38bdf8"
+          strokeWidth={1.5}
+          dash={[4, 4]}
+        />
+        {/* Single Door Leaf Line attached to Hinge */}
+        <Line
+          points={[-sW / 2, 0, -sW / 2, -sW]}
+          stroke="#60a5fa"
+          strokeWidth={2.5}
+          lineCap="round"
+        />
       </Group>
     );
   }
 
-  private renderWindowPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
-    if (item.geometry) {
-      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(6, 182, 212, 0.6)",
-        stroke: "#22d3ee",
-        strokeWidth: 2,
-      });
-    }
-    const sPos = worldToScreen(item.position, viewport);
-    const sW = item.widthMeters * viewport.scale;
-    const sD = (item.depthMeters || 0.2) * viewport.scale;
+  private renderCadWindowSymbol(
+    id: string,
+    pos: RenderPoint,
+    widthMeters: number,
+    depthMeters: number,
+    rotationDeg: number,
+    viewport: Viewport
+  ): JSX.Element {
+    const sPos = worldToScreen(pos, viewport);
+    const sW = Math.max(12, widthMeters * viewport.scale);
+    const sD = Math.max(4, depthMeters * viewport.scale);
+
     return (
-      <Rect key={`win-sym-${item.id}`} x={sPos.x - sW / 2} y={sPos.y - sD / 2} width={sW} height={sD} fill="rgba(6, 182, 212, 0.6)" stroke="#22d3ee" strokeWidth={2} />
+      <Group key={`win-cad-${id}`} x={sPos.x} y={sPos.y} rotation={rotationDeg}>
+        <Rect
+          x={-sW / 2}
+          y={-sD / 2}
+          width={sW}
+          height={sD}
+          fill="#000000"
+          stroke="#06b6d4"
+          strokeWidth={1.5}
+        />
+        <Line
+          points={[-sW / 2, -sD / 4, sW / 2, -sD / 4]}
+          stroke="#22d3ee"
+          strokeWidth={1.5}
+        />
+        <Line
+          points={[-sW / 2, sD / 4, sW / 2, sD / 4]}
+          stroke="#22d3ee"
+          strokeWidth={1.5}
+        />
+        <Line
+          points={[-sW / 2, 0, sW / 2, 0]}
+          stroke="#67e8f9"
+          strokeWidth={1}
+          dash={[2, 2]}
+        />
+      </Group>
+    );
+  }
+
+  private renderStairPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
+    if (item.geometry) {
+      bounds = this.extractOrientedBounds(item.geometry);
+    }
+    const sPos = worldToScreen(bounds.pos, viewport);
+    const sW = Math.max(20, bounds.width * viewport.scale);
+    const sD = Math.max(20, bounds.depth * viewport.scale);
+    const stepCount = 8;
+    const stepGap = sD / stepCount;
+
+    const treadLines: JSX.Element[] = [];
+    for (let i = 1; i < stepCount; i++) {
+      const yOffset = -sD / 2 + i * stepGap;
+      treadLines.push(
+        <Line
+          key={`stair-tread-${item.id}-${i}`}
+          points={[-sW / 2, yOffset, sW / 2, yOffset]}
+          stroke="#94a3b8"
+          strokeWidth={1}
+        />
+      );
+    }
+
+    return (
+      <Group key={`stair-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+        <Rect
+          x={-sW / 2}
+          y={-sD / 2}
+          width={sW}
+          height={sD}
+          fill="rgba(30, 41, 59, 0.6)"
+          stroke="#cbd5e1"
+          strokeWidth={1.5}
+        />
+        {treadLines}
+        <Line
+          points={[0, sD / 2 - 4, 0, -sD / 2 + 8]}
+          stroke="#38bdf8"
+          strokeWidth={1.5}
+        />
+        <Line
+          points={[-4, -sD / 2 + 14, 0, -sD / 2 + 8, 4, -sD / 2 + 14]}
+          stroke="#38bdf8"
+          strokeWidth={1.5}
+        />
+        <Text
+          text="UP"
+          x={-15}
+          y={sD / 2 - 14}
+          width={30}
+          align="center"
+          fontSize={10}
+          fontStyle="bold"
+          fill="#38bdf8"
+          fontFamily="Inter, sans-serif"
+        />
+      </Group>
     );
   }
 
@@ -473,19 +671,37 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   }
 
   private renderSanitaryPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
+    let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
     if (item.geometry) {
-      return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(14, 116, 144, 0.7)",
-        stroke: "#06b6d4",
-        strokeWidth: 1.5,
-      });
+      bounds = this.extractOrientedBounds(item.geometry);
     }
-    const sPos = worldToScreen(item.position, viewport);
-    const sW = item.widthMeters * viewport.scale;
-    const sD = item.depthMeters * viewport.scale;
+    const sPos = worldToScreen(bounds.pos, viewport);
+    const sW = Math.max(14, bounds.width * viewport.scale);
+    const sD = Math.max(14, bounds.depth * viewport.scale);
+
     return (
-      <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(14, 116, 144, 0.7)" stroke="#06b6d4" strokeWidth={1.5} cornerRadius={4} />
+      <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+        <Rect
+          x={-sW / 2}
+          y={-sD / 2}
+          width={sW}
+          height={sD * 0.35}
+          fill="rgba(14, 116, 144, 0.4)"
+          stroke="#06b6d4"
+          strokeWidth={1.5}
+          cornerRadius={2}
+        />
+        <Arc
+          x={0}
+          y={sD * 0.1}
+          innerRadius={0}
+          outerRadius={Math.min(sW, sD * 0.65) / 2}
+          angle={360}
+          rotation={0}
+          fill="rgba(14, 116, 144, 0.3)"
+          stroke="#22d3ee"
+          strokeWidth={1.5}
+        />
       </Group>
     );
   }

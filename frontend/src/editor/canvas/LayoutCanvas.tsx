@@ -56,6 +56,12 @@ const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
   ],
 };
 
+import {
+  generateLayoutCandidates,
+  applySuggestionToRenderModel,
+  LayoutSuggestionPayload,
+} from "../../api/layout";
+
 export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   initialScale = DEFAULT_INITIAL_SCALE,
   showGrid: initialShowGrid = true,
@@ -76,6 +82,12 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   const [toolMode, setToolMode] = useState<EditorToolMode>("select");
   const [freehandStroke, setFreehandStroke] = useState<FreehandStroke | null>(null);
   const [regionPreview, setRegionPreview] = useState<RegionPreview | null>(null);
+
+  // AI Layout Solver State
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [layoutCandidates, setLayoutCandidates] = useState<LayoutSuggestionPayload[]>([]);
+  const [activeCandidateIdx, setActiveCandidateIdx] = useState<number>(0);
+  const [promptInput, setPromptInput] = useState<string>("6 Professional Desks + 1 Manager Cabin");
 
   const [viewport, setViewport] = useState<Viewport>({
     scale: initialScale,
@@ -99,6 +111,48 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
       }
     }
   }, [renderModel, containerSize]);
+
+  const handleGenerateLayout = async () => {
+    const targetFpId = activeFloorPlanId || "fp_501";
+    setIsGenerating(true);
+    try {
+      // Parse requirements from prompt
+      let profQty = 6;
+      let mgrQty = 1;
+      const profMatch = promptInput.match(/(\d+)\s*(?:professional|desk|workstation)/i);
+      if (profMatch) profQty = parseInt(profMatch[1]);
+      const mgrMatch = promptInput.match(/(\d+)\s*(?:manager|executive|cabin)/i);
+      if (mgrMatch) mgrQty = parseInt(mgrMatch[1]);
+
+      const reqs = [
+        { item_type: "PROFESSIONAL_DESK", quantity: profQty },
+        { item_type: "MANAGER_DESK", quantity: mgrQty },
+      ];
+
+      const results = await generateLayoutCandidates({
+        floor_plan_id: targetFpId,
+        requirements: reqs,
+      });
+
+      setLayoutCandidates(results);
+      if (results && results.length > 0) {
+        setActiveCandidateIdx(0);
+        setActiveModel((prev) => applySuggestionToRenderModel(prev, results[0]));
+      }
+    } catch (err: any) {
+      alert(`AI Layout Generation Error: ${err.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSelectCandidate = (index: number) => {
+    if (index >= 0 && index < layoutCandidates.length) {
+      setActiveCandidateIdx(index);
+      const cand = layoutCandidates[index];
+      setActiveModel((prev) => applySuggestionToRenderModel(prev, cand));
+    }
+  };
 
   // Compute and lock world region preview when freehand stroke updates
   const handleStrokeChange = useCallback(
@@ -289,6 +343,78 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      {/* AI Layout Solver Controls Toolbar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          padding: "8px 16px",
+          backgroundColor: "#0f172a",
+          borderBottom: "1px solid #334155",
+          zIndex: 9,
+        }}
+      >
+        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#38bdf8", display: "flex", alignItems: "center", gap: "4px" }}>
+          ⚡ AI Solver:
+        </span>
+        <input
+          type="text"
+          value={promptInput}
+          onChange={(e) => setPromptInput(e.target.value)}
+          placeholder="e.g. 6 Professional Desks + 1 Manager Cabin"
+          style={{
+            flex: 1,
+            backgroundColor: "#1e293b",
+            border: "1px solid #475569",
+            color: "#f8fafc",
+            borderRadius: "6px",
+            padding: "4px 10px",
+            fontSize: "0.8125rem",
+          }}
+        />
+        <button
+          onClick={handleGenerateLayout}
+          disabled={isGenerating}
+          style={{
+            backgroundColor: isGenerating ? "#475569" : "#0284c7",
+            color: "#ffffff",
+            border: "none",
+            borderRadius: "6px",
+            padding: "4px 14px",
+            fontSize: "0.8125rem",
+            fontWeight: 700,
+            cursor: isGenerating ? "not-allowed" : "pointer",
+          }}
+        >
+          {isGenerating ? "Solving Geometry..." : "⚡ Solve Layout"}
+        </button>
+
+        {layoutCandidates.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "12px" }}>
+            <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Candidates:</span>
+            {layoutCandidates.map((cand, idx) => (
+              <button
+                key={cand.id}
+                onClick={() => handleSelectCandidate(idx)}
+                style={{
+                  backgroundColor: activeCandidateIdx === idx ? "#38bdf8" : "#1e293b",
+                  color: activeCandidateIdx === idx ? "#0f172a" : "#f8fafc",
+                  border: "1px solid #38bdf8",
+                  borderRadius: "4px",
+                  padding: "2px 8px",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {`Cand ${String.fromCharCode(65 + idx)} (${cand.strategy_name.split(" ")[0]})`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Konva Stage Container */}

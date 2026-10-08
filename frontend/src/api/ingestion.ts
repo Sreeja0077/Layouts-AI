@@ -297,23 +297,6 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         swingAngleDeg: 90,
         geometry: renderGeom,
       });
-      furniture.push({
-        id: elem.id || elem.global_id || `door_${index}`,
-        catalogItemId: elem.global_id || elem.id,
-        itemType: "DOOR",
-        subtype: "DOOR",
-        category: "FURNITURE_ITEM",
-        sourceIfcType,
-        name: cleanName,
-        position: { x: centerX, y: centerY },
-        widthMeters: 0.9,
-        depthMeters: 0.2,
-        rotationDeg: 0,
-        isLocked: true,
-        isImported: true,
-        geometry: renderGeom,
-        properties: elem.properties || {},
-      });
     } else if (cat === "WINDOW" || cat.includes("WINDOW")) {
       const startPt = pts[0] || { x: 0, y: 0 };
       const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
@@ -323,23 +306,6 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
         end: endPt,
         thicknessMeters: 0.2,
         geometry: renderGeom,
-      });
-      furniture.push({
-        id: elem.id || elem.global_id || `win_${index}`,
-        catalogItemId: elem.global_id || elem.id,
-        itemType: "WINDOW",
-        subtype: "WINDOW",
-        category: "FURNITURE_ITEM",
-        sourceIfcType,
-        name: cleanName,
-        position: { x: centerX, y: centerY },
-        widthMeters: 1.0,
-        depthMeters: 0.2,
-        rotationDeg: 0,
-        isLocked: true,
-        isImported: true,
-        geometry: renderGeom,
-        properties: elem.properties || {},
       });
     } else if (cat === "COLUMN" || cat.includes("COLUMN")) {
       columns.push({
