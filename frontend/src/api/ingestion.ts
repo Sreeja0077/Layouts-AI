@@ -233,7 +233,10 @@ import { normalizeFloorPlanRenderModel } from "../geometry/coordinateNormalizati
  * Accurately extracts full 2D polygon footprints from IFC/DXF geometry models and normalizes coordinates
  * using a single global floor-plan origin translation.
  */
-export function reportToRenderModel(report: GeometryVerificationReport): FloorPlanRenderModel {
+export function reportToRenderModel(
+  report: GeometryVerificationReport,
+  requestedStorey?: string
+): FloorPlanRenderModel {
   const walls: RenderWall[] = [];
   const doors: RenderDoor[] = [];
   const windows: RenderWindow[] = [];
@@ -241,132 +244,240 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
   const spaces: RenderSpace[] = [];
   const furniture: RenderFurniture[] = [];
 
-  const allPoints: Array<{ x: number; y: number }> = [];
+  const allElements = Array.isArray(report.all_elements_geometry)
+    ? report.all_elements_geometry
+    : [];
 
-  // Helper to extract 2D points from GeoJSON coordinates or boundary arrays
-  const extract2DPts = (elem: any): Array<{ x: number; y: number }> => {
-    const pts: Array<{ x: number; y: number }> = [];
-    if (Array.isArray(elem.boundary) && elem.boundary.length > 0) {
+  const getStoreyName = (elem: any): string | undefined =>
+    elem?.storey_name ||
+    elem?.properties?.storey_name ||
+    undefined;
+
+  const availableStoreys = Array.isArray(report.available_storeys)
+    ? report.available_storeys
+        .map((item) => item?.name)
+        .filter((name): name is string => Boolean(name))
+    : [];
+
+  const targetStorey =
+    requestedStorey && availableStoreys.includes(requestedStorey)
+      ? requestedStorey
+      : report.recommended_storey &&
+          availableStoreys.includes(report.recommended_storey)
+        ? report.recommended_storey
+        : availableStoreys[0];
+
+  // IFC building models can contain many storeys. A 2D floor-plan editor must render
+  // one storey at a time; otherwise projecting every level onto XY creates a scattered map.
+  const storeyElements =
+    targetStorey && report.source_type.toUpperCase() === "IFC"
+      ? allElements.filter((elem) => getStoreyName(elem) === targetStorey)
+      : allElements;
+
+  const elementsToRender =
+    storeyElements.length > 0 || !targetStorey ? storeyElements : allElements;
+
+  const allPoints: RenderPoint[] = [];
+  const boundaryCandidatePoints: RenderPoint[] = [];
+
+  const parseGeometryPoints = (geometry?: RenderGeometry): RenderPoint[] => {
+    if (!geometry) return [];
+    const points: RenderPoint[] = [];
+    for (const poly of geometry.polygons || []) {
+      points.push(...(poly.exterior || []));
+      for (const hole of poly.holes || []) {
+        points.push(...hole);
+      }
+    }
+    return points;
+  };
+
+  const extract2DPts = (elem: any): RenderPoint[] => {
+    const pts: RenderPoint[] = [];
+
+    if (Array.isArray(elem?.boundary)) {
       for (const pt of elem.boundary) {
-        if (Array.isArray(pt) && pt.length >= 2 && typeof pt[0] === "number" && typeof pt[1] === "number") {
+        if (
+          Array.isArray(pt) &&
+          pt.length >= 2 &&
+          typeof pt[0] === "number" &&
+          typeof pt[1] === "number"
+        ) {
           pts.push({ x: pt[0], y: pt[1] });
         }
       }
     }
-    if (pts.length === 0 && elem.coordinates) {
-      const flat = (elem.coordinates as any).flat(4);
-      for (let i = 0; i < flat.length - 1; i += 2) {
-        if (typeof flat[i] === "number" && typeof flat[i + 1] === "number") {
-          pts.push({ x: flat[i], y: flat[i + 1] });
-        }
-      }
+
+    if (pts.length === 0 && elem?.coordinates) {
+      const geometry = parseRenderGeometry(elem);
+      pts.push(...parseGeometryPoints(geometry));
     }
+
     return pts;
   };
 
-  (report.all_elements_geometry || []).forEach((elem: any, index: number) => {
-    const cat = (elem.category || "").toUpperCase();
-    const subtype = (elem.subtype || elem.category || "OTHER").toUpperCase();
-    const sourceIfcType = elem.element_type || "IfcEntity";
+  for (const elem of elementsToRender) {
+    const cat = String(elem?.category || "").toUpperCase();
+    const subtype = String(
+      elem?.subtype || elem?.category || "OTHER"
+    ).toUpperCase();
+    const sourceIfcType = elem?.element_type || "IfcEntity";
 
     const pts = extract2DPts(elem);
-    pts.forEach((p) => allPoints.push(p));
-    const renderGeom = parseRenderGeometry(elem);
+    allPoints.push(...pts);
 
-    let cleanName = elem.name || elem.element_type || elem.category || `Item ${index + 1}`;
-    if (cleanName === "Polygon" || cleanName === "MultiPolygon") {
-      cleanName = elem.element_type || `Item ${index + 1}`;
+    const renderGeom = parseRenderGeometry(elem);
+    const geometryPts = parseGeometryPoints(renderGeom);
+    const renderPts = geometryPts.length > 0 ? geometryPts : pts;
+
+    if (cat.includes("SPACE") || cat.includes("ROOM")) {
+      boundaryCandidatePoints.push(...renderPts);
     }
 
-    const centerX = pts.length > 0 ? pts.reduce((sum, p) => sum + p.x, 0) / pts.length : 0;
-    const centerY = pts.length > 0 ? pts.reduce((sum, p) => sum + p.y, 0) / pts.length : 0;
+    const centerX =
+      renderPts.length > 0
+        ? renderPts.reduce((sum, p) => sum + p.x, 0) / renderPts.length
+        : 0;
+    const centerY =
+      renderPts.length > 0
+        ? renderPts.reduce((sum, p) => sum + p.y, 0) / renderPts.length
+        : 0;
+
+    const cleanElementName =
+      elem?.name || elem?.element_type || elem?.category || "Item";
+
+    const storeyName = getStoreyName(elem);
+    const storeyElevation =
+      typeof elem?.storey_elevation_m === "number"
+        ? elem.storey_elevation_m
+        : typeof elem?.properties?.storey_elevation_m === "number"
+          ? elem.properties.storey_elevation_m
+          : undefined;
 
     if (cat === "WALL" || cat.includes("WALL")) {
-      const startPt = pts[0] || { x: 0, y: 0 };
-      const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
       walls.push({
-        id: elem.id || elem.global_id || `wall_${index}`,
-        start: startPt,
-        end: endPt,
+        id: elem.id || elem.global_id || `wall_${walls.length}`,
+        start: pts[0] || renderPts[0] || { x: centerX, y: centerY },
+        end:
+          pts[1] ||
+          renderPts[1] ||
+          pts[0] ||
+          renderPts[0] || { x: centerX, y: centerY },
         thicknessMeters: 0.2,
         isExterior: true,
+        storeyName,
+        storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
       });
     } else if (cat === "DOOR" || cat.includes("DOOR")) {
       doors.push({
-        id: elem.id || elem.global_id || `door_${index}`,
+        id: elem.id || elem.global_id || `door_${doors.length}`,
         position: { x: centerX, y: centerY },
         widthMeters: 0.9,
         swingAngleDeg: 90,
+        storeyName,
+        storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
       });
     } else if (cat === "WINDOW" || cat.includes("WINDOW")) {
-      const startPt = pts[0] || { x: 0, y: 0 };
-      const endPt = pts[1] || pts[0] || { x: 0, y: 0 };
       windows.push({
-        id: elem.id || elem.global_id || `win_${index}`,
-        start: startPt,
-        end: endPt,
+        id: elem.id || elem.global_id || `win_${windows.length}`,
+        start: pts[0] || renderPts[0] || { x: centerX, y: centerY },
+        end:
+          pts[1] ||
+          renderPts[1] ||
+          pts[0] ||
+          renderPts[0] || { x: centerX, y: centerY },
         thicknessMeters: 0.2,
+        storeyName,
+        storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
       });
     } else if (cat === "COLUMN" || cat.includes("COLUMN")) {
       columns.push({
-        id: elem.id || elem.global_id || `col_${index}`,
+        id: elem.id || elem.global_id || `col_${columns.length}`,
         position: { x: centerX, y: centerY },
         widthMeters: 0.6,
         heightMeters: 0.6,
+        storeyName,
+        storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
       });
     } else if (cat === "SPACE" || cat.includes("SPACE") || cat.includes("ROOM")) {
       if (renderGeom) {
+        const rawName = String(
+          elem?.name || `Room ${spaces.length + 1}`
+        );
         spaces.push({
-          id: elem.id || elem.global_id || `space_${index}`,
-          name: cleanName.includes("IfcSpace") ? `Room ${spaces.length + 1}` : cleanName,
+          id: elem.id || elem.global_id || `space_${spaces.length}`,
+          name:
+            rawName && !/^ifcspace/i.test(rawName) &&
+            !/^(polygon|multipolygon)$/i.test(rawName)
+              ? rawName
+              : `Room ${spaces.length + 1}`,
+          storeyName,
+          storeyElevationMeters: storeyElevation,
           geometry: renderGeom,
         });
       }
     } else {
+      // Preserve all non-structural IFC elements as imported furniture/items,
+      // including BuildingElementProxy, stairs, railings, equipment, fixtures, etc.
       furniture.push({
-        id: elem.id || elem.global_id || `furn_${index}`,
+        id: elem.id || elem.global_id || `furn_${furniture.length}`,
         catalogItemId: elem.global_id || elem.id,
         itemType: subtype,
         subtype,
         category: "FURNITURE_ITEM",
         sourceIfcType,
-        name: cleanName,
+        name: cleanElementName,
         position: { x: centerX, y: centerY },
         widthMeters: 1.0,
         depthMeters: 0.8,
         rotationDeg: 0,
         isLocked: true,
         isImported: true,
+        storeyName,
+        storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
         properties: elem.properties || {},
       });
     }
-  });
-
-  let boundaryPts: Array<{ x: number; y: number }> = [];
-  if (Array.isArray(report.boundary_polygon) && report.boundary_polygon.length >= 3) {
-    boundaryPts = report.boundary_polygon.map((pt) => ({ x: pt[0], y: pt[1] }));
   }
 
-  if (boundaryPts.length === 0 && allPoints.length > 0) {
+  // The viewport boundary is the selected storey's real spatial envelope.
+  // Prefer SPACE geometry; fall back to the selected storey's elements; finally
+  // preserve the report's authoritative legacy boundary for DXF/no-storey cases.
+  let boundaryPts: RenderPoint[] = [];
+
+  if (boundaryCandidatePoints.length >= 3) {
+    const minX = Math.min(...boundaryCandidatePoints.map((p) => p.x));
+    const maxX = Math.max(...boundaryCandidatePoints.map((p) => p.x));
+    const minY = Math.min(...boundaryCandidatePoints.map((p) => p.y));
+    const maxY = Math.max(...boundaryCandidatePoints.map((p) => p.y));
+    boundaryPts = [
+      { x: minX, y: minY },
+      { x: maxX, y: minY },
+      { x: maxX, y: maxY },
+      { x: minX, y: maxY },
+    ];
+  } else if (allPoints.length >= 3) {
     const minX = Math.min(...allPoints.map((p) => p.x));
     const maxX = Math.max(...allPoints.map((p) => p.x));
     const minY = Math.min(...allPoints.map((p) => p.y));
     const maxY = Math.max(...allPoints.map((p) => p.y));
-    const pad = 1.0;
     boundaryPts = [
-      { x: minX - pad, y: minY - pad },
-      { x: maxX + pad, y: minY - pad },
-      { x: maxX + pad, y: maxY + pad },
-      { x: minX - pad, y: maxY + pad },
+      { x: minX, y: minY },
+      { x: maxX, y: minY },
+      { x: maxX, y: maxY },
+      { x: minX, y: maxY },
     ];
-  }
-
-  if (boundaryPts.length === 0) {
+  } else if (Array.isArray(report.boundary_polygon) && report.boundary_polygon.length >= 3) {
+    boundaryPts = report.boundary_polygon.map((pt) => ({
+      x: pt[0],
+      y: pt[1],
+    }));
+  } else {
     boundaryPts = [
       { x: 0, y: 0 },
       { x: 20, y: 0 },
@@ -385,6 +496,8 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
     columns,
     spaces,
     furniture,
+    activeStorey: targetStorey,
+    availableStoreys,
   };
 
   return normalizeFloorPlanRenderModel(rawModel);
