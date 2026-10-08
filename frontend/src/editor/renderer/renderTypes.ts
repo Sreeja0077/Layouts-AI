@@ -35,6 +35,8 @@ export interface RenderGeometry {
 
 export interface RenderWall {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   /** Legacy: wall as line segment */
   start?: RenderPoint;
   end?: RenderPoint;
@@ -46,6 +48,8 @@ export interface RenderWall {
 
 export interface RenderDoor {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   position: RenderPoint;
   widthMeters: number;
   rotationDeg?: number;
@@ -57,6 +61,8 @@ export interface RenderDoor {
 
 export interface RenderWindow {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   /** Legacy: window as line segment */
   start?: RenderPoint;
   end?: RenderPoint;
@@ -67,6 +73,8 @@ export interface RenderWindow {
 
 export interface RenderColumn {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   position: RenderPoint;
   widthMeters: number;
   heightMeters: number;
@@ -77,6 +85,8 @@ export interface RenderColumn {
 
 export interface RenderSpace {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   name?: string;
   /** Full polygon geometry from IFC */
   geometry: RenderGeometry;
@@ -84,6 +94,8 @@ export interface RenderSpace {
 
 export interface RenderFurniture {
   id: string;
+  storeyName?: string;
+  storeyElevationMeters?: number;
   catalogItemId?: string;
   itemType: string;
   subtype?: string;
@@ -113,4 +125,8 @@ export interface FloorPlanRenderModel {
   furniture: RenderFurniture[];
   /** World-space origin used for coordinate normalization */
   worldOrigin?: RenderPoint;
+  /** Active IFC building storey represented by this render model */
+  activeStorey?: string;
+  /** Available IFC building storeys in display order */
+  availableStoreys?: string[];
 }
