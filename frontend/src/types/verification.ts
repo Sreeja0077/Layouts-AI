@@ -18,6 +18,9 @@ export interface ElementGeometry {
   global_id: string;
   category: "WALL" | "DOOR" | "WINDOW" | "COLUMN" | "SPACE" | "FURNITURE" | "GENERIC" | string;
   type: string;
+  element_type?: string;
+  subtype?: string;
+  name?: string;
   coordinates: number[][][] | number[][][][] | number[][];
   is_closed?: boolean;
   storey_id?: string | null;
