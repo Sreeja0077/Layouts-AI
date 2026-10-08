@@ -36,6 +36,7 @@ export const App: React.FC<AppProps> = ({
   });
 
   const [report, setReport] = useState<GeometryVerificationReport | null>(null);
+  const [activeStorey, setActiveStorey] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,38 @@ export const App: React.FC<AppProps> = ({
   const [editorRenderModel, setEditorRenderModel] = useState<FloorPlanRenderModel | undefined>(undefined);
 
   const [userFloorPlans, setUserFloorPlans] = useState<Array<{ id: string; name: string }>>([]);
+
+  const resolveStoreyForReport = (
+    data: GeometryVerificationReport,
+    preferred?: string
+  ): string | undefined => {
+    const names = (data.available_storeys || [])
+      .map((item) => item.name)
+      .filter(Boolean);
+
+    if (preferred && names.includes(preferred)) return preferred;
+    if (data.recommended_storey && names.includes(data.recommended_storey)) {
+      return data.recommended_storey;
+    }
+    return names[0];
+  };
+
+  const applyReportToEditor = (
+    data: GeometryVerificationReport,
+    preferredStorey?: string
+  ) => {
+    const chosenStorey = resolveStoreyForReport(data, preferredStorey);
+    setReport(data);
+    setActiveStorey(chosenStorey);
+    setEditorRenderModel(reportToRenderModel(data, chosenStorey));
+  };
+
+  const handleStoreyChange = (storeyName: string) => {
+    setActiveStorey(storeyName);
+    if (report) {
+      setEditorRenderModel(reportToRenderModel(report, storeyName));
+    }
+  };
 
   useEffect(() => {
     if (activeProjectId) {
@@ -89,8 +122,7 @@ export const App: React.FC<AppProps> = ({
     setError(null);
     try {
       const data = await fetchVerificationReport(pId, fpId);
-      setReport(data);
-      setEditorRenderModel(reportToRenderModel(data));
+      applyReportToEditor(data, activeStorey);
     } catch (err: any) {
       // If primary report load fails (e.g. initial demo fp_501 purged), load latest user floor plan for project
       try {
@@ -99,8 +131,7 @@ export const App: React.FC<AppProps> = ({
           const latestFp = fps[fps.length - 1];
           setActiveFloorPlanId(latestFp.id);
           const data = await fetchVerificationReport(pId, latestFp.id);
-          setReport(data);
-          setEditorRenderModel(reportToRenderModel(data));
+          applyReportToEditor(data, activeStorey);
           return;
         }
       } catch {
@@ -133,8 +164,7 @@ export const App: React.FC<AppProps> = ({
       .catch(() => {});
 
     if (res.verification_report) {
-      setReport(res.verification_report);
-      setEditorRenderModel(reportToRenderModel(res.verification_report));
+      applyReportToEditor(res.verification_report, activeStorey);
     } else {
       loadReport(res.project_id, res.floor_plan_id);
     }
@@ -153,8 +183,7 @@ export const App: React.FC<AppProps> = ({
     try {
       const res = await fetchIngestionStatus(pId, fpId);
       if (res.verification_report) {
-        setReport(res.verification_report);
-        setEditorRenderModel(reportToRenderModel(res.verification_report));
+        applyReportToEditor(res.verification_report, activeStorey);
       } else {
         await loadReport(pId, fpId);
       }
@@ -171,8 +200,7 @@ export const App: React.FC<AppProps> = ({
     setIsProcessing(true);
     try {
       const updated = await verifyFloorPlan(activeProjectId, activeFloorPlanId);
-      setReport(updated);
-      setEditorRenderModel(reportToRenderModel(updated));
+      applyReportToEditor(updated, activeStorey);
     } catch (err: any) {
       alert(`Verification Error: ${err.message}`);
     } finally {
@@ -302,6 +330,9 @@ export const App: React.FC<AppProps> = ({
             activeFloorPlanId={activeFloorPlanId}
             availableFloorPlans={userFloorPlans}
             onSwitchFloorPlan={handleOpenExistingFloorPlan}
+            availableStoreys={(report?.available_storeys || []).map((storey) => storey.name)}
+            activeStorey={activeStorey}
+            onSwitchStorey={handleStoreyChange}
             onGoToUpload={() => setActiveTab("workspace")}
           />
         </main>
