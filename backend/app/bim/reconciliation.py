@@ -54,6 +54,14 @@ class GeometryVerificationReport(BaseModel):
     boundary_geometry: Optional[Geometry2D] = Field(default=None, description="Authoritative GeoJSON Geometry2D (Polygon or MultiPolygon with holes)")
     elements_summary: Dict[str, Any] = Field(default_factory=dict, description="Counts of extracted walls, doors, windows, columns, spaces, furniture_items")
     all_elements_geometry: List[Dict[str, Any]] = Field(default_factory=list, description="List of vector elements for read-only UI rendering")
+    available_storeys: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="IFC building-storey summary used by the 2D editor to select one floor at a time",
+    )
+    recommended_storey: Optional[str] = Field(
+        default=None,
+        description="Deterministically selected default IFC storey for the 2D editor",
+    )
     warnings: List[GeometryAnomalyWarning] = Field(default_factory=list)
     reviewer_user_id: Optional[str] = Field(None, description="User ID of Layouts Team reviewer who verified/rejected")
     verified_at: Optional[str] = Field(None, description="ISO timestamp of human verification action")
@@ -100,6 +108,9 @@ class GeometryReconciler:
                     "type": elem.geometry_type.value if hasattr(elem.geometry_type, "value") else str(elem.geometry_type),
                     "coordinates": elem.geometry_coordinates,
                     "boundary": elem.boundary_vertices,
+                    "storey_id": elem.properties.get("storey_id"),
+                    "storey_name": elem.properties.get("storey_name"),
+                    "storey_elevation_m": elem.properties.get("storey_elevation_m"),
                     "properties": elem.properties,
                 })
 
@@ -131,6 +142,73 @@ class GeometryReconciler:
                         element_id=space.ifc_global_id,
                         message=f"Failed to reconcile space geometry for {space.ifc_global_id}: {str(err)}"
                     ))
+
+        # Build deterministic building-storey summaries from the parsed IFC spatial containers.
+        # The report still contains every source element, but the frontend can now select
+        # exactly one building storey for a coherent 2D floor-plan view.
+        storey_summary_by_name: Dict[str, Dict[str, Any]] = {}
+        for elem in all_elements:
+            props = elem.properties or {}
+            storey_name = props.get("storey_name")
+            if not storey_name:
+                continue
+
+            summary = storey_summary_by_name.setdefault(
+                str(storey_name),
+                {
+                    "name": str(storey_name),
+                    "storey_id": props.get("storey_id"),
+                    "elevation_m": props.get("storey_elevation_m"),
+                    "element_count": 0,
+                    "wall_count": 0,
+                    "door_count": 0,
+                    "window_count": 0,
+                    "column_count": 0,
+                    "space_count": 0,
+                    "furniture_count": 0,
+                },
+            )
+            summary["element_count"] += 1
+
+            category = str(getattr(elem, "category", "") or "").upper()
+            if "WALL" in category:
+                summary["wall_count"] += 1
+            elif "DOOR" in category:
+                summary["door_count"] += 1
+            elif "WINDOW" in category:
+                summary["window_count"] += 1
+            elif "COLUMN" in category:
+                summary["column_count"] += 1
+            elif "SPACE" in category or "ROOM" in category:
+                summary["space_count"] += 1
+            elif "FURNITURE" in category:
+                summary["furniture_count"] += 1
+
+        available_storeys = sorted(
+            storey_summary_by_name.values(),
+            key=lambda item: (
+                item["elevation_m"] is None,
+                item["elevation_m"] if item["elevation_m"] is not None else 0.0,
+                item["name"],
+            ),
+        )
+
+        recommended_storey = None
+        if available_storeys:
+            recommended_storey = max(
+                available_storeys,
+                key=lambda item: (
+                    item["space_count"],
+                    item["wall_count"],
+                    item["element_count"],
+                    -(
+                        item["elevation_m"]
+                        if item["elevation_m"] is not None
+                        else 0.0
+                    ),
+                    item["name"],
+                ),
+            )["name"]
 
         # Check missing elements
         if len(parsed_ifc.spaces) == 0 or len(valid_space_polys) == 0:
@@ -233,6 +311,8 @@ class GeometryReconciler:
             boundary_geometry=boundary_geom_model,
             elements_summary=elem_summary,
             all_elements_geometry=elements_geom,
+            available_storeys=available_storeys,
+            recommended_storey=recommended_storey,
             warnings=warnings,
         )
 
