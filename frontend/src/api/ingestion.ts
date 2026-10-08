@@ -1,6 +1,7 @@
 import { GeometryVerificationReport, ElementGeometry } from "../types/verification";
 import {
   FloorPlanRenderModel,
+  RenderPoint,
   RenderWall,
   RenderDoor,
   RenderWindow,
