@@ -35,4 +35,7 @@ export interface LayoutCanvasProps {
   onGoToUpload?: () => void;
   availableFloorPlans?: Array<{ id: string; name: string }>;
   activeFloorPlanId?: string;
+  availableStoreys?: string[];
+  activeStorey?: string;
+  onSwitchStorey?: (storeyName: string) => void;
 }
