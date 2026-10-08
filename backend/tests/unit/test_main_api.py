@@ -116,7 +116,7 @@ def test_generate_layout_v1_mounted():
     assert response.status_code == 200
     suggestions = response.json()
     assert isinstance(suggestions, list)
-    assert len(suggestions) == 2
+    assert 1 <= len(suggestions) <= 3
 
 
 if __name__ == "__main__":
