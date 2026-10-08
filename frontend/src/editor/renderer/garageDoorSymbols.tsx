@@ -55,8 +55,8 @@ export function renderCadGarageDoorSymbol(
       <Line
         key={`garage-panel-${id}-${i}`}
         points={[xOffset, -sD / 2, xOffset, sD / 2]}
-        stroke="#38bdf8"
-        strokeWidth={1}
+        stroke="#111111"
+        strokeWidth={0.8}
       />
     );
   }
@@ -69,9 +69,9 @@ export function renderCadGarageDoorSymbol(
         y={-sD / 2}
         width={sW}
         height={sD}
-        fill="#0f172a"
-        stroke="#0284c7"
-        strokeWidth={1.5}
+        fill="#FFFFFF"
+        stroke="#111111"
+        strokeWidth={1.2}
       />
 
       {/* Sectional Door Panels along Opening */}
@@ -80,62 +80,62 @@ export function renderCadGarageDoorSymbol(
         y={-sD / 4}
         width={sW - 4}
         height={sD / 2}
-        fill="rgba(56, 189, 248, 0.15)"
-        stroke="#38bdf8"
-        strokeWidth={1.5}
+        fill="#FAFAFA"
+        stroke="#111111"
+        strokeWidth={1}
       />
       {panelLines}
 
       {/* Left Wall Jamb Bracket */}
       <Rect
-        x={-sW / 2 - 3}
-        y={-sD / 2 - 2}
-        width={4}
-        height={sD + 4}
-        fill="#38bdf8"
-        stroke="#0284c7"
-        strokeWidth={1}
+        x={-sW / 2 - 2}
+        y={-sD / 2 - 1}
+        width={3}
+        height={sD + 2}
+        fill="#111111"
+        stroke="#111111"
+        strokeWidth={0.8}
       />
 
       {/* Right Wall Jamb Bracket */}
       <Rect
         x={sW / 2 - 1}
-        y={-sD / 2 - 2}
-        width={4}
-        height={sD + 4}
-        fill="#38bdf8"
-        stroke="#0284c7"
-        strokeWidth={1}
+        y={-sD / 2 - 1}
+        width={3}
+        height={sD + 2}
+        fill="#111111"
+        stroke="#111111"
+        strokeWidth={0.8}
       />
 
       {/* Left Overhead Track Guide Line extending into Garage Space */}
       <Line
         points={[-sW / 2 + 4, 0, -sW / 2 + 4, trackEndY]}
-        stroke="#38bdf8"
-        strokeWidth={1.5}
-        dash={[6, 4]}
+        stroke="#555555"
+        strokeWidth={1}
+        dash={[4, 4]}
       />
 
       {/* Right Overhead Track Guide Line extending into Garage Space */}
       <Line
         points={[sW / 2 - 4, 0, sW / 2 - 4, trackEndY]}
-        stroke="#38bdf8"
-        strokeWidth={1.5}
-        dash={[6, 4]}
+        stroke="#555555"
+        strokeWidth={1}
+        dash={[4, 4]}
       />
 
       {/* Roller Stops at track ends */}
       <Circle
         x={-sW / 2 + 4}
         y={trackEndY}
-        radius={2.5}
-        fill="#38bdf8"
+        radius={2}
+        fill="#555555"
       />
       <Circle
         x={sW / 2 - 4}
         y={trackEndY}
-        radius={2.5}
-        fill="#38bdf8"
+        radius={2}
+        fill="#555555"
       />
     </Group>
   );

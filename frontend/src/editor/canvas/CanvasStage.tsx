@@ -39,13 +39,65 @@ interface CanvasStageProps {
 }
 
 function getModelBoundingPoints(model: FloorPlanRenderModel): Point2D[] {
-  // The render model boundary is already scoped to the active storey/floor plan.
-  // Do not include unrelated elements from other IFC storeys when fitting the view.
+  const pts: Point2D[] = [];
+
   if (Array.isArray(model.boundary) && model.boundary.length >= 3) {
-    return model.boundary;
+    pts.push(...model.boundary);
   }
 
-  return [];
+  // Collect from spaces
+  if (Array.isArray(model.spaces)) {
+    for (const space of model.spaces) {
+      if (space.geometry?.polygons) {
+        for (const poly of space.geometry.polygons) {
+          if (Array.isArray(poly.exterior)) {
+            pts.push(...poly.exterior);
+          }
+        }
+      }
+    }
+  }
+
+  // Collect from walls
+  if (Array.isArray(model.walls)) {
+    for (const wall of model.walls) {
+      if (wall.start) pts.push(wall.start);
+      if (wall.end) pts.push(wall.end);
+      if (wall.geometry?.polygons) {
+        for (const poly of wall.geometry.polygons) {
+          if (Array.isArray(poly.exterior)) {
+            pts.push(...poly.exterior);
+          }
+        }
+      }
+    }
+  }
+
+  // Collect from columns
+  if (Array.isArray(model.columns)) {
+    for (const col of model.columns) {
+      if (col.position) pts.push(col.position);
+      if (col.geometry?.polygons) {
+        for (const poly of col.geometry.polygons) {
+          if (Array.isArray(poly.exterior)) pts.push(...poly.exterior);
+        }
+      }
+    }
+  }
+
+  // Collect from furniture
+  if (Array.isArray(model.furniture)) {
+    for (const furn of model.furniture) {
+      if (furn.position) pts.push(furn.position);
+      if (furn.geometry?.polygons) {
+        for (const poly of furn.geometry.polygons) {
+          if (Array.isArray(poly.exterior)) pts.push(...poly.exterior);
+        }
+      }
+    }
+  }
+
+  return pts;
 }
 
 export const CanvasStage: React.FC<CanvasStageProps> = ({

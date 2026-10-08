@@ -110,31 +110,23 @@ def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[Floo
     )
 
 
-def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path: Path) -> bool:
+def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path: Optional[Path] = None) -> bool:
     """
     Determine whether a persisted IFC verification report is structurally stale and
     must be refreshed from the immutable source IFC via the current authoritative pipeline.
-
-    Triggers a refresh when:
-    1. available_storeys is missing/empty — old reports lacked storey metadata.
-    2. elements_summary.furniture_items is missing/zero while the report contains
-       FURNITURE_ITEM geometry entries (internal inconsistency).
-    3. No FURNITURE_ITEM entries exist in all_elements_geometry, yet the source
-       IFC file exists (we cannot detect count from the file here, but we can flag
-       a clearly incomplete summary).
-    4. all_elements_geometry is empty but the report claims is_geometry_valid.
     """
     if not report_dict:
         return True
 
-    # Trigger 1: Missing storey metadata
     elements = report_dict.get("all_elements_geometry") or []
+
+    # Trigger 1: Missing storey metadata on valid geometry
     has_storey_data = bool(report_dict.get("available_storeys")) or any(
         e.get("storey_name") or (e.get("properties") or {}).get("storey_name")
         for e in elements
         if isinstance(e, dict)
     )
-    if not has_storey_data:
+    if not has_storey_data and report_dict.get("is_geometry_valid", False):
         return True
 
     # Trigger 2: Furniture entries present in geometry but missing from elements_summary
@@ -153,6 +145,7 @@ def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path:
         return True
 
     return False
+
 
 
 def _refresh_legacy_ifc_report(
@@ -209,7 +202,7 @@ def _refresh_legacy_ifc_report(
 
 
 @router.get("/", response_model=List[Dict[str, Any]])
-async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """List all projects for current organization from PostgreSQL."""
     purge_demo_test_floor_plans(db)
     db_projects = db.query(Project).all()
@@ -242,7 +235,7 @@ async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_project(payload: Dict[str, Any], db: Session = Depends(get_db)) -> Dict[str, Any]:
+def create_project(payload: Dict[str, Any], db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Create a new project in PostgreSQL database."""
     name = payload.get("name", "").strip()
     if not name:
@@ -271,14 +264,19 @@ async def create_project(payload: Dict[str, Any], db: Session = Depends(get_db))
 
 
 @router.get("/{project_id}/floor-plans")
-async def list_floor_plans(project_id: str, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+def list_floor_plans(project_id: str, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """List floor plans for a specific project from PostgreSQL."""
     purge_demo_test_floor_plans(db)
     proj_uuid = ensure_uuid(project_id)
-    fps = db.query(FloorPlan).filter(FloorPlan.project_id == proj_uuid).all()
+    
+    # Query matching either the exact project_id, normalized proj_uuid
+    fps = db.query(FloorPlan).filter(
+        (FloorPlan.project_id == proj_uuid) | (FloorPlan.project_id == project_id)
+    ).all()
+    
     if not fps:
-        # Fallback query by exact string ID match
-        fps = db.query(FloorPlan).filter(FloorPlan.project_id == project_id).all()
+        # If no floor plans found for this specific project ID, list all user floor plans
+        fps = db.query(FloorPlan).all()
 
     # Exclude any seed/test floor plans
     user_fps = [
@@ -504,7 +502,7 @@ async def upload_floor_plan(
 
 
 @router.get("/{project_id}/floor-plans/{floor_plan_id}/ingestion-status")
-async def get_ingestion_status(
+def get_ingestion_status(
     project_id: str,
     floor_plan_id: str,
     db: Session = Depends(get_db),
@@ -679,7 +677,7 @@ async def ingest_and_verify_floor_plan(
 
 
 @router.get("/{project_id}/floor-plans/{floor_plan_id}/verification-report", response_model=GeometryVerificationReport)
-async def get_verification_report(
+def get_verification_report(
     project_id: str,
     floor_plan_id: str,
     db: Session = Depends(get_db),
@@ -697,7 +695,7 @@ async def get_verification_report(
 
 
 @router.post("/{project_id}/floor-plans/{floor_plan_id}/verify", response_model=GeometryVerificationReport)
-async def verify_floor_plan_geometry(
+def verify_floor_plan_geometry(
     project_id: str,
     floor_plan_id: str,
     current_user: AuthenticatedUser = Depends(get_current_user),

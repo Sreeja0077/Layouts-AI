@@ -16,6 +16,7 @@ import {
   reportToRenderModel,
   fetchIngestionStatus,
   listFloorPlans,
+  listProjects,
   IngestionStatusResponse,
 } from "./api/ingestion";
 import { FloorPlanRenderModel } from "./editor/renderer/renderTypes";
@@ -49,8 +50,16 @@ export const App: React.FC<AppProps> = ({
   });
 
   const [editorRenderModel, setEditorRenderModel] = useState<FloorPlanRenderModel | undefined>(undefined);
-
   const [userFloorPlans, setUserFloorPlans] = useState<Array<{ id: string; name: string }>>([]);
+  const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    listProjects()
+      .then((projs) => {
+        setProjectsList(projs.map((p) => ({ id: p.id, name: p.name })));
+      })
+      .catch(() => {});
+  }, []);
 
   const resolveStoreyForReport = (
     data: GeometryVerificationReport,
@@ -326,6 +335,13 @@ export const App: React.FC<AppProps> = ({
       {activeTab === "editor" && (
         <AppShell
           renderModel={editorRenderModel}
+          projectName={projectsList.find((p) => p.id === activeProjectId)?.name}
+          projects={projectsList}
+          activeProjectId={activeProjectId}
+          onSwitchProject={(pId) => {
+            setActiveProjectId(pId);
+            localStorage.setItem("layouts_ai_active_project_id", pId);
+          }}
           activeFloorPlanId={activeFloorPlanId}
           availableFloorPlans={userFloorPlans}
           onSwitchFloorPlan={handleOpenExistingFloorPlan}

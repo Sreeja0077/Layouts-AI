@@ -18,6 +18,12 @@ import {
 export interface TopNavProps {
   projectName?: string;
   floorPlanName?: string;
+  projects?: Array<{ id: string; name: string }>;
+  onSwitchProject?: (pId: string) => void;
+  availableFloorPlans?: Array<{ id: string; name: string }>;
+  activeFloorPlanId?: string;
+  onSwitchFloorPlan?: (pId: string, fpId: string) => void;
+  activeProjectId?: string;
   availableStoreys?: string[];
   activeStorey?: string;
   onSwitchStorey?: (storey: string) => void;
@@ -30,8 +36,14 @@ export interface TopNavProps {
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
-  projectName = "Ashland Rev 2",
+  projectName,
   floorPlanName = "Floor Plan 01",
+  projects = [],
+  onSwitchProject,
+  availableFloorPlans = [],
+  activeFloorPlanId,
+  onSwitchFloorPlan,
+  activeProjectId = "proj_101",
   availableStoreys = [],
   activeStorey,
   onSwitchStorey,
@@ -42,6 +54,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onTriggerAI,
   isAiActive = false,
 }) => {
+  const currentProjectName = projectName || projects.find(p => p.id === activeProjectId)?.name || "Default Project";
   return (
     <header
       style={{
@@ -110,19 +123,19 @@ export const TopNav: React.FC<TopNavProps> = ({
           }}
         />
 
-        {/* Project & Floor Plan Title */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        {/* Project & Floor Plan Title with Dropdown Switcher */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button
             onClick={onOpenUpload}
-            title="Switch or upload floor plans"
+            title="Open Project Ingestion Workspace"
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "6px",
+              gap: "5px",
               background: "none",
               border: "none",
               cursor: "pointer",
-              padding: "4px 8px",
+              padding: "4px 6px",
               borderRadius: "4px",
               color: "#374151",
               fontSize: "0.85rem",
@@ -130,10 +143,52 @@ export const TopNav: React.FC<TopNavProps> = ({
             }}
           >
             <FolderOpen size={14} color="#6B7280" />
-            <span>{projectName}</span>
+            <span>{currentProjectName}</span>
             <span style={{ color: "#9CA3AF", fontWeight: 400 }}>/</span>
-            <span style={{ color: "#2563EB" }}>{floorPlanName}</span>
           </button>
+
+          {/* Dedicated Layout / Floor Plan Dropdown */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Layout:
+            </span>
+            <select
+              value={activeFloorPlanId || (availableFloorPlans[0]?.id || "")}
+              onChange={(e) => {
+                if (e.target.value === "__upload_new__") {
+                  onOpenUpload();
+                } else if (onSwitchFloorPlan) {
+                  onSwitchFloorPlan(activeProjectId, e.target.value);
+                }
+              }}
+              style={{
+                backgroundColor: "#EFF6FF",
+                border: "1px solid #93C5FD",
+                borderRadius: "5px",
+                padding: "4px 10px",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+                color: "#1D4ED8",
+                outline: "none",
+                cursor: "pointer",
+                maxWidth: "260px",
+                boxShadow: "0 1px 2px rgba(37, 99, 235, 0.1)",
+              }}
+            >
+              {availableFloorPlans.length > 0 ? (
+                availableFloorPlans.map((fp) => (
+                  <option key={fp.id} value={fp.id}>
+                    📄 {fp.name}
+                  </option>
+                ))
+              ) : (
+                <option value={activeFloorPlanId || "active"}>
+                  📄 {floorPlanName}
+                </option>
+              )}
+              <option value="__upload_new__">➕ Import / Upload New Layout...</option>
+            </select>
+          </div>
         </div>
       </div>
 

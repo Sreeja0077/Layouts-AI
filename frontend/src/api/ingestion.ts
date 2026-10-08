@@ -12,6 +12,7 @@ import {
   PolygonRing,
   RenderPolygon,
 } from "../editor/renderer/renderTypes";
+import { extractOrientedBounds } from "../editor/renderer/geometryUtils";
 
 const API_BASE = "/api/v1";
 
@@ -393,13 +394,24 @@ export function reportToRenderModel(
       const isGarage = /GARAGE|OVERHEAD|ROLLING|ROLL-UP|ROLLUP|SECTIONAL|DRIVEWAY/.test(combinedDoorText);
       const doorSubtype = isGarage ? "GARAGE_DOOR" : (rawSubtype || "STANDARD_DOOR");
 
+      let doorWidth = 0.9;
+      let doorPos = { x: centerX, y: centerY };
+      let doorRotation = 0;
+      if (renderGeom && renderGeom.polygons?.[0]?.exterior?.length >= 3) {
+        const b = extractOrientedBounds(renderGeom);
+        doorWidth = Math.max(0.6, Math.max(b.width, b.depth));
+        doorPos = b.pos;
+        doorRotation = b.rotation;
+      }
+
       doors.push({
         id: elem.id || elem.global_id || `door_${doors.length}`,
-        position: { x: centerX, y: centerY },
-        widthMeters: 0.9,
+        position: doorPos,
+        widthMeters: doorWidth,
         subtype: doorSubtype,
         isGarageDoor: isGarage,
         swingAngleDeg: 90,
+        rotationDeg: doorRotation,
         storeyName,
         storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
@@ -419,11 +431,21 @@ export function reportToRenderModel(
         geometry: renderGeom,
       });
     } else if (cat === "COLUMN" || cat.includes("COLUMN")) {
+      let colWidth = 0.6;
+      let colHeight = 0.6;
+      let colPos = { x: centerX, y: centerY };
+      if (renderGeom && renderGeom.polygons?.[0]?.exterior?.length >= 3) {
+        const b = extractOrientedBounds(renderGeom);
+        colWidth = Math.max(0.15, b.width);
+        colHeight = Math.max(0.15, b.depth);
+        colPos = b.pos;
+      }
+
       columns.push({
         id: elem.id || elem.global_id || `col_${columns.length}`,
-        position: { x: centerX, y: centerY },
-        widthMeters: 0.6,
-        heightMeters: 0.6,
+        position: colPos,
+        widthMeters: colWidth,
+        heightMeters: colHeight,
         storeyName,
         storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
@@ -448,6 +470,18 @@ export function reportToRenderModel(
     } else {
       // Preserve all non-structural IFC elements as imported furniture/items,
       // including BuildingElementProxy, stairs, railings, equipment, fixtures, etc.
+      let furnWidth = 1.0;
+      let furnDepth = 0.8;
+      let furnRotation = 0;
+      let furnPos = { x: centerX, y: centerY };
+      if (renderGeom && renderGeom.polygons?.[0]?.exterior?.length >= 3) {
+        const b = extractOrientedBounds(renderGeom);
+        furnWidth = Math.max(0.2, b.width);
+        furnDepth = Math.max(0.2, b.depth);
+        furnRotation = b.rotation;
+        furnPos = b.pos;
+      }
+
       furniture.push({
         id: elem.id || elem.global_id || `furn_${furniture.length}`,
         catalogItemId: elem.global_id || elem.id,
@@ -456,10 +490,10 @@ export function reportToRenderModel(
         category: "FURNITURE_ITEM",
         sourceIfcType,
         name: cleanElementName,
-        position: { x: centerX, y: centerY },
-        widthMeters: 1.0,
-        depthMeters: 0.8,
-        rotationDeg: 0,
+        position: furnPos,
+        widthMeters: furnWidth,
+        depthMeters: furnDepth,
+        rotationDeg: furnRotation,
         isLocked: true,
         isImported: true,
         storeyName,

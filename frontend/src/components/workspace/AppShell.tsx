@@ -15,6 +15,10 @@ import { LayoutSuggestionPayload } from "../../api/layout";
 
 export interface AppShellProps {
   renderModel?: FloorPlanRenderModel;
+  projectName?: string;
+  projects?: Array<{ id: string; name: string }>;
+  activeProjectId?: string;
+  onSwitchProject?: (pId: string) => void;
   activeFloorPlanId?: string;
   availableFloorPlans?: Array<{ id: string; name: string }>;
   onSwitchFloorPlan?: (pId: string, fpId: string) => void;
@@ -29,6 +33,10 @@ export interface AppShellProps {
 
 export const AppShell: React.FC<AppShellProps> = ({
   renderModel,
+  projectName,
+  projects = [],
+  activeProjectId,
+  onSwitchProject,
   activeFloorPlanId,
   availableFloorPlans = [],
   onSwitchFloorPlan,
@@ -71,8 +79,14 @@ export const AppShell: React.FC<AppShellProps> = ({
     >
       {/* 1. TOP NAVIGATION BAR */}
       <TopNav
-        projectName="Ashland Rev 2"
+        projectName={projectName}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onSwitchProject={onSwitchProject}
         floorPlanName={renderModel?.name || "Executive Suite"}
+        availableFloorPlans={availableFloorPlans}
+        activeFloorPlanId={activeFloorPlanId}
+        onSwitchFloorPlan={onSwitchFloorPlan}
         availableStoreys={availableStoreys}
         activeStorey={activeStorey}
         onSwitchStorey={onSwitchStorey}

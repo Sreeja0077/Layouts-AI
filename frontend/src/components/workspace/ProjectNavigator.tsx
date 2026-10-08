@@ -162,31 +162,31 @@ export const ProjectNavigator: React.FC<ProjectNavigatorProps> = ({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-        {/* SECTION 1: FLOOR PLANS */}
-        {availableFloorPlans.length > 0 && (
-          <div style={{ marginBottom: "8px" }}>
-            <div
-              onClick={() => toggleSection("project")}
-              style={{
-                padding: "6px 12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                cursor: "pointer",
-                fontWeight: 700,
-                color: "#4B5563",
-                fontSize: "0.7rem",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-              }}
-            >
-              <span>FLOOR PLANS</span>
-              {expandedSections.project ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </div>
+        {/* SECTION 1: FLOOR PLANS & DRAWINGS */}
+        <div style={{ marginBottom: "8px" }}>
+          <div
+            onClick={() => toggleSection("project")}
+            style={{
+              padding: "6px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              cursor: "pointer",
+              fontWeight: 700,
+              color: "#4B5563",
+              fontSize: "0.7rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            <span>FLOOR PLANS ({availableFloorPlans.length || 1})</span>
+            {expandedSections.project ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </div>
 
-            {expandedSections.project && (
-              <div style={{ paddingLeft: "8px" }}>
-                {availableFloorPlans.map((fp) => {
+          {expandedSections.project && (
+            <div style={{ paddingLeft: "8px" }}>
+              {availableFloorPlans.length > 0 ? (
+                availableFloorPlans.map((fp) => {
                   const isActive = fp.id === activeFloorPlanId;
                   return (
                     <div
@@ -210,11 +210,29 @@ export const ProjectNavigator: React.FC<ProjectNavigatorProps> = ({
                       </span>
                     </div>
                   );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+                })
+              ) : (
+                <div
+                  style={{
+                    padding: "5px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    backgroundColor: "#EFF6FF",
+                    color: "#2563EB",
+                    fontWeight: 600,
+                    borderLeft: "3px solid #2563EB",
+                  }}
+                >
+                  <Layers size={13} color="#2563EB" />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {renderModel?.name || "Active Floor Plan"}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* SECTION 2: BUILDING LEVELS */}
         <div style={{ marginBottom: "8px" }}>

@@ -105,27 +105,35 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     if (!exterior || exterior.length < 3) {
       return { area: 0, centroid: { x: 0, y: 0 } };
     }
-    let area = 0;
+    let pts = [...exterior];
+    if (pts.length > 3 && pts[0].x === pts[pts.length - 1].x && pts[0].y === pts[pts.length - 1].y) {
+      pts.pop();
+    }
+    const n = pts.length;
+    if (n < 3) return { area: 0, centroid: pts[0] || { x: 0, y: 0 } };
+
+    let signedArea = 0;
     let cx = 0;
     let cy = 0;
-    const n = exterior.length;
     for (let i = 0; i < n; i++) {
-      const pt1 = exterior[i];
-      const pt2 = exterior[(i + 1) % n];
+      const pt1 = pts[i];
+      const pt2 = pts[(i + 1) % n];
       const cross = pt1.x * pt2.y - pt2.x * pt1.y;
-      area += cross;
+      signedArea += cross;
       cx += (pt1.x + pt2.x) * cross;
       cy += (pt1.y + pt2.y) * cross;
     }
-    area = Math.abs(area) / 2;
-    if (area > 0.0001) {
-      cx = cx / (6 * area);
-      cy = cy / (6 * area);
+    signedArea = signedArea / 2;
+    const absArea = Math.abs(signedArea);
+
+    if (absArea > 0.0001 && signedArea !== 0) {
+      cx = cx / (6 * signedArea);
+      cy = cy / (6 * signedArea);
     } else {
-      cx = exterior.reduce((s, p) => s + p.x, 0) / n;
-      cy = exterior.reduce((s, p) => s + p.y, 0) / n;
+      cx = pts.reduce((s, p) => s + p.x, 0) / n;
+      cy = pts.reduce((s, p) => s + p.y, 0) / n;
     }
-    return { area, centroid: { x: cx, y: cy } };
+    return { area: absArea, centroid: { x: cx, y: cy } };
   }
 
   private renderPolygonGeometry(
@@ -221,39 +229,27 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 strokeWidth: 1.5,
               })}
 
-              {/* Architectural 2D Room Tag Badge Box */}
-              <Group x={centroidScreen.x} y={centroidScreen.y}>
-                <Rect
-                  x={-50}
-                  y={-18}
-                  width={100}
-                  height={36}
-                  fill="rgba(255, 255, 255, 0.95)"
-                  stroke="#94a3b8"
-                  strokeWidth={1}
-                  cornerRadius={3}
-                  shadowColor="rgba(0, 0, 0, 0.1)"
-                  shadowBlur={3}
-                />
+              {/* Clean Subtle Architectural Room Label without opaque card box */}
+              <Group x={centroidScreen.x} y={centroidScreen.y} listening={false}>
                 <Text
                   text={rawName}
-                  x={-48}
-                  y={-14}
-                  width={96}
+                  x={-40}
+                  y={-8}
+                  width={80}
                   align="center"
                   fontSize={10}
                   fontStyle="bold"
-                  fill="#1e293b"
+                  fill="#334155"
                   fontFamily="Inter, sans-serif"
                   listening={false}
                 />
                 <Text
-                  text={`${areaSqm.toFixed(1)} m² • ${areaSqFt} SF`}
-                  x={-48}
-                  y={2}
-                  width={96}
+                  text={`${areaSqm.toFixed(1)} m²`}
+                  x={-40}
+                  y={4}
+                  width={80}
                   align="center"
-                  fontSize={9}
+                  fontSize={8}
                   fill="#64748b"
                   fontFamily="Inter, sans-serif"
                   listening={false}

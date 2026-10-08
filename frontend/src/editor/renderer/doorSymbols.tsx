@@ -51,23 +51,23 @@ export function renderCadDoorSymbol(
         y={-sD / 2}
         width={sW}
         height={sD}
-        fill="#0f172a"
-        stroke="rgba(148, 163, 184, 0.4)"
+        fill="#FFFFFF"
+        stroke="#111111"
         strokeWidth={1}
       />
       {/* Left Wall Jamb Tick */}
       <Line
         points={[-sW / 2, -sD / 2 - 2, -sW / 2, sD / 2 + 2]}
-        stroke="#cbd5e1"
-        strokeWidth={1.5}
+        stroke="#111111"
+        strokeWidth={1.2}
       />
       {/* Right Wall Jamb Tick */}
       <Line
         points={[sW / 2, -sD / 2 - 2, sW / 2, sD / 2 + 2]}
-        stroke="#cbd5e1"
-        strokeWidth={1.5}
+        stroke="#111111"
+        strokeWidth={1.2}
       />
-      {/* 90-degree Interior Door Swing Arc */}
+      {/* 90-degree Door Swing Arc */}
       <Arc
         x={hingeX}
         y={0}
@@ -75,16 +75,16 @@ export function renderCadDoorSymbol(
         outerRadius={sW}
         angle={arcAngle}
         rotation={arcRotation}
-        fill="rgba(56, 189, 248, 0.08)"
-        stroke="#38bdf8"
-        strokeWidth={1.5}
-        dash={[4, 4]}
+        fill="none"
+        stroke="#444444"
+        strokeWidth={1}
+        dash={[3, 3]}
       />
       {/* Door Leaf Line attached to Hinge */}
       <Line
         points={[hingeX, 0, hingeX, leafEndY]}
-        stroke="#60a5fa"
-        strokeWidth={2.5}
+        stroke="#111111"
+        strokeWidth={1.5}
         lineCap="round"
       />
     </Group>
