@@ -190,9 +190,13 @@ def project_shape_to_2d_footprint(
         if v0 >= num_verts or v1 >= num_verts or v2 >= num_verts:
             continue
 
-        x0, y0 = verts[v0 * 3] * scale_to_meters, verts[v0 * 3 + 1] * scale_to_meters
-        x1, y1 = verts[v1 * 3] * scale_to_meters, verts[v1 * 3 + 1] * scale_to_meters
-        x2, y2 = verts[v2 * 3] * scale_to_meters, verts[v2 * 3 + 1] * scale_to_meters
+        # IfcOpenShell geometry vertices are already expressed in SI metres when
+        # CONVERT_BACK_UNITS is false (the default). Applying the project-unit
+        # scale here would convert the geometry a second time (for this Revit
+        # source, feet -> metres would be applied twice).
+        x0, y0 = verts[v0 * 3], verts[v0 * 3 + 1]
+        x1, y1 = verts[v1 * 3], verts[v1 * 3 + 1]
+        x2, y2 = verts[v2 * 3], verts[v2 * 3 + 1]
 
         if any(math.isnan(c) or math.isinf(c) for c in (x0, y0, x1, y1, x2, y2)):
             continue
@@ -378,6 +382,13 @@ class IFCIngestor:
             try:
                 geom_settings = ifcopenshell_geom.settings()
                 geom_settings.set(geom_settings.USE_WORLD_COORDINATES, True)
+                # Keep IfcOpenShell output in its internal SI metre coordinate
+                # system; do not convert geometry vertices back to IFC project units.
+                if hasattr(geom_settings, "CONVERT_BACK_UNITS"):
+                    try:
+                        geom_settings.set(geom_settings.CONVERT_BACK_UNITS, False)
+                    except Exception:
+                        pass
             except Exception as err:
                 warnings.append(f"IfcOpenShell geometry settings warning: {str(err)}")
 
@@ -413,12 +424,18 @@ class IFCIngestor:
                 seen_furn_ids.add(f.id())
                 dedup_furn.append(f)
 
-        walls = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in dedup_walls]
-        doors = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in door_entities]
-        windows = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in window_entities]
-        columns = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in column_entities]
-        spaces = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in space_entities]
-        furniture = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name) for e in dedup_furn]
+        storey_index = self._build_storey_index(ifc_file, scale_to_meters)
+        walls = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in dedup_walls]
+        doors = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in door_entities]
+        windows = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in window_entities]
+        columns = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in column_entities]
+        spaces = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in space_entities]
+        furniture = [
+            self._convert_ifc_entity(
+                e, scale_to_meters, geom_settings, warnings, file_name, storey_index
+            )
+            for e in dedup_furn
+        ]
 
         all_elements = walls + doors + windows + columns + spaces + furniture
 
@@ -450,6 +467,117 @@ class IFCIngestor:
             extraction_warnings=warnings,
         )
 
+    def _build_storey_index(
+        self,
+        ifc_file: Any,
+        scale_to_meters: float,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Build a lookup from IFC building-storey placement IDs to stable storey metadata.
+
+        The placement IDs let us resolve entities whose spatial containment is
+        indirect, while the IFC utility-container lookup handles normal
+        IfcRelContainedInSpatialStructure relationships.
+        """
+        index: Dict[int, Dict[str, Any]] = {}
+
+        for storey in _safe_by_type(ifc_file, "IfcBuildingStorey"):
+            try:
+                storey_id = int(storey.id())
+            except Exception:
+                storey_id = -1
+
+            name_value = getattr(storey, "Name", None)
+            name = str(name_value).strip() if name_value else f"Storey {storey_id}"
+
+            elevation_raw = getattr(storey, "Elevation", None)
+            try:
+                elevation_m = float(elevation_raw) * scale_to_meters if elevation_raw is not None else None
+            except (TypeError, ValueError):
+                elevation_m = None
+
+            metadata = {
+                "storey_id": str(getattr(storey, "GlobalId", None) or storey_id),
+                "storey_name": name,
+                "storey_elevation_m": round(elevation_m, 6) if elevation_m is not None else None,
+            }
+
+            placement = getattr(storey, "ObjectPlacement", None)
+            if placement is not None:
+                try:
+                    index[int(placement.id())] = metadata
+                except Exception:
+                    pass
+
+        return index
+
+    def _get_storey_metadata(
+        self,
+        entity: Any,
+        storey_index: Dict[int, Dict[str, Any]],
+        scale_to_meters: float,
+    ) -> Dict[str, Any]:
+        """Resolve the building storey containing an IFC entity."""
+        # Preferred: IfcOpenShell spatial-container relationship.
+        try:
+            import ifcopenshell.util.element
+
+            container = ifcopenshell.util.element.get_container(entity)
+            if container is not None:
+                try:
+                    if container.is_a("IfcBuildingStorey"):
+                        elevation_raw = getattr(container, "Elevation", None)
+                        try:
+                            elevation_m = (
+                                float(elevation_raw) * scale_to_meters
+                                if elevation_raw is not None
+                                else None
+                            )
+                        except (TypeError, ValueError):
+                            elevation_m = None
+
+                        return {
+                            "storey_id": str(
+                                getattr(container, "GlobalId", None) or container.id()
+                            ),
+                            "storey_name": str(
+                                getattr(container, "Name", None)
+                                or f"Storey {container.id()}"
+                            ).strip(),
+                            "storey_elevation_m": (
+                                round(elevation_m, 6)
+                                if elevation_m is not None
+                                else None
+                            ),
+                        }
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Fallback: walk the entity placement ancestry and match a known
+        # IfcBuildingStorey placement.
+        placement = getattr(entity, "ObjectPlacement", None)
+        seen: set[int] = set()
+        for _ in range(32):
+            if placement is None:
+                break
+            try:
+                placement_id = int(placement.id())
+            except Exception:
+                placement_id = -1
+
+            if placement_id in seen or placement_id < 0:
+                break
+            seen.add(placement_id)
+
+            if placement_id in storey_index:
+                return dict(storey_index[placement_id])
+
+            placement = getattr(placement, "PlacementRelTo", None)
+
+        return {}
+
     def _convert_ifc_entity(
         self,
         entity: Any,
@@ -457,6 +585,7 @@ class IFCIngestor:
         geom_settings: Any,
         warnings: List[str],
         file_name: str,
+        storey_index: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> ExtractedElement:
         """Helper converting IfcOpenShell entity to ExtractedElement with real geometry or explicit failure status."""
         (
@@ -482,10 +611,22 @@ class IFCIngestor:
             raw_name = getattr(entity, "ObjectType", None) or entity.is_a()
         name = str(raw_name)
 
+        # Attach explicit spatial-container metadata to every parsed entity.
+        # This is later used to present one selected building storey at a time
+        # without altering the authoritative IFC/source geometry.
+        storey_metadata = self._get_storey_metadata(
+            entity,
+            storey_index or {},
+            scale_to_meters,
+        )
+        if storey_metadata:
+            properties.update(storey_metadata)
+
         element_metadata = {
             "source_file": file_name,
             "ifc_id": entity.id(),
             "ifc_global_id": global_id,
+            **storey_metadata,
         }
 
         geometry_obj = None
