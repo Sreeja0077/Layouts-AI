@@ -110,6 +110,55 @@ def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[Floo
     )
 
 
+def _refresh_legacy_ifc_report(
+    record: FloorPlanSourceVersionModel,
+    db: Session,
+) -> Dict[str, Any]:
+    """
+    Backfill storey metadata and corrected metric geometry for reports created before
+    the current IFC pipeline fixes. The immutable source IFC remains authoritative.
+    """
+    report_dict = record.verification_report or {}
+    if str(record.source_type).upper() != "IFC":
+        return report_dict
+
+    elements = report_dict.get("all_elements_geometry") or []
+    has_storey_data = bool(report_dict.get("available_storeys")) or any(
+        e.get("storey_name") or (e.get("properties") or {}).get("storey_name")
+        for e in elements
+        if isinstance(e, dict)
+    )
+    if has_storey_data:
+        return report_dict
+
+    source_path = Path(record.file_storage_path) if record.file_storage_path else None
+    if source_path is None or not source_path.exists():
+        return report_dict
+
+    try:
+        parsed_ifc = IFCIngestor().parse_file(str(source_path))
+        refreshed = reconciler.reconcile_ifc(parsed_ifc)
+
+        # Preserve human workflow state from the persisted report while replacing
+        # stale geometry/storey metadata with a freshly parsed authoritative report.
+        previous = report_dict
+        previous_status = previous.get("verification_status")
+        if previous_status in {status.value for status in VerificationStatus}:
+            refreshed.verification_status = VerificationStatus(previous_status)
+        refreshed.reviewer_user_id = previous.get("reviewer_user_id")
+        refreshed.verified_at = previous.get("verified_at")
+        refreshed.rejection_reason = previous.get("rejection_reason")
+
+        refreshed_dict = refreshed.model_dump(mode="json")
+        record.verification_report = refreshed_dict
+        record.ifc_export_metadata = refreshed.source_metadata or {}
+        db.commit()
+        return refreshed_dict
+    except Exception:
+        db.rollback()
+        return report_dict
+
+
 @router.get("/", response_model=List[Dict[str, Any]])
 async def list_projects(db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
     """List all projects for current organization from PostgreSQL."""
@@ -419,7 +468,7 @@ async def get_ingestion_status(
             detail=f"No source version found for floor plan '{floor_plan_id}'.",
         )
 
-    report_dict = record.verification_report or {}
+    report_dict = _refresh_legacy_ifc_report(record, db)
     all_elements = report_dict.get("all_elements_geometry", [])
 
     walls_count = sum(1 for e in all_elements if "WALL" in str(e.get("category", "")).upper())
@@ -586,7 +635,8 @@ async def get_verification_report(
             detail=f"Verification report for floor plan '{floor_plan_id}' not found in database.",
         )
 
-    return GeometryVerificationReport.model_validate(record.verification_report)
+    report_dict = _refresh_legacy_ifc_report(record, db)
+    return GeometryVerificationReport.model_validate(report_dict)
 
 
 @router.post("/{project_id}/floor-plans/{floor_plan_id}/verify", response_model=GeometryVerificationReport)
