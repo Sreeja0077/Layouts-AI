@@ -12,6 +12,7 @@ export interface LayoutRequirementPayload {
 export interface GenerateLayoutRequest {
   floor_plan_id: string;
   room_id?: string;
+  storey_name?: string;
   requirements?: LayoutRequirementPayload[];
 }
 
