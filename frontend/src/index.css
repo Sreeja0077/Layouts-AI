@@ -1,18 +1,18 @@
 :root {
-  --app-bg: #F5F6F8;
+  --app-bg: #F0F2F4;
   --panel-bg: #FFFFFF;
-  --canvas-bg: #FAFAF8;
-  --text-primary: #1F2937;
-  --text-secondary: #6B7280;
-  --text-muted: #9CA3AF;
+  --canvas-bg: #FFFFFF;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6B7280;
   --border-color: #D9DDE3;
-  --border-strong: #B8BEC7;
-  --geom-primary: #2B2F33;
-  --geom-secondary: #70757D;
-  --accent-blue: #2563EB;
-  --accent-purple: #7C3AED;
+  --border-strong: #B0B8C2;
+  --geom-primary: #111111;
+  --geom-secondary: #555555;
+  --accent-blue: #1D4ED8;
+  --accent-purple: #6D28D9;
   --color-success: #15803D;
-  --color-warning: #D97706;
+  --color-warning: #B45309;
   --color-error: #DC2626;
 }
 
@@ -39,14 +39,14 @@ body {
 }
 
 .header {
-  height: 64px;
-  background: #1e293b;
-  border-bottom: 1px solid #334155;
+  height: 48px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #D9DDE3;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  padding: 0 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .header-title {
@@ -121,7 +121,7 @@ body {
 .canvas-container {
   flex: 1;
   position: relative;
-  background: #090d16;
+  background: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,57 +137,58 @@ body {
 }
 
 .btn-ctrl {
-  background: #1e293b;
-  color: #e2e8f0;
-  border: 1px solid #475569;
+  background: #FFFFFF;
+  color: #374151;
+  border: 1px solid #D1D5DB;
   border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 0.875rem;
+  padding: 7px 12px;
+  font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .btn-ctrl:hover {
-  background: #334155;
-  color: #ffffff;
+  background: #F3F4F6;
+  color: #111827;
+  border-color: #9CA3AF;
 }
 
 .btn-ctrl-active {
-  background: #0284c7;
-  border-color: #38bdf8;
-  color: #ffffff;
+  background: #1D4ED8;
+  border-color: #1D4ED8;
+  color: #FFFFFF;
 }
 
 .btn-ctrl-active:hover {
-  background: #0369a1;
+  background: #1E40AF;
 }
 
 
 .side-panel {
-  width: 380px;
-  background: #1e293b;
-  border-left: 1px solid #334155;
+  width: 320px;
+  background: #FFFFFF;
+  border-left: 1px solid #E5E7EB;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
 }
 
 .panel-section {
-  padding: 20px;
-  border-bottom: 1px solid #334155;
+  padding: 16px;
+  border-bottom: 1px solid #F3F4F6;
 }
 
 .section-title {
-  font-size: 0.875rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: #94a3b8;
-  letter-spacing: 0.05em;
-  margin-bottom: 12px;
+  color: #9CA3AF;
+  letter-spacing: 0.07em;
+  margin-bottom: 10px;
 }
 
 .metrics-grid {
@@ -197,22 +198,22 @@ body {
 }
 
 .metric-card {
-  background: #0f172a;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #334155;
+  background: #F9FAFB;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #E5E7EB;
 }
 
 .metric-value {
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 700;
-  color: #38bdf8;
+  color: #111827;
 }
 
 .metric-label {
-  font-size: 0.75rem;
-  color: #94a3b8;
-  margin-top: 2px;
+  font-size: 0.6875rem;
+  color: #6B7280;
+  margin-top: 1px;
 }
 
 .warning-card {
@@ -248,11 +249,11 @@ body {
 }
 
 .actions-footer {
-  padding: 20px;
+  padding: 16px;
   display: flex;
-  gap: 12px;
-  background: #0f172a;
-  border-top: 1px solid #334155;
+  gap: 10px;
+  background: #F9FAFB;
+  border-top: 1px solid #E5E7EB;
   margin-top: auto;
 }
 
@@ -305,13 +306,13 @@ body {
 }
 
 .modal-card {
-  background: #1e293b;
-  border: 1px solid #475569;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
   border-radius: 12px;
   padding: 24px;
   width: 480px;
   max-width: 90vw;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12);
 }
 
 .modal-title {
@@ -323,11 +324,11 @@ body {
 .modal-textarea {
   width: 100%;
   height: 100px;
-  background: #0f172a;
-  border: 1px solid #475569;
+  background: #F9FAFB;
+  border: 1px solid #D1D5DB;
   border-radius: 8px;
   padding: 12px;
-  color: #f8fafc;
+  color: #111827;
   font-family: inherit;
   font-size: 0.875rem;
   margin-bottom: 16px;
@@ -336,7 +337,7 @@ body {
 
 .modal-textarea:focus {
   outline: none;
-  border-color: #38bdf8;
+  border-color: #1D4ED8;
 }
 
 .modal-actions {

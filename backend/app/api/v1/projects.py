@@ -110,40 +110,89 @@ def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[Floo
     )
 
 
-def _refresh_legacy_ifc_report(
-    record: FloorPlanSourceVersionModel,
-    db: Session,
-) -> Dict[str, Any]:
+def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path: Path) -> bool:
     """
-    Backfill storey metadata and corrected metric geometry for reports created before
-    the current IFC pipeline fixes. The immutable source IFC remains authoritative.
-    """
-    report_dict = record.verification_report or {}
-    if str(record.source_type).upper() != "IFC":
-        return report_dict
+    Determine whether a persisted IFC verification report is structurally stale and
+    must be refreshed from the immutable source IFC via the current authoritative pipeline.
 
+    Triggers a refresh when:
+    1. available_storeys is missing/empty — old reports lacked storey metadata.
+    2. elements_summary.furniture_items is missing/zero while the report contains
+       FURNITURE_ITEM geometry entries (internal inconsistency).
+    3. No FURNITURE_ITEM entries exist in all_elements_geometry, yet the source
+       IFC file exists (we cannot detect count from the file here, but we can flag
+       a clearly incomplete summary).
+    4. all_elements_geometry is empty but the report claims is_geometry_valid.
+    """
+    if not report_dict:
+        return True
+
+    # Trigger 1: Missing storey metadata
     elements = report_dict.get("all_elements_geometry") or []
     has_storey_data = bool(report_dict.get("available_storeys")) or any(
         e.get("storey_name") or (e.get("properties") or {}).get("storey_name")
         for e in elements
         if isinstance(e, dict)
     )
-    if has_storey_data:
+    if not has_storey_data:
+        return True
+
+    # Trigger 2: Furniture entries present in geometry but missing from elements_summary
+    furniture_geom_count = sum(
+        1 for e in elements
+        if isinstance(e, dict) and "FURNITURE" in str(e.get("category", "")).upper()
+    )
+    summary_furniture = (
+        report_dict.get("elements_summary") or {}
+    ).get("furniture_items", None)
+    if furniture_geom_count > 0 and (summary_furniture is None or summary_furniture == 0):
+        return True
+
+    # Trigger 3: is_geometry_valid but all_elements_geometry is empty
+    if report_dict.get("is_geometry_valid") and len(elements) == 0:
+        return True
+
+    return False
+
+
+def _refresh_legacy_ifc_report(
+    record: FloorPlanSourceVersionModel,
+    db: Session,
+) -> Dict[str, Any]:
+    """
+    Refresh a persisted IFC verification report whenever it is structurally incomplete
+    relative to what the current authoritative IFC pipeline can produce.
+    The immutable source IFC remains the single source of truth.
+
+    Completeness checks (see _is_report_structurally_incomplete):
+    - missing available_storeys
+    - missing furniture_items in elements_summary
+    - no FURNITURE_ITEM entries in all_elements_geometry when the summary is stale
+    - empty all_elements_geometry on a report that claims is_geometry_valid
+
+    Human workflow state (verification_status, reviewer, verified_at, rejection_reason)
+    is always preserved from the previous persisted report.
+    """
+    report_dict = record.verification_report or {}
+    if str(record.source_type).upper() != "IFC":
         return report_dict
 
     source_path = Path(record.file_storage_path) if record.file_storage_path else None
     if source_path is None or not source_path.exists():
         return report_dict
 
+    if not _is_report_structurally_incomplete(report_dict, source_path):
+        return report_dict
+
     try:
         parsed_ifc = IFCIngestor().parse_file(str(source_path))
         refreshed = reconciler.reconcile_ifc(parsed_ifc)
 
-        # Preserve human workflow state from the persisted report while replacing
-        # stale geometry/storey metadata with a freshly parsed authoritative report.
+        # Preserve human workflow state from the previously persisted report.
+        # Never replace reviewer identity, timestamps, or rejection reasons with defaults.
         previous = report_dict
         previous_status = previous.get("verification_status")
-        if previous_status in {status.value for status in VerificationStatus}:
+        if previous_status in {s.value for s in VerificationStatus}:
             refreshed.verification_status = VerificationStatus(previous_status)
         refreshed.reviewer_user_id = previous.get("reviewer_user_id")
         refreshed.verified_at = previous.get("verified_at")
@@ -151,7 +200,7 @@ def _refresh_legacy_ifc_report(
 
         refreshed_dict = refreshed.model_dump(mode="json")
         record.verification_report = refreshed_dict
-        record.ifc_export_metadata = refreshed.source_metadata or {}
+        record.ifc_export_metadata = getattr(refreshed, "source_metadata", None) or {}
         db.commit()
         return refreshed_dict
     except Exception:
@@ -475,7 +524,14 @@ async def get_ingestion_status(
     doors_count = sum(1 for e in all_elements if "DOOR" in str(e.get("category", "")).upper())
     windows_count = sum(1 for e in all_elements if "WINDOW" in str(e.get("category", "")).upper())
     columns_count = sum(1 for e in all_elements if "COLUMN" in str(e.get("category", "")).upper())
-    spaces_count = sum(1 for e in all_elements if "SPACE" in str(e.get("category", "")).upper() or "ROOM" in str(e.get("category", "")).upper())
+    spaces_count = sum(
+        1 for e in all_elements
+        if "SPACE" in str(e.get("category", "")).upper() or "ROOM" in str(e.get("category", "")).upper()
+    )
+    # Furniture count derived from actual report elements — never fabricated.
+    furniture_count = sum(
+        1 for e in all_elements if "FURNITURE" in str(e.get("category", "")).upper()
+    )
 
     lifecycle_status = record.verification_status
     if lifecycle_status in ("VERIFIED", "READY", "PENDING"):
@@ -496,6 +552,7 @@ async def get_ingestion_status(
             "windows": windows_count,
             "columns": columns_count,
             "spaces": spaces_count,
+            "furniture": furniture_count,
         },
         "warnings": report_dict.get("warnings", []),
         "verification_report": report_dict,

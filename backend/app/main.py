@@ -3,6 +3,14 @@ AI-Assisted Office Layout Generation Platform - FastAPI Application Entry Point.
 Configures CORS, global exception handlers, health endpoints, and API routers.
 """
 
+import sys
+from pathlib import Path
+
+# Ensure repo root is available in sys.path
+_repo_root = str(Path(__file__).resolve().parent.parent.parent)
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

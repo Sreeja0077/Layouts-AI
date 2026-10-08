@@ -39,6 +39,7 @@ export interface IngestionStatusResponse {
     windows: number;
     columns: number;
     spaces: number;
+    furniture: number;
   };
   warnings?: any[];
   verification_report?: GeometryVerificationReport;
@@ -270,10 +271,25 @@ export function reportToRenderModel(
 
   // IFC building models can contain many storeys. A 2D floor-plan editor must render
   // one storey at a time; otherwise projecting every level onto XY creates a scattered map.
-  const storeyElements =
-    targetStorey && report.source_type.toUpperCase() === "IFC"
-      ? allElements.filter((elem) => getStoreyName(elem) === targetStorey)
-      : allElements;
+  // Elements with no storey metadata are assigned to the primary/first storey rather than
+  // silently discarded — this preserves furniture and other items that may lack explicit
+  // storey associations in certain IFC export workflows.
+  const isIfc = report.source_type.toUpperCase() === "IFC";
+  const isFirstStorey =
+    !targetStorey ||
+    targetStorey === availableStoreys[0] ||
+    targetStorey === report.recommended_storey;
+
+  const storeyElements = targetStorey && isIfc
+    ? allElements.filter((elem) => {
+        const elemStorey = getStoreyName(elem);
+        // If the element has a storey tag, it must match the target storey.
+        if (elemStorey) return elemStorey === targetStorey;
+        // If the element has NO storey tag, include it in the primary storey only,
+        // so it is not silently dropped from every storey view.
+        return isFirstStorey;
+      })
+    : allElements;
 
   const elementsToRender = storeyElements;
 

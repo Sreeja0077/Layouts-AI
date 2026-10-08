@@ -44,10 +44,10 @@ export interface KonvaRendererProps {
  */
 export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private static SPACE_COLOR_PALETTE = [
-    { fill: "rgba(248, 250, 252, 0.75)", stroke: "#CBD5E1", text: "#1E293B" }, // Light Slate
-    { fill: "rgba(241, 245, 249, 0.75)", stroke: "#CBD5E1", text: "#1E293B" }, // Light Gray
-    { fill: "rgba(243, 244, 246, 0.75)", stroke: "#D1D5DB", text: "#1F2937" }, // Warm Off-White
-    { fill: "rgba(249, 250, 251, 0.75)", stroke: "#E5E7EB", text: "#1F2937" }, // Neutral Tint
+    { fill: "rgba(255, 255, 255, 0.0)", stroke: "#AAAAAA", text: "#111827" },
+    { fill: "rgba(255, 255, 255, 0.0)", stroke: "#AAAAAA", text: "#111827" },
+    { fill: "rgba(255, 255, 255, 0.0)", stroke: "#AAAAAA", text: "#111827" },
+    { fill: "rgba(255, 255, 255, 0.0)", stroke: "#AAAAAA", text: "#111827" },
   ];
 
   private extractOrientedBounds(geometry?: RenderGeometry): {
@@ -272,8 +272,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {walls.map((wall) => {
           if (wall.geometry) {
             return this.renderPolygonGeometry(wall.id, wall.geometry, viewport, {
-              fill: "#27272a",
-              stroke: "#e2e8f0",
+              fill: "#111111",
+              stroke: "#111111",
               strokeWidth: 1.5,
             });
           }
@@ -284,7 +284,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
               <Line
                 key={`wall-${wall.id}`}
                 points={[sStart.x, sStart.y, sEnd.x, sEnd.y]}
-                stroke="#cbd5e1"
+                stroke="#111111"
                 strokeWidth={Math.max(4, wall.thicknessMeters * viewport.scale)}
                 lineCap="round"
               />
@@ -373,8 +373,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {columns.map((col) => {
           if (col.geometry) {
             return this.renderPolygonGeometry(col.id, col.geometry, viewport, {
-              fill: "#f59e0b",
-              stroke: "#fde047",
+              fill: "#1F1F1F",
+              stroke: "#111111",
               strokeWidth: 2,
             });
           }
@@ -389,8 +389,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 y={sPos.y - sH / 2}
                 width={sW}
                 height={sH}
-                fill="#f59e0b"
-                stroke="#fde047"
+                fill="#1F1F1F"
+                stroke="#111111"
                 strokeWidth={2}
                 cornerRadius={1}
               />
@@ -424,26 +424,26 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
 
     return (
       <Group key={`door-cad-${id}`} x={sPos.x} y={sPos.y} rotation={rotationDeg}>
-        {/* Wall opening cutout frame */}
+        {/* Wall opening gap — white to cut through wall fill */}
         <Rect
           x={-sW / 2}
           y={-sD / 2}
           width={sW}
           height={sD}
-          fill="#000000"
-          stroke="rgba(148, 163, 184, 0.4)"
-          strokeWidth={1}
+          fill="#FFFFFF"
+          stroke="rgba(80,80,80,0.3)"
+          strokeWidth={0.5}
         />
         {/* Left Wall Jamb */}
         <Line
           points={[-sW / 2, -sD / 2 - 2, -sW / 2, sD / 2 + 2]}
-          stroke="#cbd5e1"
+          stroke="#222222"
           strokeWidth={1.5}
         />
         {/* Right Wall Jamb */}
         <Line
           points={[sW / 2, -sD / 2 - 2, sW / 2, sD / 2 + 2]}
-          stroke="#cbd5e1"
+          stroke="#222222"
           strokeWidth={1.5}
         />
         {/* 90-degree Door Swing Arc */}
@@ -454,16 +454,16 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           outerRadius={sW}
           angle={90}
           rotation={-90}
-          fill="rgba(56, 189, 248, 0.08)"
-          stroke="#38bdf8"
-          strokeWidth={1.5}
+          fill="rgba(0, 0, 0, 0.04)"
+          stroke="#555555"
+          strokeWidth={1}
           dash={[4, 4]}
         />
         {/* Single Door Leaf Line attached to Hinge */}
         <Line
           points={[-sW / 2, 0, -sW / 2, -sW]}
-          stroke="#60a5fa"
-          strokeWidth={2.5}
+          stroke="#111111"
+          strokeWidth={2}
           lineCap="round"
         />
       </Group>
@@ -484,30 +484,34 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
 
     return (
       <Group key={`win-cad-${id}`} x={sPos.x} y={sPos.y} rotation={rotationDeg}>
+        {/* Opening gap — white */}
         <Rect
           x={-sW / 2}
           y={-sD / 2}
           width={sW}
           height={sD}
-          fill="#000000"
-          stroke="#06b6d4"
+          fill="#FFFFFF"
+          stroke="#333333"
           strokeWidth={1.5}
         />
+        {/* Inner frame line — top */}
         <Line
           points={[-sW / 2, -sD / 4, sW / 2, -sD / 4]}
-          stroke="#22d3ee"
-          strokeWidth={1.5}
+          stroke="#333333"
+          strokeWidth={1}
         />
+        {/* Inner frame line — bottom */}
         <Line
           points={[-sW / 2, sD / 4, sW / 2, sD / 4]}
-          stroke="#22d3ee"
-          strokeWidth={1.5}
+          stroke="#333333"
+          strokeWidth={1}
         />
+        {/* Glazing center line */}
         <Line
           points={[-sW / 2, 0, sW / 2, 0]}
-          stroke="#67e8f9"
-          strokeWidth={1}
-          dash={[2, 2]}
+          stroke="#888888"
+          strokeWidth={0.75}
+          dash={[3, 3]}
         />
       </Group>
     );
@@ -531,7 +535,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         <Line
           key={`stair-tread-${item.id}-${i}`}
           points={[-sW / 2, yOffset, sW / 2, yOffset]}
-          stroke="#94a3b8"
+          stroke="#555555"
           strokeWidth={1}
         />
       );
@@ -544,19 +548,19 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           y={-sD / 2}
           width={sW}
           height={sD}
-          fill="rgba(30, 41, 59, 0.6)"
-          stroke="#cbd5e1"
+          fill="#F5F5F5"
+          stroke="#222222"
           strokeWidth={1.5}
         />
         {treadLines}
         <Line
           points={[0, sD / 2 - 4, 0, -sD / 2 + 8]}
-          stroke="#38bdf8"
+          stroke="#333333"
           strokeWidth={1.5}
         />
         <Line
           points={[-4, -sD / 2 + 14, 0, -sD / 2 + 8, 4, -sD / 2 + 14]}
-          stroke="#38bdf8"
+          stroke="#333333"
           strokeWidth={1.5}
         />
         <Text
@@ -565,9 +569,9 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           y={sD / 2 - 14}
           width={30}
           align="center"
-          fontSize={10}
+          fontSize={9}
           fontStyle="bold"
-          fill="#38bdf8"
+          fill="#555555"
           fontFamily="Inter, sans-serif"
         />
       </Group>
@@ -577,8 +581,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderChairPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(217, 119, 6, 0.75)",
-        stroke: "#fbbf24",
+        fill: "rgba(250, 250, 250, 0.9)",
+        stroke: "#222222",
         strokeWidth: 1.5,
       });
     }
@@ -587,8 +591,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`chair-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(217, 119, 6, 0.75)" stroke="#fbbf24" strokeWidth={1.5} cornerRadius={3} />
-        <Line points={[-sW / 2 + 2, -sD / 2 + 2, sW / 2 - 2, -sD / 2 + 2]} stroke="#fef08a" strokeWidth={2} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#F5F5F5" stroke="#222222" strokeWidth={1.5} cornerRadius={3} />
+        <Line points={[-sW / 2 + 2, -sD / 2 + 2, sW / 2 - 2, -sD / 2 + 2]} stroke="#555555" strokeWidth={1.5} />
       </Group>
     );
   }
@@ -596,8 +600,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderTablePlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(180, 83, 9, 0.7)",
-        stroke: "#f59e0b",
+        fill: "rgba(250, 250, 250, 0.9)",
+        stroke: "#1a1a1a",
         strokeWidth: 1.5,
       });
     }
@@ -606,7 +610,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`tbl-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.7)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#FAFAFA" stroke="#1a1a1a" strokeWidth={1.5} cornerRadius={2} />
       </Group>
     );
   }
@@ -614,8 +618,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderDeskPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(180, 83, 9, 0.75)",
-        stroke: "#f59e0b",
+        fill: "rgba(250, 250, 250, 0.9)",
+        stroke: "#1a1a1a",
         strokeWidth: 1.5,
       });
     }
@@ -624,7 +628,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`desk-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.75)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#FAFAFA" stroke="#1a1a1a" strokeWidth={1.5} cornerRadius={2} />
+        <Line points={[-sW / 2, sD / 2 - 4, sW / 2, sD / 2 - 4]} stroke="#555555" strokeWidth={1} />
       </Group>
     );
   }
@@ -632,8 +637,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderCabinetPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(71, 85, 105, 0.7)",
-        stroke: "#94a3b8",
+        fill: "rgba(245, 245, 245, 0.95)",
+        stroke: "#2d2d2d",
         strokeWidth: 1.5,
       });
     }
@@ -642,7 +647,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`cab-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(71, 85, 105, 0.7)" stroke="#94a3b8" strokeWidth={1.5} cornerRadius={1} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#F5F5F5" stroke="#2d2d2d" strokeWidth={1.5} cornerRadius={1} />
+        <Line points={[-sW / 2 + 2, -sD / 2 + 2, sW / 2 - 2, -sD / 2 + 2]} stroke="#555555" strokeWidth={0.75} />
       </Group>
     );
   }
@@ -650,8 +656,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderSofaPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(99, 102, 241, 0.7)",
-        stroke: "#818cf8",
+        fill: "rgba(245, 245, 245, 0.9)",
+        stroke: "#222222",
         strokeWidth: 1.5,
       });
     }
@@ -660,7 +666,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`sofa-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(99, 102, 241, 0.7)" stroke="#818cf8" strokeWidth={1.5} cornerRadius={4} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#F5F5F5" stroke="#222222" strokeWidth={1.5} cornerRadius={6} />
+        <Rect x={-sW / 2 + 3} y={-sD / 2 + 2} width={sW - 6} height={sD * 0.3} fill="#E0E0E0" stroke="#333333" strokeWidth={1} cornerRadius={3} />
       </Group>
     );
   }
@@ -676,16 +683,18 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
 
     return (
       <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+        {/* Tank / cistern box */}
         <Rect
           x={-sW / 2}
           y={-sD / 2}
           width={sW}
           height={sD * 0.35}
-          fill="rgba(14, 116, 144, 0.4)"
-          stroke="#06b6d4"
+          fill="#E8E8E8"
+          stroke="#333333"
           strokeWidth={1.5}
           cornerRadius={2}
         />
+        {/* Bowl — oval */}
         <Arc
           x={0}
           y={sD * 0.1}
@@ -693,8 +702,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           outerRadius={Math.min(sW, sD * 0.65) / 2}
           angle={360}
           rotation={0}
-          fill="rgba(14, 116, 144, 0.3)"
-          stroke="#22d3ee"
+          fill="#F0F0F0"
+          stroke="#333333"
           strokeWidth={1.5}
         />
       </Group>
@@ -704,8 +713,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderEquipmentPlanSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(15, 118, 110, 0.7)",
-        stroke: "#14b8a6",
+        fill: "rgba(245, 245, 245, 0.9)",
+        stroke: "#2d2d2d",
         strokeWidth: 1.5,
       });
     }
@@ -714,7 +723,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`eq-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(15, 118, 110, 0.7)" stroke="#14b8a6" strokeWidth={1.5} cornerRadius={1} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#F5F5F5" stroke="#2d2d2d" strokeWidth={1.5} cornerRadius={1} />
       </Group>
     );
   }
@@ -722,8 +731,8 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private renderGenericFurnitureSymbol(item: RenderFurniture, viewport: Viewport): JSX.Element {
     if (item.geometry) {
       return this.renderPolygonGeometry(item.id, item.geometry, viewport, {
-        fill: "rgba(180, 83, 9, 0.65)",
-        stroke: "#f59e0b",
+        fill: "rgba(248, 248, 248, 0.9)",
+        stroke: "#1a1a1a",
         strokeWidth: 1.5,
       });
     }
@@ -732,7 +741,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     const sD = item.depthMeters * viewport.scale;
     return (
       <Group key={`gen-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg}>
-        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="rgba(180, 83, 9, 0.65)" stroke="#f59e0b" strokeWidth={1.5} cornerRadius={2} />
+        <Rect x={-sW / 2} y={-sD / 2} width={sW} height={sD} fill="#F8F8F8" stroke="#1a1a1a" strokeWidth={1.5} cornerRadius={2} />
       </Group>
     );
   }
