@@ -120,13 +120,16 @@ def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path:
 
     elements = report_dict.get("all_elements_geometry") or []
 
-    # Trigger 1: Missing storey metadata on valid geometry
-    has_storey_data = bool(report_dict.get("available_storeys")) or any(
+    # Trigger 1: Missing available_storeys or storey metadata on valid geometry
+    if not bool(report_dict.get("available_storeys")) and report_dict.get("is_geometry_valid", False):
+        return True
+
+    has_element_storey = any(
         e.get("storey_name") or (e.get("properties") or {}).get("storey_name")
         for e in elements
         if isinstance(e, dict)
     )
-    if not has_storey_data and report_dict.get("is_geometry_valid", False):
+    if not has_element_storey and report_dict.get("is_geometry_valid", False):
         return True
 
     # Trigger 2: Furniture entries present in geometry but missing from elements_summary

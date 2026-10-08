@@ -24,7 +24,7 @@ import { worldToScreen, screenToWorld } from "../canvas/viewport";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange, MIN_FURNITURE_DIMENSION_METERS } from "../transforms/transformTypes";
 import { calculateSnap } from "../snapping/snapper";
-import { extractOrientedBounds } from "./geometryUtils";
+import { extractOrientedBounds, findOptimalRoomLabelAnchor } from "./geometryUtils";
 import { renderCadDoorSymbol } from "./doorSymbols";
 import { renderCadGarageDoorSymbol } from "./garageDoorSymbols";
 import { renderFurnitureItem } from "./furnitureSymbols";
@@ -188,7 +188,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     return (
       <Group key={`fp-${model.id}`}>
         {/* Architectural Layers */}
-        {this.renderSpaces(model.spaces || [], viewport)}
+        {this.renderSpaces(model.spaces || [], viewport, model.furniture || [])}
         {this.renderWalls(model.walls, viewport)}
         {this.renderWindows(model.windows, viewport)}
         {this.renderDoors(model.doors, viewport, model.spaces || [], model.walls || [])}
@@ -198,7 +198,18 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     );
   }
 
-  renderSpaces(spaces: ReadonlyArray<RenderSpace>, viewport: Viewport): JSX.Element {
+  renderSpaces(
+    spaces: ReadonlyArray<RenderSpace>,
+    viewport: Viewport,
+    furniture: ReadonlyArray<RenderFurniture> = []
+  ): JSX.Element {
+    const toFeetInches = (meters: number): string => {
+      const totalInches = Math.round(meters * 39.3701);
+      const feet = Math.floor(totalInches / 12);
+      const inches = totalInches % 12;
+      return `${feet}' - ${inches}"`;
+    };
+
     return (
       <Group key="layer-spaces">
         {spaces.map((space, idx) => {
@@ -211,15 +222,39 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
           if (!firstPoly || firstPoly.exterior.length < 3) return null;
 
           const { area, centroid } = this.getPolygonMetrics(firstPoly.exterior);
-          const centroidScreen = worldToScreen(centroid, viewport);
+          // Find optimal obstacle-free visible anchor inside the room polygon (avoids furniture, L-shape cutouts, and walls)
+          const optimalAnchor = findOptimalRoomLabelAnchor(firstPoly.exterior, furniture, centroid);
+          const anchorScreen = worldToScreen(optimalAnchor.point, viewport);
+
+          const clearRadiusWorld = optimalAnchor.clearRadius;
+          const clearRadiusScreen = clearRadiusWorld * viewport.scale;
+
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (const pt of firstPoly.exterior) {
+            minX = Math.min(minX, pt.x);
+            maxX = Math.max(maxX, pt.x);
+            minY = Math.min(minY, pt.y);
+            maxY = Math.max(maxY, pt.y);
+          }
+          const spanX = Math.max(0.5, maxX - minX);
+          const spanY = Math.max(0.5, maxY - minY);
+          const dimStr = `${toFeetInches(Math.max(spanX, spanY))} X ${toFeetInches(Math.min(spanX, spanY))}`;
 
           let rawName = (space.name || "").trim();
           if (!rawName || /^ifcspace/i.test(rawName) || /^polygon$/i.test(rawName) || /^multipolygon$/i.test(rawName)) {
             rawName = `Room ${idx + 1}`;
           }
 
-          const areaSqm = area;
-          const areaSqFt = Math.round(areaSqm * 10.7639);
+          // Only display label if there is sufficient screen space inside the obstacle-free zone
+          const showText = clearRadiusScreen >= 14;
+
+          // Strictly bound text box width to stay within clear area (cannot cross walls)
+          const textHalfWidth = Math.max(15, Math.min(60, clearRadiusScreen * 0.95));
+          const textWidth = textHalfWidth * 2;
+
+          // Responsive font size strictly bounded by clear zone size
+          const nameFontSize = Math.max(6, Math.min(10, clearRadiusScreen * 0.22));
+          const dimFontSize = Math.max(5, Math.min(8, nameFontSize * 0.8));
 
           return (
             <Group key={`space-grp-${space.id || idx}`}>
@@ -229,32 +264,38 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 strokeWidth: 1.5,
               })}
 
-              {/* Clean Subtle Architectural Room Label without opaque card box */}
-              <Group x={centroidScreen.x} y={centroidScreen.y} listening={false}>
-                <Text
-                  text={rawName}
-                  x={-40}
-                  y={-8}
-                  width={80}
-                  align="center"
-                  fontSize={10}
-                  fontStyle="bold"
-                  fill="#334155"
-                  fontFamily="Inter, sans-serif"
-                  listening={false}
-                />
-                <Text
-                  text={`${areaSqm.toFixed(1)} m²`}
-                  x={-40}
-                  y={4}
-                  width={80}
-                  align="center"
-                  fontSize={8}
-                  fill="#64748b"
-                  fontFamily="Inter, sans-serif"
-                  listening={false}
-                />
-              </Group>
+              {/* Responsive Architectural Room Name & Dimensions Label */}
+              {showText && (
+                <Group x={anchorScreen.x} y={anchorScreen.y} listening={false}>
+                  <Text
+                    text={rawName}
+                    x={-textHalfWidth}
+                    y={-nameFontSize - 2}
+                    width={textWidth}
+                    align="center"
+                    fontSize={nameFontSize}
+                    fontStyle="bold"
+                    fill="#111111"
+                    fontFamily="Inter, Arial, sans-serif"
+                    listening={false}
+                    wrap="none"
+                    ellipsis
+                  />
+                  <Text
+                    text={dimStr}
+                    x={-textHalfWidth}
+                    y={2}
+                    width={textWidth}
+                    align="center"
+                    fontSize={dimFontSize}
+                    fill="#333333"
+                    fontFamily="Inter, Arial, sans-serif"
+                    listening={false}
+                    wrap="none"
+                    ellipsis
+                  />
+                </Group>
+              )}
             </Group>
           );
         })}
@@ -298,18 +339,23 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     spaces: ReadonlyArray<RenderSpace> = [],
     walls: ReadonlyArray<RenderWall> = []
   ): JSX.Element {
+    const doorBoundsList = doors.map((door) => {
+      let bounds = {
+        pos: door.position,
+        width: door.widthMeters || 0.9,
+        depth: 0.15,
+        rotation: door.rotationDeg || 0,
+      };
+      if (door.geometry) {
+        bounds = extractOrientedBounds(door.geometry);
+      }
+      return { id: door.id, ...bounds };
+    });
+
     return (
       <Group key="layer-doors">
-        {doors.map((door) => {
-          let bounds = {
-            pos: door.position,
-            width: door.widthMeters || 0.9,
-            depth: 0.15,
-            rotation: door.rotationDeg || 0,
-          };
-          if (door.geometry) {
-            bounds = extractOrientedBounds(door.geometry);
-          }
+        {doors.map((door, idx) => {
+          const bounds = doorBoundsList[idx];
           const isGarage =
             door.isGarageDoor ||
             door.subtype === "GARAGE_DOOR" ||
@@ -325,9 +371,12 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
               bounds.rotation,
               viewport,
               spaces,
-              walls
+              walls,
+              door.hostWallId
             );
           }
+
+          const otherDoors = doorBoundsList.filter((d) => d.id !== door.id);
 
           return renderCadDoorSymbol(
             door.id,
@@ -337,7 +386,10 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
             bounds.rotation,
             viewport,
             spaces,
-            walls
+            walls,
+            door.hostWallId,
+            otherDoors,
+            door.properties
           );
         })}
       </Group>

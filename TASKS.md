@@ -640,6 +640,14 @@
   - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand with 13 tests)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 237 modules in 11.94s)
 
+### [2026-10-08] Task Phase 24 - BIM/CAD Door Hinge Resolution, Paired Double Doors vs Partition Separation
+- **Action:** Implemented architectural CAD-standard door hinge placement and swing orientation in `frontend/src/editor/renderer/roomOpeningUtils.ts`, `doorSymbols.tsx`, and `backend/app/bim/ifc_ingest.py`.
+  - **Corner-Proximity Hinge Resolution**: Calculates distances from jambs $J_1$ and $J_2$ to adjacent perpendicular corner walls, host wall endpoints, and room boundary vertices, placing the hinge on the jamb closest to the room corner.
+  - **Paired Double Door Detection**: Detects adjacent doors along the same wall. Verifies both doors open into the **exact same room** (`targetSpaceA.id === targetSpaceB.id`) and verifies **no intervening partition wall endpoint** terminates between the two doors. When verified, assigns outer jambs as hinges (`"START"` / `"END"`) so leaves swing inwards symmetrically.
+  - **Separating Partition Wall Isolation**: If a perpendicular dividing wall or different target rooms exist between adjacent doors, treats them as independent single doors resolving hinges against their respective room corners.
+  - **IFC OperationType Ingestion**: Extracts `OperationType`, `OverallWidth`, and `OverallHeight` from `IfcDoor` entities and `IfcDoorType` in `ifc_ingest.py` (e.g. `SINGLE_SWING_LEFT`, `SINGLE_SWING_RIGHT`).
+- **Status:** `SUCCESS (100% Geometry Fidelity Tests Passed)`
+
 ### [2026-10-07] Task 2.5 Execution - Real Browser IFC/DXF Upload & Floor-Plan Ingestion Entry Flow
 - **Action:** Implemented browser file upload flow, server-side secure file storage, auto-incrementing source version creation, BIM/DXF ingestion integration, and end-to-end product handoff into Layouts Team verification, baseline publishing, and 2D canvas editor.
   - **Backend API (`backend/app/api/v1/projects.py`)**: Added `POST /api/v1/projects/{project_id}/floor-plans/upload` multipart endpoint with extension validation (`.ifc`, `.dxf`), non-empty / size bound checks (<= 50MB), filename sanitization, and path traversal security guards storing files in `UPLOAD_DIR / project_id / floor_plan_id / source_versions / v{version_no}`. Added `GET /api/v1/projects/{project_id}/floor-plans/{floor_plan_id}/ingestion-status` endpoint. Updated `list_projects`, `create_project`, and `list_floor_plans` to query PostgreSQL DB.

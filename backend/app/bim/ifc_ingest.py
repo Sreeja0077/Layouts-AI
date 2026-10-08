@@ -630,10 +630,33 @@ class IFCIngestor:
 
         category, subtype = derive_semantic_category_and_subtype(entity)
 
+        pset_name = (
+            properties.get("Pset_ProductRequirements.Name")
+            or properties.get("Pset_AirSideSystemInformation.Name")
+            or properties.get("Pset_SpaceCommon.Reference")
+            or properties.get("Pset_SpaceCommon.Name")
+            or properties.get("Room Name")
+            or properties.get("Name")
+        )
+
+        long_name = getattr(entity, "LongName", None)
         raw_name = getattr(entity, "Name", None)
-        if not raw_name or str(raw_name) in ("Polygon", "MultiPolygon"):
-            raw_name = getattr(entity, "ObjectType", None) or entity.is_a()
-        name = str(raw_name)
+        description = getattr(entity, "Description", None)
+
+        if pset_name and str(pset_name).strip() and str(pset_name) not in ("Polygon", "MultiPolygon"):
+            name = str(pset_name).strip()
+        elif long_name and str(long_name).strip() and str(long_name) not in ("Polygon", "MultiPolygon"):
+            name = str(long_name).strip()
+        elif raw_name and str(raw_name).strip() and str(raw_name) not in ("Polygon", "MultiPolygon"):
+            name = str(raw_name).strip()
+        elif description and str(description).strip():
+            name = str(description).strip()
+        else:
+            name = str(getattr(entity, "ObjectType", None) or entity.is_a())
+
+        if category == "SPACE" or entity.is_a() == "IfcSpace":
+            if name.lower() == "conference":
+                name = "Conference Room"
 
         # Attach explicit spatial-container metadata to every parsed entity.
         # This is later used to present one selected building storey at a time
@@ -700,6 +723,35 @@ class IFCIngestor:
 
         if hasattr(entity, "PredefinedType"):
             props["predefined_type"] = str(getattr(entity, "PredefinedType"))
+
+        if entity.is_a("IfcDoor") or entity.is_a("IfcDoorStandardCase"):
+            op_type = getattr(entity, "OperationType", None)
+            if op_type:
+                props["OperationType"] = str(op_type)
+            if hasattr(entity, "OverallWidth") and getattr(entity, "OverallWidth", None) is not None:
+                props["OverallWidth"] = float(getattr(entity, "OverallWidth"))
+            if hasattr(entity, "OverallHeight") and getattr(entity, "OverallHeight", None) is not None:
+                props["OverallHeight"] = float(getattr(entity, "OverallHeight"))
+
+            # Check door type / style if operation type not directly on entity
+            if not op_type and hasattr(entity, "IsTypedBy"):
+                try:
+                    for rel in getattr(entity, "IsTypedBy", []):
+                        relating_type = getattr(rel, "RelatingType", None)
+                        if relating_type and hasattr(relating_type, "OperationType"):
+                            props["OperationType"] = str(getattr(relating_type, "OperationType"))
+                            break
+                except Exception:
+                    pass
+            elif not op_type and hasattr(entity, "IsDefinedBy"):
+                try:
+                    for rel in getattr(entity, "IsDefinedBy", []):
+                        relating_type = getattr(rel, "RelatingType", None)
+                        if relating_type and hasattr(relating_type, "OperationType"):
+                            props["OperationType"] = str(getattr(relating_type, "OperationType"))
+                            break
+                except Exception:
+                    pass
 
         # Property set extraction
         try:

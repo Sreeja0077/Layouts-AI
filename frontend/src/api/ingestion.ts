@@ -394,12 +394,31 @@ export function reportToRenderModel(
       const isGarage = /GARAGE|OVERHEAD|ROLLING|ROLL-UP|ROLLUP|SECTIONAL|DRIVEWAY/.test(combinedDoorText);
       const doorSubtype = isGarage ? "GARAGE_DOOR" : (rawSubtype || "STANDARD_DOOR");
 
-      let doorWidth = 0.9;
+      const hostWallId =
+        elem?.properties?.["Host Id"] ||
+        elem?.properties?.["HostId"] ||
+        elem?.properties?.["Other.Host Id"] ||
+        elem?.properties?.["host_id"] ||
+        elem?.properties?.["Host"] ||
+        undefined;
+
+      const propWidth =
+        typeof elem?.properties?.["Dimensions.Width"] === "number"
+          ? elem.properties["Dimensions.Width"]
+          : typeof elem?.properties?.["OverallWidth"] === "number"
+            ? elem.properties["OverallWidth"]
+            : typeof elem?.properties?.["Width"] === "number"
+              ? elem.properties["Width"]
+              : undefined;
+
+      let doorWidth = propWidth || 0.9;
       let doorPos = { x: centerX, y: centerY };
       let doorRotation = 0;
       if (renderGeom && renderGeom.polygons?.[0]?.exterior?.length >= 3) {
         const b = extractOrientedBounds(renderGeom);
-        doorWidth = Math.max(0.6, Math.max(b.width, b.depth));
+        if (!propWidth) {
+          doorWidth = Math.max(0.6, Math.max(b.width, b.depth));
+        }
         doorPos = b.pos;
         doorRotation = b.rotation;
       }
@@ -412,6 +431,7 @@ export function reportToRenderModel(
         isGarageDoor: isGarage,
         swingAngleDeg: 90,
         rotationDeg: doorRotation,
+        hostWallId: hostWallId ? String(hostWallId) : undefined,
         storeyName,
         storeyElevationMeters: storeyElevation,
         geometry: renderGeom,
@@ -452,13 +472,25 @@ export function reportToRenderModel(
       });
     } else if (cat === "SPACE" || cat.includes("SPACE") || cat.includes("ROOM")) {
       if (renderGeom) {
-        const rawName = String(
-          elem?.name || `Room ${spaces.length + 1}`
-        );
+        const candidateName =
+          elem?.properties?.["Pset_ProductRequirements.Name"] ||
+          elem?.properties?.["Pset_AirSideSystemInformation.Name"] ||
+          elem?.properties?.["Pset_SpaceCommon.Reference"] ||
+          elem?.properties?.["Pset_SpaceCommon.Name"] ||
+          elem?.properties?.LongName ||
+          elem?.properties?.["Room Name"] ||
+          elem?.properties?.["Name"] ||
+          elem?.name ||
+          `Room ${spaces.length + 1}`;
+        let rawName = String(candidateName).trim();
+        if (rawName.toLowerCase() === "conference") {
+          rawName = "Conference Room";
+        }
         spaces.push({
           id: elem.id || elem.global_id || `space_${spaces.length}`,
           name:
-            rawName && !/^ifcspace/i.test(rawName) &&
+            rawName &&
+            !/^ifcspace/i.test(rawName) &&
             !/^(polygon|multipolygon)$/i.test(rawName)
               ? rawName
               : `Room ${spaces.length + 1}`,

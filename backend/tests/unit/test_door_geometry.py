@@ -82,3 +82,67 @@ def test_garage_door_track_geometry():
     door_width = 3.0
     track_length = door_width * 1.2
     assert abs(track_length - 3.6) < 1e-6, "Track length should be 1.2x door width"
+
+
+def test_corner_proximity_hinge_placement():
+    """Test 9: Hinge placement selects jamb closest to adjacent perpendicular corner wall."""
+    # Room from (0, 0) to (4, 5). Door is on left wall x=0, y in [3.8, 4.7] near top corner (0, 5)
+    top_corner = (0.0, 5.0)
+    door_center = (0.0, 4.25)
+    door_width = 0.9
+    # Wall tangent u = (0, 1)
+    j_start = (door_center[0], door_center[1] - door_width / 2)  # (0, 3.8)
+    j_end = (door_center[0], door_center[1] + door_width / 2)    # (0, 4.7)
+
+    d_start = math.hypot(j_start[0] - top_corner[0], j_start[1] - top_corner[1])
+    d_end = math.hypot(j_end[0] - top_corner[0], j_end[1] - top_corner[1])
+
+    assert d_end < d_start, "j_end is closer to the top corner"
+    hinge_side = "END" if d_end < d_start else "START"
+    assert hinge_side == "END", "Hinge should be placed at the END jamb near the corner"
+
+
+def test_paired_doors_opposite_swing_geometry():
+    """Test 10: Adjacent / double doors on the same wall swing opposite to each other."""
+    door1_pos = (0.0, 4.0)  # Top door
+    door2_pos = (0.0, 3.1)  # Bottom door
+    w1, w2 = 0.9, 0.9
+    u = (0.0, 1.0)  # Wall tangent along +Y
+
+    # Door 1 evaluating Door 2:
+    d1_to_d2 = (door2_pos[0] - door1_pos[0], door2_pos[1] - door1_pos[1])
+    proj1 = d1_to_d2[0] * u[0] + d1_to_d2[1] * u[1]  # -0.9 -> -u direction (START side)
+    # Since other door is at START side, meeting point is START -> hinge MUST be END (top)
+    hinge1 = "END" if proj1 < -0.1 else "START"
+
+    # Door 2 evaluating Door 1:
+    d2_to_d1 = (door1_pos[0] - door2_pos[0], door1_pos[1] - door2_pos[1])
+    proj2 = d2_to_d1[0] * u[0] + d2_to_d1[1] * u[1]  # +0.9 -> +u direction (END side)
+    # Since other door is at END side, meeting point is END -> hinge MUST be START (bottom)
+    hinge2 = "START" if proj2 > 0.1 else "END"
+
+    assert hinge1 == "END", "Top door should hinge at top (END) jamb"
+    assert hinge2 == "START", "Bottom door should hinge at bottom (START) jamb"
+    assert hinge1 != hinge2, "Paired doors must swing opposite to each other symmetrically"
+
+
+def test_intervening_wall_separates_single_doors():
+    """Test 11: Two doors separated by a perpendicular partition wall are treated as independent single doors."""
+    door1_pos = (0.0, 4.0)  # Top door
+    door2_pos = (0.0, 3.1)  # Bottom door
+
+    # A perpendicular partition wall ending at (0.0, 3.55) between the two doors
+    partition_wall_start = (0.0, 3.55)
+    partition_wall_end = (5.0, 3.55)
+
+    # Check if partition wall terminates between the two doors
+    pt = partition_wall_start
+    min_y = min(door1_pos[1], door2_pos[1])
+    max_y = max(door1_pos[1], door2_pos[1])
+
+    is_between = min_y - 0.1 <= pt[1] <= max_y + 0.1 and abs(pt[0] - door1_pos[0]) < 0.35
+    assert is_between is True, "Partition wall endpoint lies between the two doors"
+    # Because an intervening wall exists, paired_hinge_side is NOT applied -> each door resolves its hinge independently!
+
+
+

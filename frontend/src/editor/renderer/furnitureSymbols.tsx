@@ -1,13 +1,16 @@
 /**
  * Architectural CAD 2D Furniture & Fixtures Symbol Renderer for Konva canvas adapter.
- * Renders professional, clean black-line Revit/AutoCAD style vector symbols.
+ * Renders professional, geometrically exact Revit/AutoCAD style vector symbols.
  * 
  * CORE PRINCIPLES:
- * 1. ZERO INVENTED CHAIRS: A desk renders ONLY as a desk; a conference table renders ONLY as a table.
+ * 1. DIRECT VERTEX FOOTPRINT MAPPING: When an IFC element has polygon geometry (as verified
+ *    in Technical Diagnostics), the exact polygon/multipolygon footprint vertices are rendered directly
+ *    in screen space via worldToScreen(), preserving L-shapes, curves, angles, and custom profiles.
+ * 2. LAYERED ARCHITECTURAL CAD DETAILS: Category-specific CAD details (backrests, grommets, basins,
+ *    cushion seams) are rendered within the exact polygon footprint.
+ * 3. ZERO INVENTED CHAIRS: A desk renders ONLY as a desk; a conference table renders ONLY as a table.
  *    Chairs are rendered ONLY when an actual IFC chair element exists in the model.
- * 2. EXACT 1-TO-1 FIDELITY: Each IFC entity produces exactly one symbol preserving source bounds and rotation.
- * 3. CLASSIC ARCHITECTURAL CAD STYLING: Clean linework (#222222 / #555555) on neutral fill (#FFFFFF / #FAFAFA).
- *    Zero rainbow/bright colorful fills.
+ * 4. EXACT 1-TO-1 FIDELITY: Each IFC entity produces exactly one symbol preserving source bounds and rotation.
  */
 
 import React from "react";
@@ -15,7 +18,81 @@ import { Circle, Group, Line, Rect } from "react-konva";
 import { Viewport } from "../canvas/canvasTypes";
 import { worldToScreen } from "../canvas/viewport";
 import { extractOrientedBounds } from "./geometryUtils";
-import { RenderFurniture } from "./renderTypes";
+import { RenderFurniture, RenderGeometry } from "./renderTypes";
+
+/**
+ * Checks if an item has valid polygon geometry extracted from the IFC model.
+ */
+function hasValidPolygonGeometry(geometry?: RenderGeometry): boolean {
+  if (!geometry || !geometry.polygons || geometry.polygons.length === 0) {
+    return false;
+  }
+  const firstPoly = geometry.polygons[0];
+  return Boolean(firstPoly && firstPoly.exterior && firstPoly.exterior.length >= 3);
+}
+
+/**
+ * Renders exact polygon/multipolygon footprint directly from IFC geometry vertices.
+ */
+function renderExactPolygonFootprint(
+  id: string,
+  geometry: RenderGeometry,
+  viewport: Viewport,
+  options: {
+    fill?: string;
+    stroke?: string;
+    strokeWidth?: number;
+    dash?: number[];
+  } = {}
+): JSX.Element {
+  const fill = options.fill || "#FFFFFF";
+  const stroke = options.stroke || "#222222";
+  const strokeWidth = options.strokeWidth ?? 1.2;
+
+  return (
+    <React.Fragment key={`geom-footprint-${id}`}>
+      {geometry.polygons.map((poly, polyIdx) => {
+        const extPts = poly.exterior.flatMap((pt) => {
+          const s = worldToScreen(pt, viewport);
+          return [s.x, s.y];
+        });
+        if (extPts.length < 6) return null;
+
+        return (
+          <React.Fragment key={`poly-${id}-${polyIdx}`}>
+            {/* Outer exterior boundary */}
+            <Line
+              points={extPts}
+              closed
+              fill={fill}
+              stroke={stroke}
+              strokeWidth={strokeWidth}
+              dash={options.dash}
+            />
+            {/* Interior holes */}
+            {poly.holes?.map((hole, holeIdx) => {
+              const holePts = hole.flatMap((pt) => {
+                const s = worldToScreen(pt, viewport);
+                return [s.x, s.y];
+              });
+              if (holePts.length < 6) return null;
+              return (
+                <Line
+                  key={`hole-${id}-${polyIdx}-${holeIdx}`}
+                  points={holePts}
+                  closed
+                  fill="#FFFFFF"
+                  stroke={stroke}
+                  strokeWidth={1}
+                />
+              );
+            })}
+          </React.Fragment>
+        );
+      })}
+    </React.Fragment>
+  );
+}
 
 /**
  * Dispatcher for all architectural furniture & fixture items in 2D floor plan canvas.
@@ -67,29 +144,44 @@ export function renderFurnitureItem(
 }
 
 /**
- * Clean Office Desk Symbol (NO attached chairs).
+ * Clean Office Desk / Workstation Symbol (NO attached chairs).
+ * If exact IFC geometry is present, projects vertices directly.
  */
 export function renderDeskPlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 1.4,
-    depth: item.depthMeters || 0.8,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    const bounds = extractOrientedBounds(item.geometry!);
+    const sPos = worldToScreen(bounds.pos, viewport);
+
+    return (
+      <Group key={`desk-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+        {/* Subtle cable grommet near center */}
+        <Circle
+          x={sPos.x}
+          y={sPos.y}
+          radius={Math.max(1.5, Math.min(3, bounds.width * viewport.scale * 0.03))}
+          fill="none"
+          stroke="#555555"
+          strokeWidth={0.8}
+        />
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(16, bounds.width * viewport.scale);
-  const sD = Math.max(10, bounds.depth * viewport.scale);
+  // Fallback parametric rectangular desk
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(16, item.widthMeters * viewport.scale);
+  const sD = Math.max(10, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`desk-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* Desk Surface Rect */}
+    <Group key={`desk-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -100,7 +192,6 @@ export function renderDeskPlanSymbol(
         strokeWidth={1.2}
         cornerRadius={1}
       />
-      {/* Cable Grommet Indicator */}
       <Circle
         x={sW / 2 - Math.min(8, sW * 0.15)}
         y={-sD / 2 + Math.min(8, sD * 0.2)}
@@ -109,7 +200,6 @@ export function renderDeskPlanSymbol(
         stroke="#555555"
         strokeWidth={0.8}
       />
-      {/* Modesty / Drawer Line */}
       <Line
         points={[-sW / 2 + 3, sD / 2 - 3, sW / 2 - 3, sD / 2 - 3]}
         stroke="#666666"
@@ -128,31 +218,44 @@ export function renderChairPlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 0.6,
-    depth: item.depthMeters || 0.6,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    const bounds = extractOrientedBounds(item.geometry!);
+    const sPos = worldToScreen(bounds.pos, viewport);
+    const radius = Math.min(bounds.width, bounds.depth) * viewport.scale * 0.35;
+
+    return (
+      <Group key={`chair-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FAFAFA",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+        {/* Inner seat indicator */}
+        <Circle
+          x={sPos.x}
+          y={sPos.y}
+          radius={Math.max(2, radius)}
+          fill="#FFFFFF"
+          stroke="#555555"
+          strokeWidth={0.8}
+        />
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(10, bounds.width * viewport.scale);
-  const sD = Math.max(10, bounds.depth * viewport.scale);
+  // Fallback parametric chair
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(10, item.widthMeters * viewport.scale);
+  const sD = Math.max(10, item.depthMeters * viewport.scale);
   const radius = Math.min(sW, sD) / 2;
 
   return (
-    <Group key={`chair-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* 5-Star Base Leg Lines */}
+    <Group key={`chair-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Line points={[0, 0, 0, -radius]} stroke="#555555" strokeWidth={0.8} />
       <Line points={[0, 0, -radius * 0.95, -radius * 0.31]} stroke="#555555" strokeWidth={0.8} />
       <Line points={[0, 0, radius * 0.95, -radius * 0.31]} stroke="#555555" strokeWidth={0.8} />
       <Line points={[0, 0, -radius * 0.59, radius * 0.81]} stroke="#555555" strokeWidth={0.8} />
       <Line points={[0, 0, radius * 0.59, radius * 0.81]} stroke="#555555" strokeWidth={0.8} />
-
-      {/* Seat Cushion Circle */}
       <Circle
         x={0}
         y={0}
@@ -161,7 +264,6 @@ export function renderChairPlanSymbol(
         stroke="#222222"
         strokeWidth={1.2}
       />
-      {/* Backrest Curved Arc */}
       <Line
         points={[-radius * 0.75, -radius * 0.35, 0, -radius * 0.8, radius * 0.75, -radius * 0.35]}
         stroke="#222222"
@@ -174,28 +276,47 @@ export function renderChairPlanSymbol(
 
 /**
  * Conference Table Symbol (NO fake perimeter chairs).
+ * Directly projects exact multi-vertex boardroom / conference polygon footprints.
  */
 export function renderConferenceTablePlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 3.0,
-    depth: item.depthMeters || 1.4,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    const bounds = extractOrientedBounds(item.geometry!);
+    const sPos = worldToScreen(bounds.pos, viewport);
+    const sW = bounds.width * viewport.scale;
+    const sD = bounds.depth * viewport.scale;
+
+    return (
+      <Group key={`conf-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.5,
+        })}
+        {/* Central AV / cable management trough */}
+        <Rect
+          x={sPos.x - (sW * 0.25) / 2}
+          y={sPos.y - (sD * 0.25) / 2}
+          width={Math.max(10, sW * 0.25)}
+          height={Math.max(4, sD * 0.25)}
+          fill="#FAFAFA"
+          stroke="#555555"
+          strokeWidth={0.8}
+          cornerRadius={2}
+        />
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(30, bounds.width * viewport.scale);
-  const sD = Math.max(16, bounds.depth * viewport.scale);
+  // Fallback parametric conference table
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(30, item.widthMeters * viewport.scale);
+  const sD = Math.max(16, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`conf-table-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* Capsule / Oval Conference Table Surface */}
+    <Group key={`conf-table-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -206,8 +327,6 @@ export function renderConferenceTablePlanSymbol(
         strokeWidth={1.5}
         cornerRadius={Math.min(sD / 2, 12)}
       />
-
-      {/* Central Cable Management & AV Inset Trough */}
       <Rect
         x={-sW / 4}
         y={-sD / 6}
@@ -229,22 +348,24 @@ export function renderTablePlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 1.2,
-    depth: item.depthMeters || 0.8,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    return (
+      <Group key={`table-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(14, bounds.width * viewport.scale);
-  const sD = Math.max(14, bounds.depth * viewport.scale);
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(14, item.widthMeters * viewport.scale);
+  const sD = Math.max(14, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`table-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+    <Group key={`table-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -260,32 +381,35 @@ export function renderTablePlanSymbol(
 }
 
 /**
- * Living Room / Reception Sofa & Sectional Couch.
+ * Living Room / Reception Sofa, Couch & Sectional (L-shaped, U-shaped, Linear).
+ * Renders exact L-shaped and custom polygon footprints directly from IFC vertices.
  */
 export function renderSofaPlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 2.2,
-    depth: item.depthMeters || 0.9,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    return (
+      <Group key={`sofa-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.4,
+        })}
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(24, bounds.width * viewport.scale);
-  const sD = Math.max(14, bounds.depth * viewport.scale);
+  // Fallback parametric linear / sectional sofa
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(24, item.widthMeters * viewport.scale);
+  const sD = Math.max(14, item.depthMeters * viewport.scale);
   const isSectional =
     (item.subtype || "").toUpperCase().includes("SECTIONAL") ||
     (item.name || "").toUpperCase().includes("SECTIONAL");
 
   return (
-    <Group key={`sofa-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* Main Sofa Body */}
+    <Group key={`sofa-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -296,8 +420,6 @@ export function renderSofaPlanSymbol(
         strokeWidth={1.2}
         cornerRadius={3}
       />
-
-      {/* Backrest Cushion Line */}
       <Rect
         x={-sW / 2 + 2}
         y={-sD / 2 + 1}
@@ -308,8 +430,6 @@ export function renderSofaPlanSymbol(
         strokeWidth={0.8}
         cornerRadius={1}
       />
-
-      {/* Seating Cushion Seam Dividers */}
       <Line
         points={[-sW / 6, -sD / 2 + sD * 0.3, -sW / 6, sD / 2 - 1]}
         stroke="#666666"
@@ -320,8 +440,6 @@ export function renderSofaPlanSymbol(
         stroke="#666666"
         strokeWidth={0.8}
       />
-
-      {/* Armrests */}
       <Rect
         x={-sW / 2 + 1}
         y={-sD / 2 + 1}
@@ -340,8 +458,6 @@ export function renderSofaPlanSymbol(
         stroke="#555555"
         strokeWidth={0.8}
       />
-
-      {/* L-Sectional Chaise Extension (if applicable) */}
       {isSectional && (
         <Rect
           x={sW / 2 - sW * 0.35}
@@ -365,23 +481,24 @@ export function renderPantryCounterSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 1.8,
-    depth: item.depthMeters || 0.6,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    return (
+      <Group key={`pantry-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(20, bounds.width * viewport.scale);
-  const sD = Math.max(10, bounds.depth * viewport.scale);
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(20, item.widthMeters * viewport.scale);
+  const sD = Math.max(10, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`pantry-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* Counter Top Surface */}
+    <Group key={`pantry-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -391,8 +508,6 @@ export function renderPantryCounterSymbol(
         stroke="#222222"
         strokeWidth={1.2}
       />
-
-      {/* Inset Sink Basin Cutout */}
       <Rect
         x={sW / 4 - 5}
         y={-sD / 3}
@@ -403,7 +518,6 @@ export function renderPantryCounterSymbol(
         strokeWidth={0.8}
         cornerRadius={2}
       />
-      {/* Faucet Dot */}
       <Circle x={sW / 4} y={0} radius={1.5} fill="#333333" />
     </Group>
   );
@@ -416,19 +530,33 @@ export function renderSanitaryPlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 0.7,
-    depth: item.depthMeters || 0.7,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    const bounds = extractOrientedBounds(item.geometry!);
+    const sPos = worldToScreen(bounds.pos, viewport);
+    const radius = Math.min(bounds.width, bounds.depth) * viewport.scale * 0.25;
+
+    return (
+      <Group key={`san-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+        <Circle
+          x={sPos.x}
+          y={sPos.y}
+          radius={Math.max(2, radius)}
+          fill="#FAFAFA"
+          stroke="#555555"
+          strokeWidth={0.8}
+        />
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(12, bounds.width * viewport.scale);
-  const sD = Math.max(12, bounds.depth * viewport.scale);
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(12, item.widthMeters * viewport.scale);
+  const sD = Math.max(12, item.depthMeters * viewport.scale);
   const isToilet =
     (item.subtype || "").toUpperCase().includes("TOILET") ||
     (item.name || "").toUpperCase().includes("TOILET") ||
@@ -436,8 +564,7 @@ export function renderSanitaryPlanSymbol(
 
   if (isToilet) {
     return (
-      <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-        {/* Toilet Water Tank Rect */}
+      <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
         <Rect
           x={-sW / 2}
           y={-sD / 2}
@@ -448,7 +575,6 @@ export function renderSanitaryPlanSymbol(
           strokeWidth={1.2}
           cornerRadius={1}
         />
-        {/* Oval Toilet Bowl */}
         <Circle
           x={0}
           y={sD * 0.15}
@@ -457,7 +583,6 @@ export function renderSanitaryPlanSymbol(
           stroke="#222222"
           strokeWidth={1.2}
         />
-        {/* Inner Bowl Rim */}
         <Circle
           x={0}
           y={sD * 0.15}
@@ -470,10 +595,8 @@ export function renderSanitaryPlanSymbol(
     );
   }
 
-  // Basin / Vanity Sink
   return (
-    <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
-      {/* Vanity Counter */}
+    <Group key={`san-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -484,7 +607,6 @@ export function renderSanitaryPlanSymbol(
         strokeWidth={1.2}
         cornerRadius={2}
       />
-      {/* Oval Sink Basin */}
       <Circle
         x={0}
         y={0}
@@ -493,7 +615,6 @@ export function renderSanitaryPlanSymbol(
         stroke="#555555"
         strokeWidth={0.8}
       />
-      {/* Faucet Dot */}
       <Circle x={0} y={-sD * 0.3} radius={1.5} fill="#333333" />
     </Group>
   );
@@ -506,22 +627,24 @@ export function renderCabinetPlanSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 1.0,
-    depth: item.depthMeters || 0.5,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    return (
+      <Group key={`cab-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(14, bounds.width * viewport.scale);
-  const sD = Math.max(8, bounds.depth * viewport.scale);
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(14, item.widthMeters * viewport.scale);
+  const sD = Math.max(8, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`cab-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+    <Group key={`cab-sym-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}
@@ -548,28 +671,30 @@ export function renderCabinetPlanSymbol(
 }
 
 /**
- * Generic Fallback Furniture Symbol preserving actual bounds.
+ * Generic Fallback Furniture Symbol preserving actual exact footprint.
  */
 export function renderGenericFurnitureSymbol(
   item: RenderFurniture,
   viewport: Viewport
 ): JSX.Element {
-  let bounds = {
-    pos: item.position,
-    width: item.widthMeters || 1.0,
-    depth: item.depthMeters || 0.8,
-    rotation: item.rotationDeg || 0,
-  };
-  if (item.geometry) {
-    bounds = extractOrientedBounds(item.geometry);
+  if (hasValidPolygonGeometry(item.geometry)) {
+    return (
+      <Group key={`gen-geom-${item.id}`}>
+        {renderExactPolygonFootprint(item.id, item.geometry!, viewport, {
+          fill: "#FFFFFF",
+          stroke: "#222222",
+          strokeWidth: 1.2,
+        })}
+      </Group>
+    );
   }
 
-  const sPos = worldToScreen(bounds.pos, viewport);
-  const sW = Math.max(10, bounds.width * viewport.scale);
-  const sD = Math.max(10, bounds.depth * viewport.scale);
+  const sPos = worldToScreen(item.position, viewport);
+  const sW = Math.max(10, item.widthMeters * viewport.scale);
+  const sD = Math.max(10, item.depthMeters * viewport.scale);
 
   return (
-    <Group key={`furn-gen-${item.id}`} x={sPos.x} y={sPos.y} rotation={bounds.rotation}>
+    <Group key={`furn-gen-${item.id}`} x={sPos.x} y={sPos.y} rotation={item.rotationDeg || 0}>
       <Rect
         x={-sW / 2}
         y={-sD / 2}

@@ -19,7 +19,7 @@ from typing import Any, Dict
 
 from app.bim.ifc_ingest import (
     IFCParsedFloorPlan,
-    ArchitecturalElement,
+    ExtractedElement,
     GeometryStatus,
     GeometryType,
 )
@@ -41,10 +41,11 @@ def _make_element(
     category: str,
     name: str = "Item",
     storey_name: str = "Level 1",
-) -> ArchitecturalElement:
-    elem = ArchitecturalElement(
+) -> ExtractedElement:
+    elem = ExtractedElement(
         internal_id=internal_id,
         ifc_global_id=internal_id,
+        global_id=internal_id,
         element_type=element_type,
         category=category,
         name=name,
@@ -72,7 +73,10 @@ def _make_parsed_ifc(
         _make_element(f"furn{i}", "IfcFurnishingElement", "FURNITURE_ITEM", f"Desk {i}")
         for i in range(furniture_count)
     ]
+    total = wall_count + door_count + window_count + space_count + furniture_count
     return IFCParsedFloorPlan(
+        file_name="test.ifc",
+        total_elements_count=total,
         walls=walls,
         doors=doors,
         windows=windows,
@@ -80,7 +84,6 @@ def _make_parsed_ifc(
         spaces=spaces,
         furniture=furniture,
         source_metadata={"file_name": "test.ifc"},
-        floor_plan_name="Test Floor Plan",
     )
 
 

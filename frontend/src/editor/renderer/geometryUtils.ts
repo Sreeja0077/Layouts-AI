@@ -166,3 +166,115 @@ export function extractOrientedBounds(geometry: RenderGeometry): {
     rotation: rotationDeg,
   };
 }
+
+/**
+ * Calculates shortest distance from a point to polygon perimeter boundary edges.
+ */
+export function distanceToPolygonBoundary(p: RenderPoint, polygon: RenderPoint[]): number {
+  if (!polygon || polygon.length < 2) return 0;
+  let minDist = Infinity;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const proj = projectPointToLine(p, polygon[j], polygon[i]);
+    const d = distance(p, proj);
+    if (d < minDist) minDist = d;
+  }
+  return minDist;
+}
+
+export interface OptimalRoomLabelResult {
+  point: RenderPoint;
+  clearRadius: number; // in world meters
+}
+
+/**
+ * Finds the optimal obstacle-free visible anchor point for a room label strictly inside the room polygon,
+ * maximizing the inscribed obstacle-free clear radius from walls and furniture.
+ */
+export function findOptimalRoomLabelAnchor(
+  poly: RenderPoint[],
+  furniture: ReadonlyArray<{ position?: RenderPoint }> = [],
+  fallbackCentroid: RenderPoint
+): OptimalRoomLabelResult {
+  if (!poly || poly.length < 3) {
+    return { point: fallbackCentroid, clearRadius: 1.0 };
+  }
+
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+  for (const pt of poly) {
+    minX = Math.min(minX, pt.x);
+    maxX = Math.max(maxX, pt.x);
+    minY = Math.min(minY, pt.y);
+    maxY = Math.max(maxY, pt.y);
+  }
+
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  if (spanX < 0.2 || spanY < 0.2) {
+    return { point: fallbackCentroid, clearRadius: 0.5 };
+  }
+
+  // Filter furniture items strictly inside this room polygon
+  const insideFurn = furniture.filter((f) => {
+    if (!f.position) return false;
+    return pointInPolygon(f.position, poly);
+  });
+
+  // Dense grid sampling across the room bounding box
+  const uSteps = [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85];
+  const vSteps = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.88];
+
+  let bestPoint = fallbackCentroid;
+  let maxClearRadius = 0.5;
+  let bestScore = -Infinity;
+
+  for (const u of uSteps) {
+    for (const v of vSteps) {
+      const cand: RenderPoint = {
+        x: minX + u * spanX,
+        y: minY + v * spanY,
+      };
+
+      // 1. Must be strictly inside the room polygon
+      if (!pointInPolygon(cand, poly)) continue;
+
+      // 2. Clearance to nearest room perimeter wall
+      const dWall = distanceToPolygonBoundary(cand, poly);
+      if (dWall < 0.35) continue;
+
+      // 3. Clearance to nearest furniture
+      let minDFurn = 5.0;
+      for (const f of insideFurn) {
+        if (f.position) {
+          minDFurn = Math.min(minDFurn, distance(cand, f.position));
+        }
+      }
+
+      // Inscribed obstacle-free circle radius
+      const clearRadius = Math.min(dWall, minDFurn);
+
+      // Score: maximize clear radius, slight bonus for upper half
+      const topBonus = v >= 0.55 ? 0.4 : 0.0;
+      const score = clearRadius * 3.5 + dWall * 1.0 + topBonus;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPoint = cand;
+        maxClearRadius = clearRadius;
+      }
+    }
+  }
+
+  if (bestScore === -Infinity) {
+    if (pointInPolygon(fallbackCentroid, poly)) {
+      const dWall = distanceToPolygonBoundary(fallbackCentroid, poly);
+      return { point: fallbackCentroid, clearRadius: Math.max(0.5, dWall) };
+    }
+    return { point: fallbackCentroid, clearRadius: 0.5 };
+  }
+
+  return { point: bestPoint, clearRadius: maxClearRadius };
+}
+
