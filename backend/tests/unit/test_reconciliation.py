@@ -98,6 +98,23 @@ def test_real_ifc_geometry_reconciliation():
 
     assert len(report.all_elements_geometry) == 418
 
+    # Storey summaries must distinguish the IFC building levels so the 2D editor
+    # can render one coherent floor rather than projecting every level together.
+    storey_names = {item["name"] for item in report.available_storeys}
+    assert "First Floor" in storey_names
+    assert "Second Floor" in storey_names
+    assert report.recommended_storey == "Second Floor"
+
+    second_floor = next(
+        item for item in report.available_storeys if item["name"] == "Second Floor"
+    )
+    first_floor = next(
+        item for item in report.available_storeys if item["name"] == "First Floor"
+    )
+    assert second_floor["space_count"] > first_floor["space_count"]
+    assert second_floor["wall_count"] > 0
+    assert second_floor["elevation_m"] is not None
+
     print(f"REAL IFC GEOMETRY RECONCILIATION PASSED: {report.total_rooms_count} rooms, {report.total_net_area_sqm} sqm.")
 
 
