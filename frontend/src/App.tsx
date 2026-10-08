@@ -213,8 +213,7 @@ export const App: React.FC<AppProps> = ({
     setIsProcessing(true);
     try {
       const updated = await rejectFloorPlan(activeProjectId, activeFloorPlanId, reason);
-      setReport(updated);
-      setEditorRenderModel(reportToRenderModel(updated));
+      applyReportToEditor(updated, activeStorey);
       setIsRejectModalOpen(false);
     } catch (err: any) {
       alert(`Rejection Error: ${err.message}`);
