@@ -131,6 +131,15 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
             centroidScreen = worldToScreen(worldCentroid, viewport);
           }
 
+          const rawName = (space.name || "").trim();
+          const isGenericSpaceName =
+            !rawName ||
+            /^space$/i.test(rawName) ||
+            /^room$/i.test(rawName) ||
+            /^ifcspace/i.test(rawName) ||
+            /^polygon$/i.test(rawName) ||
+            /^multipolygon$/i.test(rawName);
+
           return (
             <Group key={`space-grp-${space.id || idx}`}>
               {this.renderPolygonGeometry(space.id, space.geometry, viewport, {
@@ -138,12 +147,12 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 stroke: style.stroke,
                 strokeWidth: 1.5,
               })}
-              {firstPoly && firstPoly.exterior.length > 0 && (
+              {firstPoly && firstPoly.exterior.length > 0 && !isGenericSpaceName && (
                 <Text
-                  text={space.name || `Space ${idx + 1}`}
-                  x={centroidScreen.x - 50}
+                  text={space.name || ""}
+                  x={centroidScreen.x - 60}
                   y={centroidScreen.y - 8}
-                  width={100}
+                  width={120}
                   align="center"
                   fontSize={Math.max(10, Math.min(13, 0.45 * viewport.scale))}
                   fill={style.text}
@@ -581,18 +590,25 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
       {/* Architectural Layers rendered via konvaRendererAdapter */}
       {konvaRendererAdapter.renderFloorPlan(model, viewport)}
 
-      {/* Furniture Layer */}
-      <Group key="layer-furniture">
+      {/* Interactive Selection & Furniture Control Layer */}
+      <Group key="layer-furniture-interactive">
         {model.furniture.map((item) => {
           const sPos = worldToScreen(item.position, viewport);
           const sW = item.widthMeters * viewport.scale;
           const sD = item.depthMeters * viewport.scale;
           const isSelected = selectedObjectId === item.id;
-          const isEditable = !item.isLocked;
+          const isEditable = !item.isLocked && !item.isImported;
+          const isImportedItem = item.isImported || item.isLocked;
+
+          // For imported structural or aperture elements (doors, windows, proxies):
+          // Do NOT draw a default gray selection box or text label when unselected!
+          if (isImportedItem && !isSelected) {
+            return null;
+          }
 
           return (
             <Group
-              key={`furn-${item.id}`}
+              key={`furn-ctrl-${item.id}`}
               ref={(node) => {
                 if (isSelected && isEditable) {
                   selectedNodeRef.current = node;
@@ -600,7 +616,7 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
               }}
               x={sPos.x}
               y={sPos.y}
-              rotation={item.rotationDeg}
+              rotation={item.rotationDeg || 0}
               draggable={isEditable}
               onClick={(e) => {
                 e.cancelBubble = true;
@@ -678,33 +694,32 @@ export const KonvaFloorPlanRenderer: React.FC<KonvaRendererProps> = ({
                 });
               }}
             >
-              {/* Highlight selection rectangle */}
+              {/* Highlight selection box */}
               <Rect
                 x={-sW / 2}
                 y={-sD / 2}
                 width={sW}
                 height={sD}
                 fill={
-                  item.isLocked
-                    ? "rgba(148, 163, 184, 0.3)"
-                    : isSelected
-                    ? "rgba(56, 189, 248, 0.3)"
-                    : "rgba(99, 102, 241, 0.25)"
+                  isSelected
+                    ? "rgba(56, 189, 248, 0.25)"
+                    : "rgba(180, 83, 9, 0.55)"
                 }
-                stroke={isSelected ? "#38bdf8" : item.isLocked ? "#94a3b8" : "#6366f1"}
-                strokeWidth={isSelected ? 2.5 : 1.5}
-                dash={item.isLocked ? [4, 4] : undefined}
+                stroke={isSelected ? "#38bdf8" : "#f59e0b"}
+                strokeWidth={isSelected ? 2 : 1.5}
                 cornerRadius={2}
               />
-              <Text
-                text={item.isLocked ? `🔒 ${item.itemType}` : item.itemType}
-                x={-sW / 2 + 2}
-                y={-sD / 2 + 2}
-                fontSize={Math.max(10, Math.min(12, sW / 4))}
-                fill={isSelected ? "#ffffff" : "#e2e8f0"}
-                fontFamily="Inter, sans-serif"
-                listening={false}
-              />
+              {(isSelected || !isImportedItem) && (
+                <Text
+                  text={item.name && !/^(door|window|space|polygon|multipolygon)$/i.test(item.name) ? item.name : item.itemType}
+                  x={-sW / 2 + 2}
+                  y={-sD / 2 + 2}
+                  fontSize={Math.max(10, Math.min(12, sW / 4))}
+                  fill={isSelected ? "#ffffff" : "#fef08a"}
+                  fontFamily="Inter, sans-serif"
+                  listening={false}
+                />
+              )}
             </Group>
           );
         })}
