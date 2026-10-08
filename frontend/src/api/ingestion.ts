@@ -274,8 +274,7 @@ export function reportToRenderModel(
       ? allElements.filter((elem) => getStoreyName(elem) === targetStorey)
       : allElements;
 
-  const elementsToRender =
-    storeyElements.length > 0 || !targetStorey ? storeyElements : allElements;
+  const elementsToRender = storeyElements;
 
   const allPoints: RenderPoint[] = [];
   const boundaryCandidatePoints: RenderPoint[] = [];
