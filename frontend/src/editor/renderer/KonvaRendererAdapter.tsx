@@ -24,6 +24,10 @@ import { worldToScreen, screenToWorld } from "../canvas/viewport";
 import { SnapGuideLine } from "../snapping/snappingTypes";
 import { TransformChange, MIN_FURNITURE_DIMENSION_METERS } from "../transforms/transformTypes";
 import { calculateSnap } from "../snapping/snapper";
+import { extractOrientedBounds } from "./geometryUtils";
+import { renderCadDoorSymbol } from "./doorSymbols";
+import { renderCadGarageDoorSymbol } from "./garageDoorSymbols";
+import { renderFurnitureItem } from "./furnitureSymbols";
 
 export interface KonvaRendererProps {
   model: FloorPlanRenderModel;
@@ -182,7 +186,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
         {this.renderSpaces(model.spaces || [], viewport)}
         {this.renderWalls(model.walls, viewport)}
         {this.renderWindows(model.windows, viewport)}
-        {this.renderDoors(model.doors, viewport)}
+        {this.renderDoors(model.doors, viewport, model.spaces || [], model.walls || [])}
         {this.renderColumns(model.columns, viewport)}
         {this.renderFurniture(model.furniture, viewport)}
       </Group>
@@ -296,15 +300,53 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
     );
   }
 
-  renderDoors(doors: ReadonlyArray<RenderDoor>, viewport: Viewport): JSX.Element {
+  renderDoors(
+    doors: ReadonlyArray<RenderDoor>,
+    viewport: Viewport,
+    spaces: ReadonlyArray<RenderSpace> = [],
+    walls: ReadonlyArray<RenderWall> = []
+  ): JSX.Element {
     return (
       <Group key="layer-doors">
         {doors.map((door) => {
-          let bounds = { pos: door.position, width: door.widthMeters || 0.9, depth: 0.15, rotation: door.rotationDeg || 0 };
+          let bounds = {
+            pos: door.position,
+            width: door.widthMeters || 0.9,
+            depth: 0.15,
+            rotation: door.rotationDeg || 0,
+          };
           if (door.geometry) {
-            bounds = this.extractOrientedBounds(door.geometry);
+            bounds = extractOrientedBounds(door.geometry);
           }
-          return this.renderCadDoorSymbol(door.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
+          const isGarage =
+            door.isGarageDoor ||
+            door.subtype === "GARAGE_DOOR" ||
+            door.subtype === "OVERHEAD_DOOR" ||
+            door.subtype === "ROLLING_DOOR";
+
+          if (isGarage) {
+            return renderCadGarageDoorSymbol(
+              door.id,
+              bounds.pos,
+              bounds.width,
+              bounds.depth,
+              bounds.rotation,
+              viewport,
+              spaces,
+              walls
+            );
+          }
+
+          return renderCadDoorSymbol(
+            door.id,
+            bounds.pos,
+            bounds.width,
+            bounds.depth,
+            bounds.rotation,
+            viewport,
+            spaces,
+            walls
+          );
         })}
       </Group>
     );
@@ -321,7 +363,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
             rotation: win.start && win.end ? (Math.atan2(win.end.y - win.start.y, win.end.x - win.start.x) * 180) / Math.PI : 0,
           };
           if (win.geometry) {
-            bounds = this.extractOrientedBounds(win.geometry);
+            bounds = extractOrientedBounds(win.geometry);
           }
           return this.renderCadWindowSymbol(win.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
         })}
@@ -367,51 +409,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   renderFurniture(furniture: ReadonlyArray<RenderFurniture>, viewport: Viewport): JSX.Element {
     return (
       <Group key="layer-furniture">
-        {furniture.map((item) => {
-          const subtype = (item.subtype || item.itemType || "OTHER").toUpperCase();
-          const sourceIfcType = (item.sourceIfcType || "").toUpperCase();
-
-          if (subtype === "DOOR" || sourceIfcType === "IFCDOOR") {
-            let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
-            if (item.geometry) {
-              bounds = this.extractOrientedBounds(item.geometry);
-            }
-            return this.renderCadDoorSymbol(item.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
-          }
-          if (subtype === "WINDOW" || sourceIfcType === "IFCWINDOW") {
-            let bounds = { pos: item.position, width: item.widthMeters, depth: item.depthMeters, rotation: item.rotationDeg || 0 };
-            if (item.geometry) {
-              bounds = this.extractOrientedBounds(item.geometry);
-            }
-            return this.renderCadWindowSymbol(item.id, bounds.pos, bounds.width, bounds.depth, bounds.rotation, viewport);
-          }
-          if (subtype === "STAIR" || sourceIfcType === "IFCSTAIR") {
-            return this.renderStairPlanSymbol(item, viewport);
-          }
-          if (subtype === "CHAIR") {
-            return this.renderChairPlanSymbol(item, viewport);
-          }
-          if (subtype === "TABLE") {
-            return this.renderTablePlanSymbol(item, viewport);
-          }
-          if (subtype === "DESK") {
-            return this.renderDeskPlanSymbol(item, viewport);
-          }
-          if (subtype === "CABINET" || subtype === "STORAGE") {
-            return this.renderCabinetPlanSymbol(item, viewport);
-          }
-          if (subtype === "SOFA") {
-            return this.renderSofaPlanSymbol(item, viewport);
-          }
-          if (subtype === "SANITARY" || sourceIfcType === "IFCSANITARYTERMINAL" || sourceIfcType === "IFCFLOWTERMINAL") {
-            return this.renderSanitaryPlanSymbol(item, viewport);
-          }
-          if (subtype === "EQUIPMENT" || subtype === "FIXTURE") {
-            return this.renderEquipmentPlanSymbol(item, viewport);
-          }
-
-          return this.renderGenericFurnitureSymbol(item, viewport);
-        })}
+        {furniture.map((item) => renderFurnitureItem(item, viewport))}
       </Group>
     );
   }

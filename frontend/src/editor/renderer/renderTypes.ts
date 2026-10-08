@@ -52,9 +52,19 @@ export interface RenderDoor {
   storeyElevationMeters?: number;
   position: RenderPoint;
   widthMeters: number;
+  subtype?:
+    | "STANDARD_DOOR"
+    | "GARAGE_DOOR"
+    | "OVERHEAD_DOOR"
+    | "ROLLING_DOOR"
+    | string;
   rotationDeg?: number;
+  hostWallId?: string;
+  hostWallAngleDeg?: number;
+  hingeSide?: "START" | "END";
+  swingDirection?: "INWARD" | "OUTWARD";
   swingAngleDeg?: number;
-  swingDirection?: "INSIDE_LEFT" | "INSIDE_RIGHT" | "OUTSIDE_LEFT" | "OUTSIDE_RIGHT";
+  isGarageDoor?: boolean;
   /** Full polygon geometry from IFC (preferred for imported doors) */
   geometry?: RenderGeometry;
 }

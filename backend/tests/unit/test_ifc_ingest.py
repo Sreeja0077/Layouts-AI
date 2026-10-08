@@ -436,6 +436,58 @@ def test_malformed_file_raises_explicit_error():
             os.remove(tmp_path)
 
 
+def test_semantic_subtype_classification():
+    """
+    Unit Test for Phase 1 Semantic Subtype Classification:
+    Verifies that derive_semantic_category_and_subtype accurately classifies:
+    - Standard vs Garage/Overhead/Rolling Doors
+    - Desks, Conference Tables, Chairs, Sectionals, Pantry Counters, Toilets, Sinks
+    """
+    from app.bim.ifc_ingest import derive_semantic_category_and_subtype
+
+    class MockEntity:
+        def __init__(self, ifc_type, name="", obj_type="", predef_type="", tag=""):
+            self._type = ifc_type
+            self.Name = name
+            self.ObjectType = obj_type
+            self.PredefinedType = predef_type
+            self.Tag = tag
+
+        def is_a(self):
+            return self._type
+
+    # Door Subtypes
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcDoor", name="Overhead Sectional Garage Door"))
+    assert cat == "DOOR" and sub in ("GARAGE_DOOR", "OVERHEAD_DOOR")
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcDoor", name="Rolling Security Shutter Door"))
+    assert cat == "DOOR" and sub == "ROLLING_DOOR"
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcDoor", name="Single-Flush Interior Door"))
+    assert cat == "DOOR" and sub == "STANDARD_DOOR"
+
+    # Furniture / Fixtures
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcFurnishingElement", name="Boardroom Conference Table"))
+    assert cat == "FURNITURE_ITEM" and sub == "CONFERENCE_TABLE"
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcFurnishingElement", name="Executive L-Desk"))
+    assert cat == "FURNITURE_ITEM" and sub == "DESK"
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcFurnishingElement", name="Ergonomic Swivel Task Chair"))
+    assert cat == "FURNITURE_ITEM" and sub == "CHAIR"
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcFurnishingElement", name="Modern L-Sectional Sofa"))
+    assert cat == "FURNITURE_ITEM" and sub in ("SOFA", "SECTIONAL")
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcSanitaryTerminal", name="Wall-Hung Toilet Bowl"))
+    assert cat == "FURNITURE_ITEM" and sub == "TOILET"
+
+    cat, sub = derive_semantic_category_and_subtype(MockEntity("IfcSanitaryTerminal", name="Vanity Wash Basin"))
+    assert cat == "FURNITURE_ITEM" and sub == "BASIN"
+
+    print("SEMANTIC SUBTYPE CLASSIFICATION TEST PASSED SUCCESSFULLY!")
+
+
 if __name__ == "__main__":
     test_concave_l_shape_mesh_projection()
     test_multipart_and_hole_mesh_projection()
@@ -445,6 +497,8 @@ if __name__ == "__main__":
     test_forced_geometry_failure_regression()
     test_missing_file_raises_explicit_error()
     test_malformed_file_raises_explicit_error()
+    test_semantic_subtype_classification()
     print("\nALL REVIT IFC INGESTION TESTS PASSED SUCCESSFULLY!")
+
 
 

@@ -370,10 +370,19 @@ export function reportToRenderModel(
         geometry: renderGeom,
       });
     } else if (cat === "DOOR" || cat.includes("DOOR")) {
+      const rawSubtype = String(elem?.subtype || "").toUpperCase();
+      const elemName = String(elem?.name || "").toUpperCase();
+      const elemObjType = String(elem?.properties?.ObjectType || "").toUpperCase();
+      const combinedDoorText = `${rawSubtype} ${elemName} ${elemObjType}`;
+      const isGarage = /GARAGE|OVERHEAD|ROLLING|ROLL-UP|ROLLUP|SECTIONAL|DRIVEWAY/.test(combinedDoorText);
+      const doorSubtype = isGarage ? "GARAGE_DOOR" : (rawSubtype || "STANDARD_DOOR");
+
       doors.push({
         id: elem.id || elem.global_id || `door_${doors.length}`,
         position: { x: centerX, y: centerY },
         widthMeters: 0.9,
+        subtype: doorSubtype,
+        isGarageDoor: isGarage,
         swingAngleDeg: 90,
         storeyName,
         storeyElevationMeters: storeyElevation,

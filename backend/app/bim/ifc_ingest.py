@@ -253,14 +253,18 @@ def derive_semantic_category_and_subtype(entity: Any) -> Tuple[str, str]:
     Deterministically derive (category, subtype) for an IFC entity based on:
     IFC entity type, Name, ObjectType, PredefinedType, and Tag.
     category: 'WALL' | 'DOOR' | 'WINDOW' | 'COLUMN' | 'SPACE' | 'FURNITURE_ITEM'
-    subtype: 'DOOR' | 'WINDOW' | 'CHAIR' | 'TABLE' | 'DESK' | 'CABINET' | 'SOFA' | 'STORAGE' | 'SANITARY' | 'EQUIPMENT' | 'FIXTURE' | 'STAIR' | 'RAILING' | 'OTHER'
+    subtype: 'STANDARD_DOOR' | 'GARAGE_DOOR' | 'OVERHEAD_DOOR' | 'ROLLING_DOOR'
+             | 'WINDOW' | 'CHAIR' | 'TABLE' | 'CONFERENCE_TABLE' | 'DESK' | 'SOFA' | 'SECTIONAL'
+             | 'CABINET' | 'STORAGE' | 'TOILET' | 'BASIN' | 'SINK' | 'PANTRY_COUNTER' | 'SANITARY'
+             | 'EQUIPMENT' | 'FIXTURE' | 'STAIR' | 'RAILING' | 'OTHER'
     """
     ifc_type = entity.is_a().upper() if hasattr(entity, "is_a") else ""
     name = (getattr(entity, "Name", "") or "").upper()
     obj_type = (getattr(entity, "ObjectType", "") or "").upper()
     predef_type = (str(getattr(entity, "PredefinedType", "")) if hasattr(entity, "PredefinedType") else "").upper()
+    tag = (str(getattr(entity, "Tag", "")) if hasattr(entity, "Tag") else "").upper()
 
-    combined_text = f"{ifc_type} {name} {obj_type} {predef_type}"
+    combined_text = f"{ifc_type} {name} {obj_type} {predef_type} {tag}"
 
     # Structural mapping
     if "WALL" in ifc_type:
@@ -270,26 +274,46 @@ def derive_semantic_category_and_subtype(entity: Any) -> Tuple[str, str]:
     if "SPACE" in ifc_type or "ROOM" in ifc_type:
         return "SPACE", "OTHER"
 
-    # Doors and Windows
+    # Doors
     if "DOOR" in ifc_type:
-        return "DOOR", "DOOR"
+        if any(kw in combined_text for kw in ["GARAGE", "OVERHEAD", "ROLLING", "ROLL-UP", "ROLLUP", "SECTIONAL", "DRIVEWAY"]):
+            if "OVERHEAD" in combined_text:
+                return "DOOR", "OVERHEAD_DOOR"
+            if "ROLLING" in combined_text or "ROLL-UP" in combined_text or "ROLLUP" in combined_text:
+                return "DOOR", "ROLLING_DOOR"
+            return "DOOR", "GARAGE_DOOR"
+        return "DOOR", "STANDARD_DOOR"
+
+    # Windows
     if "WINDOW" in ifc_type:
         return "WINDOW", "WINDOW"
 
     # Furniture / Architectural Item Subtypes
+    if "CONFERENCE" in combined_text or "BOARDROOM" in combined_text:
+        return "FURNITURE_ITEM", "CONFERENCE_TABLE"
     if "CHAIR" in combined_text or "SEAT" in combined_text or "STOOL" in combined_text or "BENCH" in combined_text:
         return "FURNITURE_ITEM", "CHAIR"
     if "DESK" in combined_text or "WORKSTATION" in combined_text:
         return "FURNITURE_ITEM", "DESK"
-    if "TABLE" in combined_text or "DINING" in combined_text or "CONFERENCE" in combined_text:
+    if "TABLE" in combined_text or "DINING" in combined_text:
         return "FURNITURE_ITEM", "TABLE"
+    if "SECTIONAL" in combined_text:
+        return "FURNITURE_ITEM", "SECTIONAL"
     if "SOFA" in combined_text or "COUCH" in combined_text or "ARMCHAIR" in combined_text or "SETTEE" in combined_text:
         return "FURNITURE_ITEM", "SOFA"
+    if "PANTRY" in combined_text or "COUNTER" in combined_text or "KITCHEN" in combined_text:
+        return "FURNITURE_ITEM", "PANTRY_COUNTER"
+    if "TOILET" in combined_text or "WC" in combined_text or "WATER CLOSET" in combined_text:
+        return "FURNITURE_ITEM", "TOILET"
+    if "BASIN" in combined_text or "LAVATORY" in combined_text:
+        return "FURNITURE_ITEM", "BASIN"
+    if "SINK" in combined_text:
+        return "FURNITURE_ITEM", "SINK"
     if "CABINET" in combined_text or "SHELF" in combined_text or "CREDENCE" in combined_text or "BOOKCASE" in combined_text or "DRAWER" in combined_text:
         return "FURNITURE_ITEM", "CABINET"
     if "STORAGE" in combined_text or "LOCKER" in combined_text or "CLOSET" in combined_text or "WARDROBE" in combined_text:
         return "FURNITURE_ITEM", "STORAGE"
-    if "SANITARY" in ifc_type or "SINK" in combined_text or "TOILET" in combined_text or "BASIN" in combined_text or "URINAL" in combined_text or "SHOWER" in combined_text or "BATH" in combined_text or "WC" in combined_text:
+    if "SANITARY" in ifc_type or "URINAL" in combined_text or "SHOWER" in combined_text or "BATH" in combined_text:
         return "FURNITURE_ITEM", "SANITARY"
     if "LIGHT" in combined_text or "LAMP" in combined_text or "FIXTURE" in combined_text or "PANEL" in combined_text or "RECEPTACLE" in combined_text or "SWITCH" in combined_text:
         return "FURNITURE_ITEM", "FIXTURE"
