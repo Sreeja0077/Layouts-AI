@@ -23,10 +23,6 @@ def sample_rectangular_room():
         name="Executive Suite 101",
         boundary_polygon=[(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)],
         net_area_sqm=80.0,
-        walls=[
-            WallEntity(id="w1", start_point=(0.0, 0.0), end_point=(10.0, 0.0), thickness_m=0.2),
-            WallEntity(id="w2", start_point=(10.0, 0.0), end_point=(10.0, 8.0), thickness_m=0.2),
-        ],
         doors=[
             DoorEntity(id="d1", center_x=2.0, center_y=0.0, width_m=0.9, swing_deg=90.0),
         ],

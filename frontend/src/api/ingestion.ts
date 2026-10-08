@@ -179,7 +179,7 @@ export async function listFloorPlans(projectId: string): Promise<FloorPlanItem[]
 }
 
 /** Helper to parse GeoJSON polygon/multipolygon from element geometry into RenderGeometry */
-function parseRenderGeometry(elem: ElementGeometry): RenderGeometry | undefined {
+function parseRenderGeometry(elem: any): RenderGeometry | undefined {
   const type =
     elem.type ||
     (Array.isArray(elem.coordinates) &&
@@ -226,9 +226,12 @@ function parseRenderGeometry(elem: ElementGeometry): RenderGeometry | undefined 
   return polygons.length > 0 ? { polygons } : undefined;
 }
 
+import { normalizeFloorPlanRenderModel } from "../geometry/coordinateNormalization";
+
 /**
  * Utility to convert backend GeometryVerificationReport elements into interactive Konva FloorPlanRenderModel.
- * Accurately extracts full 2D polygon footprints from IFC/DXF geometry models.
+ * Accurately extracts full 2D polygon footprints from IFC/DXF geometry models and normalizes coordinates
+ * using a single global floor-plan origin translation.
  */
 export function reportToRenderModel(report: GeometryVerificationReport): FloorPlanRenderModel {
   const walls: RenderWall[] = [];
@@ -261,7 +264,7 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
     return pts;
   };
 
-  (report.all_elements_geometry || []).forEach((elem, index) => {
+  (report.all_elements_geometry || []).forEach((elem: any, index: number) => {
     const cat = (elem.category || "").toUpperCase();
     const subtype = (elem.subtype || elem.category || "OTHER").toUpperCase();
     const sourceIfcType = elem.element_type || "IfcEntity";
@@ -372,7 +375,7 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
     ];
   }
 
-  return {
+  const rawModel: FloorPlanRenderModel = {
     id: report.floor_plan_name || "uploaded_fp",
     name: report.floor_plan_name || "Uploaded Floor Plan",
     boundary: boundaryPts,
@@ -383,4 +386,6 @@ export function reportToRenderModel(report: GeometryVerificationReport): FloorPl
     spaces,
     furniture,
   };
+
+  return normalizeFloorPlanRenderModel(rawModel);
 }

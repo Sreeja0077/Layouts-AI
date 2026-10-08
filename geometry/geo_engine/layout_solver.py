@@ -26,7 +26,7 @@ from app.domain.geometry.entities import (
     WindowEntity,
 )
 from app.domain.layout.schemas import CirculationPath, LayoutMetrics, LayoutSuggestion, PlacedObject
-from app.domain.requirements.schemas import RequirementSet, SpaceItemRequirement
+from app.domain.requirements.schemas import RequirementItem, RequirementSet
 from geometry.geo_engine.freespace import FreeSpaceEngine
 from geometry.geo_engine.rules.geometry.collision_rule import CollisionRule
 from geometry.geo_engine.rules.rule_evaluator import RuleEvaluator
@@ -73,8 +73,9 @@ class DeterministicLayoutSolver:
         obstacles: List[Polygon] = []
 
         # 1. Structural Walls
-        if room.walls:
-            for wall in room.walls:
+        walls = getattr(room, "walls", None) or []
+        if walls:
+            for wall in walls:
                 p1, p2 = wall.start_point, wall.end_point
                 dx, dy = p2[0] - p1[0], p2[1] - p1[1]
                 length = math.hypot(dx, dy)
@@ -213,6 +214,7 @@ class DeterministicLayoutSolver:
         """Generate a single layout candidate proposal following a specific spatial strategy."""
         placed_objects: List[PlacedObject] = []
         placed_polys: List[Polygon] = []
+        placed_clearance_polys: List[Polygon] = []
 
         min_x, min_y, max_x, max_y = usable_geom.bounds
         center_x = (min_x + max_x) / 2.0
@@ -243,7 +245,7 @@ class DeterministicLayoutSolver:
 
         # Generate candidate grid points in metric world coordinates
         grid_pts: List[Tuple[float, float]] = []
-        step = 0.5
+        step = 0.6
         curr_y = min_y + 0.6
         while curr_y <= max_y - 0.6:
             curr_x = min_x + 0.6
@@ -262,6 +264,8 @@ class DeterministicLayoutSolver:
         else: # FACING_ROWS or GRID_CORRIDOR
             # Points starting near centroid
             grid_pts.sort(key=lambda pt: math.hypot(pt[0] - center_x, pt[1] - center_y))
+
+        from geometry.geo_engine.rules.circulation.clearance_rule import ClearanceRule
 
         # Place items deterministically
         for idx, spec in enumerate(item_specs):
@@ -283,6 +287,7 @@ class DeterministicLayoutSolver:
                         clearance_back=spec["clearance_back"],
                     )
                     cand_poly = CollisionRule.get_object_polygon(cand_obj)
+                    cand_clearance = ClearanceRule.get_clearance_polygon(cand_obj, {})
 
                     # 1. Usable room containment check
                     if not usable_geom.contains(cand_poly):
@@ -296,9 +301,16 @@ class DeterministicLayoutSolver:
                     if any(cand_poly.intersects(p_poly) for p_poly in placed_polys):
                         continue
 
+                    # 4. Clearance zone overlap checks (no item obstructs another's clearance zone)
+                    if any(cand_poly.intersects(p_clr) for p_clr in placed_clearance_polys):
+                        continue
+                    if any(cand_clearance.intersects(p_poly) for p_poly in placed_polys):
+                        continue
+
                     # Valid position accepted!
                     placed_objects.append(cand_obj)
                     placed_polys.append(cand_poly)
+                    placed_clearance_polys.append(cand_clearance)
                     placed = True
                     break
                 if placed:
@@ -355,24 +367,28 @@ class DeterministicLayoutSolver:
         min_x, min_y, max_x, max_y = usable_geom.bounds
         cx, cy = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
 
+        from geometry.geo_engine.rules.circulation.clearance_rule import ClearanceRule
+        placed_clearance_polys: List[Polygon] = []
+
         for r_item in requested_items:
             item_type = r_item.get("item_type", "PROFESSIONAL_DESK")
             qty = int(r_item.get("quantity", 1))
             cat_entry = self.get_catalog_entry(item_type)
             w = float(r_item.get("width_m") or cat_entry["width"])
             h = float(r_item.get("depth_m") or cat_entry["depth"])
+            clr_back = float(cat_entry.get("clearance_back", 0.5))
 
             for q_idx in range(qty):
                 obj_id = f"fallback_{uuid.uuid4().hex[:6]}"
                 # Scan from room centroid outward
                 placed = False
-                for r_dist in [0.0, 0.8, 1.6, 2.4, 3.2, 4.0]:
+                for r_dist in [0.0, 0.9, 1.8, 2.7, 3.6, 4.5]:
                     for angle_deg in range(0, 360, 30):
                         rad = math.radians(angle_deg)
                         cand_x = round(cx + r_dist * math.cos(rad), 3)
                         cand_y = round(cy + r_dist * math.sin(rad), 3)
 
-                        for rot in [0.0, 90.0]:
+                        for rot in [0.0, 90.0, 180.0, 270.0]:
                             cand_obj = PlacedObject(
                                 id=obj_id,
                                 catalog_item_id=r_item.get("catalog_id") or f"cat_{item_type.lower()}",
@@ -382,15 +398,19 @@ class DeterministicLayoutSolver:
                                 rotation_deg=rot,
                                 width=w,
                                 height=h,
+                                clearance_back=clr_back,
                             )
                             cand_poly = CollisionRule.get_object_polygon(cand_obj)
+                            cand_clearance = ClearanceRule.get_clearance_polygon(cand_obj, {})
 
                             if usable_geom.contains(cand_poly) and not any(cand_poly.intersects(obs) for obs in obstacles):
                                 if not any(cand_poly.intersects(pp) for pp in placed_polys):
-                                    placed_objects.append(cand_obj)
-                                    placed_polys.append(cand_poly)
-                                    placed = True
-                                    break
+                                    if not any(cand_poly.intersects(pc) for pc in placed_clearance_polys) and not any(cand_clearance.intersects(pp) for pp in placed_polys):
+                                        placed_objects.append(cand_obj)
+                                        placed_polys.append(cand_poly)
+                                        placed_clearance_polys.append(cand_clearance)
+                                        placed = True
+                                        break
                         if placed:
                             break
                     if placed:

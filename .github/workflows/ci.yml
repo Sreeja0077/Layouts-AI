@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres_secure_password@localhost:5432/layouts_ai
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
 
     services:
       postgres:
@@ -83,6 +84,11 @@ jobs:
       - name: Run Layout Validation Rules Engine Unit Test
         run: |
           python backend/tests/unit/test_rules_engine.py
+
+      - name: Run Layout Solver Engine Unit Test
+        run: |
+          python backend/tests/unit/test_layout_solver.py
+          pytest backend/tests/unit/test_layout_solver.py -v
 
       - name: Run Revit IFC Floor-Plan Ingestion Unit & Integration Test
         run: |

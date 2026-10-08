@@ -16,7 +16,7 @@ export interface GenerateLayoutRequest {
 }
 
 export interface PlacedObjectPayload {
-  id: str;
+  id: string;
   catalog_item_id: string;
   item_type: string;
   x: number;

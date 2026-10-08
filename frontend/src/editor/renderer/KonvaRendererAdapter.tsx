@@ -9,6 +9,7 @@ import { Group, Line, Rect, Arc, Text, Transformer } from "react-konva";
 import Konva from "konva";
 import {
   FloorPlanRenderModel,
+  RenderPoint,
   RenderWall,
   RenderDoor,
   RenderWindow,

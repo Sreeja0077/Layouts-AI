@@ -80,10 +80,12 @@ export function calculateSnap(
   }
 
   for (const wall of model.walls) {
-    candidateX.push({ val: wall.start.x, source: wall.id });
-    candidateX.push({ val: wall.end.x, source: wall.id });
-    candidateY.push({ val: wall.start.y, source: wall.id });
-    candidateY.push({ val: wall.end.y, source: wall.id });
+    if (wall.start && wall.end) {
+      candidateX.push({ val: wall.start.x, source: wall.id });
+      candidateX.push({ val: wall.end.x, source: wall.id });
+      candidateY.push({ val: wall.start.y, source: wall.id });
+      candidateY.push({ val: wall.end.y, source: wall.id });
+    }
   }
 
   // 1. Try Alignment Snapping for X
