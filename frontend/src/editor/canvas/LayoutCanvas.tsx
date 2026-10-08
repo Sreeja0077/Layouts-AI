@@ -21,6 +21,7 @@ import { selectionManager } from "../selection/selectionManager";
 import { EditorToolMode, FreehandStroke, RegionPreview } from "../freehand/freehandTypes";
 import { computeRegionPreview } from "../freehand/freehandManager";
 import { RegionPreviewPanel } from "../freehand/RegionPreviewPanel";
+import { CanvasToolbar } from "../../components/workspace/CanvasToolbar";
 
 // Default sample floor plan render model for Task 5.3, 5.4, 6.1 & 6.2 validation
 const SAMPLE_FLOOR_PLAN_RENDER_MODEL: FloorPlanRenderModel = {
@@ -222,236 +223,24 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         flexDirection: "column",
         width: "100%",
         height: "100%",
-        minHeight: "450px",
-        borderRadius: "8px",
         overflow: "hidden",
-        border: "1px solid #334155",
-        backgroundColor: "#000000",
+        backgroundColor: "#FAFAF8",
         position: "relative",
       }}
     >
-      {/* Top Viewport & Tool Mode Control Bar */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "8px 16px",
-          backgroundColor: "#1e293b",
-          borderBottom: "1px solid #334155",
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          {onGoToUpload && (
-            <button
-              className="btn-ctrl"
-              onClick={onGoToUpload}
-              title="Go to Upload & Floor Plans Panel"
-              style={{ backgroundColor: "#0284c7", color: "#ffffff", borderColor: "#0284c7", fontWeight: 700, padding: "4px 12px" }}
-            >
-              + Upload / Sidebar
-            </button>
-          )}
-
-          {availableFloorPlans && availableFloorPlans.length > 0 && onSwitchFloorPlan && (
-            <select
-              value={activeFloorPlanId || ""}
-              onChange={(e) => {
-                if (e.target.value) {
-                  const savedProj = localStorage.getItem("layouts_ai_active_project_id") || "proj_101";
-                  onSwitchFloorPlan(savedProj, e.target.value);
-                }
-              }}
-              style={{
-                backgroundColor: "#0f172a",
-                border: "1px solid #38bdf8",
-                color: "#f8fafc",
-                borderRadius: "6px",
-                padding: "5px 12px",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              {availableFloorPlans.map((fp) => (
-                <option key={fp.id} value={fp.id}>
-                  📄 {fp.name}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {availableStoreys && availableStoreys.length > 1 && onSwitchStorey && (
-            <select
-              value={activeStorey || availableStoreys[0] || ""}
-              onChange={(e) => {
-                if (e.target.value) {
-                  onSwitchStorey(e.target.value);
-                }
-              }}
-              title="Select IFC building storey to display"
-              style={{
-                backgroundColor: "#0f172a",
-                border: "1px solid #38bdf8",
-                color: "#f8fafc",
-                borderRadius: "6px",
-                padding: "5px 12px",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                cursor: "pointer",
-                maxWidth: "190px",
-              }}
-            >
-              {availableStoreys.map((storey) => (
-                <option key={storey} value={storey}>
-                  🏢 {storey}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {toolMode === "freehand_region" ? (
-            <span style={{ color: "#a855f7", fontWeight: 600, fontSize: "0.875rem" }}>
-              SELECT REGION ACTIVE — Click & drag to outline working area
-            </span>
-          ) : (
-            <span style={{ color: "#38bdf8", fontWeight: 600, fontSize: "0.875rem" }}>
-              2D CAD Layout Editor
-            </span>
-          )}
-          <span style={{ color: "#64748b", fontSize: "0.75rem" }}>
-            (Wheel zooms • Left-drag pan)
-          </span>
-        </div>
-
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {/* Tool Modes */}
-          <button
-            className={`btn-ctrl ${toolMode === "select" ? "btn-ctrl-active" : ""}`}
-            onClick={() => setToolMode("select")}
-            title="Select & edit objects or pan canvas"
-          >
-            Select
-          </button>
-          <button
-            className={`btn-ctrl ${toolMode === "freehand_region" ? "btn-ctrl-active" : ""}`}
-            onClick={() => {
-              setToolMode("freehand_region");
-              setSelectedObjectId(null);
-            }}
-            title="Draw arbitrary spatial region on floor plan"
-          >
-            Select Region
-          </button>
-
-          <span style={{ color: "#475569", margin: "0 4px" }}>|</span>
-
-          {/* Viewport Actions */}
-          <button className="btn-ctrl" onClick={handleZoomIn} title="Zoom In around canvas center">
-            Zoom In (+)
-          </button>
-          <button className="btn-ctrl" onClick={handleZoomOut} title="Zoom Out around canvas center">
-            Zoom Out (-)
-          </button>
-          <button className="btn-ctrl" onClick={handleFitView} title="Fit entire floor plan in viewport">
-            Fit View
-          </button>
-          <button
-            className={`btn-ctrl ${showGrid ? "btn-ctrl-active" : ""}`}
-            onClick={() => setShowGrid(!showGrid)}
-            title="Toggle drafting grid visibility"
-          >
-            {showGrid ? "Grid On" : "Grid Off"}
-          </button>
-
-          {freehandStroke && (
-            <button
-              className="btn-ctrl"
-              onClick={handleClearRegion}
-              title="Clear captured freehand region"
-              style={{ borderColor: "#ef4444", color: "#f87171" }}
-            >
-              Clear Region
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* AI Layout Solver Controls Toolbar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          padding: "8px 16px",
-          backgroundColor: "#0f172a",
-          borderBottom: "1px solid #334155",
-          zIndex: 9,
-        }}
-      >
-        <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "#38bdf8", display: "flex", alignItems: "center", gap: "4px" }}>
-          ⚡ AI Solver:
-        </span>
-        <input
-          type="text"
-          value={promptInput}
-          onChange={(e) => setPromptInput(e.target.value)}
-          placeholder="e.g. 6 Professional Desks + 1 Manager Cabin"
-          style={{
-            flex: 1,
-            backgroundColor: "#1e293b",
-            border: "1px solid #475569",
-            color: "#f8fafc",
-            borderRadius: "6px",
-            padding: "4px 10px",
-            fontSize: "0.8125rem",
-          }}
-        />
-        <button
-          onClick={handleGenerateLayout}
-          disabled={isGenerating}
-          style={{
-            backgroundColor: isGenerating ? "#475569" : "#0284c7",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "6px",
-            padding: "4px 14px",
-            fontSize: "0.8125rem",
-            fontWeight: 700,
-            cursor: isGenerating ? "not-allowed" : "pointer",
-          }}
-        >
-          {isGenerating ? "Solving Geometry..." : "⚡ Solve Layout"}
-        </button>
-
-        {layoutCandidates.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "12px" }}>
-            <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Candidates:</span>
-            {layoutCandidates.map((cand, idx) => (
-              <button
-                key={cand.id}
-                onClick={() => handleSelectCandidate(idx)}
-                style={{
-                  backgroundColor: activeCandidateIdx === idx ? "#38bdf8" : "#1e293b",
-                  color: activeCandidateIdx === idx ? "#0f172a" : "#f8fafc",
-                  border: "1px solid #38bdf8",
-                  borderRadius: "4px",
-                  padding: "2px 8px",
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {`Cand ${String.fromCharCode(65 + idx)} (${cand.strategy_name.split(" ")[0]})`}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Overlay CAD Drafting Toolbar */}
+      <CanvasToolbar
+        toolMode={toolMode}
+        onSelectToolMode={setToolMode}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onFitView={handleFitView}
+        showGrid={showGrid}
+        onToggleGrid={() => setShowGrid((prev) => !prev)}
+      />
 
       {/* Konva Stage Container */}
-      <div style={{ flex: 1, position: "relative" }}>
+      <div style={{ flex: 1, position: "relative", backgroundColor: "#FAFAF8" }}>
         <CanvasStage
           viewport={viewport}
           onViewportChange={setViewport}

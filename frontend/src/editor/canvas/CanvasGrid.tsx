@@ -73,9 +73,9 @@ export const CanvasGrid: React.FC<CanvasGridProps> = React.memo(({
         <Line
           key={`minor-${idx}`}
           points={pts}
-          stroke="#334155"
+          stroke="#E5E7EB"
           strokeWidth={0.5}
-          opacity={0.3}
+          opacity={0.8}
           dash={[2, 2]}
         />
       ))}
@@ -85,9 +85,9 @@ export const CanvasGrid: React.FC<CanvasGridProps> = React.memo(({
         <Line
           key={`major-${idx}`}
           points={pts}
-          stroke="#475569"
+          stroke="#D1D5DB"
           strokeWidth={1}
-          opacity={0.6}
+          opacity={0.9}
         />
       ))}
     </Layer>

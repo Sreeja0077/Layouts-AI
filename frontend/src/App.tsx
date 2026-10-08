@@ -6,6 +6,7 @@ import { VerificationSummaryPanel } from "./components/VerificationSummaryPanel"
 import { RejectModal } from "./components/RejectModal";
 import { FloorPlanUploadPanel } from "./components/FloorPlanUploadPanel";
 import { LayoutCanvas } from "./editor/canvas";
+import { AppShell } from "./components/workspace/AppShell";
 import {
   fetchVerificationReport,
   verifyFloorPlan,
@@ -323,18 +324,19 @@ export const App: React.FC<AppProps> = ({
       )}
 
       {activeTab === "editor" && (
-        <main style={{ padding: "16px", display: "flex", flexDirection: "column", flex: 1, height: "calc(100vh - 64px)" }}>
-          <LayoutCanvas
-            renderModel={editorRenderModel}
-            activeFloorPlanId={activeFloorPlanId}
-            availableFloorPlans={userFloorPlans}
-            onSwitchFloorPlan={handleOpenExistingFloorPlan}
-            availableStoreys={(report?.available_storeys || []).map((storey) => storey.name)}
-            activeStorey={activeStorey}
-            onSwitchStorey={handleStoreyChange}
-            onGoToUpload={() => setActiveTab("workspace")}
-          />
-        </main>
+        <AppShell
+          renderModel={editorRenderModel}
+          activeFloorPlanId={activeFloorPlanId}
+          availableFloorPlans={userFloorPlans}
+          onSwitchFloorPlan={handleOpenExistingFloorPlan}
+          availableStoreys={(report?.available_storeys || []).map((storey) => storey.name)}
+          activeStorey={activeStorey}
+          onSwitchStorey={handleStoreyChange}
+          onGoToUpload={() => setActiveTab("workspace")}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          isVerified={Boolean(report?.verification_status === "VERIFIED")}
+        />
       )}
 
       {activeTab === "diagnostics" && (

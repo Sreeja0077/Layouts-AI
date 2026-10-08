@@ -44,13 +44,10 @@ export interface KonvaRendererProps {
  */
 export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
   private static SPACE_COLOR_PALETTE = [
-    { fill: "rgba(55, 65, 81, 0.65)", stroke: "rgba(156, 163, 175, 0.5)", text: "#e5e7eb" },    // Slate / Office
-    { fill: "rgba(120, 53, 15, 0.55)", stroke: "rgba(217, 119, 6, 0.5)", text: "#fde68a" },    // Warm Wood / Exec Suite
-    { fill: "rgba(30, 58, 138, 0.55)", stroke: "rgba(96, 165, 250, 0.5)", text: "#bfdbfe" },   // Deep Navy / Meeting Room
-    { fill: "rgba(63, 63, 70, 0.65)", stroke: "rgba(161, 161, 170, 0.5)", text: "#f4f4f5" },   // Charcoal / Reception
-    { fill: "rgba(15, 118, 110, 0.55)", stroke: "rgba(45, 212, 191, 0.5)", text: "#ccfbf1" },  // Teal / Lounge
-    { fill: "rgba(124, 45, 18, 0.55)", stroke: "rgba(251, 146, 60, 0.5)", text: "#ffedd5" },   // Amber / Corridor
-    { fill: "rgba(74, 4, 78, 0.55)", stroke: "rgba(192, 132, 252, 0.5)", text: "#f3e8ff" },   // Purple / Storage
+    { fill: "rgba(248, 250, 252, 0.75)", stroke: "#CBD5E1", text: "#1E293B" }, // Light Slate
+    { fill: "rgba(241, 245, 249, 0.75)", stroke: "#CBD5E1", text: "#1E293B" }, // Light Gray
+    { fill: "rgba(243, 244, 246, 0.75)", stroke: "#D1D5DB", text: "#1F2937" }, // Warm Off-White
+    { fill: "rgba(249, 250, 251, 0.75)", stroke: "#E5E7EB", text: "#1F2937" }, // Neutral Tint
   ];
 
   private extractOrientedBounds(geometry?: RenderGeometry): {
@@ -224,20 +221,19 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                 strokeWidth: 1.5,
               })}
 
-              {/* Revit 2D Room Tag Badge Box */}
+              {/* Architectural 2D Room Tag Badge Box */}
               <Group x={centroidScreen.x} y={centroidScreen.y}>
                 <Rect
                   x={-50}
                   y={-18}
                   width={100}
                   height={36}
-                  fill="rgba(15, 23, 42, 0.85)"
-                  stroke="#38bdf8"
+                  fill="rgba(255, 255, 255, 0.95)"
+                  stroke="#94a3b8"
                   strokeWidth={1}
-                  cornerRadius={4}
-                  shadowColor="black"
-                  shadowBlur={4}
-                  shadowOpacity={0.4}
+                  cornerRadius={3}
+                  shadowColor="rgba(0, 0, 0, 0.1)"
+                  shadowBlur={3}
                 />
                 <Text
                   text={rawName}
@@ -245,9 +241,9 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                   y={-14}
                   width={96}
                   align="center"
-                  fontSize={11}
+                  fontSize={10}
                   fontStyle="bold"
-                  fill="#f8fafc"
+                  fill="#1e293b"
                   fontFamily="Inter, sans-serif"
                   listening={false}
                 />
@@ -258,7 +254,7 @@ export class KonvaRendererAdapterImpl implements RendererAdapter<JSX.Element> {
                   width={96}
                   align="center"
                   fontSize={9}
-                  fill="#94a3b8"
+                  fill="#64748b"
                   fontFamily="Inter, sans-serif"
                   listening={false}
                 />

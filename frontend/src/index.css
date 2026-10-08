@@ -1,3 +1,21 @@
+:root {
+  --app-bg: #F5F6F8;
+  --panel-bg: #FFFFFF;
+  --canvas-bg: #FAFAF8;
+  --text-primary: #1F2937;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+  --border-color: #D9DDE3;
+  --border-strong: #B8BEC7;
+  --geom-primary: #2B2F33;
+  --geom-secondary: #70757D;
+  --accent-blue: #2563EB;
+  --accent-purple: #7C3AED;
+  --color-success: #15803D;
+  --color-warning: #D97706;
+  --color-error: #DC2626;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -6,8 +24,8 @@
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #0f172a;
-  color: #f8fafc;
+  background-color: var(--app-bg);
+  color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
   width: 100vw;
