@@ -72,6 +72,9 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   onGoToUpload,
   availableFloorPlans,
   activeFloorPlanId,
+  availableStoreys,
+  activeStorey,
+  onSwitchStorey,
 }) => {
   const initialModel = renderModel || demoModel || SAMPLE_FLOOR_PLAN_RENDER_MODEL;
   const [activeModel, setActiveModel] = useState<FloorPlanRenderModel>(initialModel);
@@ -131,6 +134,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
 
       const results = await generateLayoutCandidates({
         floor_plan_id: targetFpId,
+        storey_name: activeStorey,
         requirements: reqs,
       });
 
@@ -273,6 +277,35 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
               {availableFloorPlans.map((fp) => (
                 <option key={fp.id} value={fp.id}>
                   📄 {fp.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {availableStoreys && availableStoreys.length > 1 && onSwitchStorey && (
+            <select
+              value={activeStorey || availableStoreys[0] || ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  onSwitchStorey(e.target.value);
+                }
+              }}
+              title="Select IFC building storey to display"
+              style={{
+                backgroundColor: "#0f172a",
+                border: "1px solid #38bdf8",
+                color: "#f8fafc",
+                borderRadius: "6px",
+                padding: "5px 12px",
+                fontSize: "0.8125rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                maxWidth: "190px",
+              }}
+            >
+              {availableStoreys.map((storey) => (
+                <option key={storey} value={storey}>
+                  🏢 {storey}
                 </option>
               ))}
             </select>
@@ -476,6 +509,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           {!selectedObjectId && !regionPreview?.isClosed && "Selected: None"}
         </div>
         <div>
+          {activeStorey ? `Storey: ${activeStorey} | ` : ""}
           Tool: {toolMode.toUpperCase()} | Scale: {viewport.scale.toFixed(1)} px/m
         </div>
       </div>
