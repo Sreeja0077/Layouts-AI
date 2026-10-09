@@ -110,6 +110,11 @@ jobs:
           python backend/tests/integration/test_verification_api.py
           pytest backend/tests/integration/test_verification_api.py -v
 
+      - name: Run Task 6.3 Region Clipping & Authoritative Geometry Unit Test
+        run: |
+          python backend/tests/unit/test_region_clipping.py
+          pytest backend/tests/unit/test_region_clipping.py -v
+
       - name: Setup Node.js 20
         uses: actions/setup-node@v3
         with:

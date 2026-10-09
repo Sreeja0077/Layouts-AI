@@ -108,23 +108,46 @@ def extract_authoritative_boundary_from_report(
 ) -> Tuple[Optional[Polygon | MultiPolygon], Optional[str]]:
     """
     Extract the authoritative room/space boundary for the requested storey from the persisted verification report.
-    Reuses the repository's existing IFC spatial geometry convention without fabricating synthetic rooms.
+    Enforces strict storey isolation and uses ONLY real persisted IFC SPACE footprints.
+    Never fabricates convex hulls from walls/columns or falls back across storeys.
     """
     from app.api.v1.layout import _element_geometry, _element_storey_name, _resolve_target_storey
 
     all_elements = report_dict.get("all_elements_geometry", [])
-    resolved_storey = _resolve_target_storey(report_dict, target_storey)
+    if not all_elements:
+        return None, target_storey
 
-    if resolved_storey:
+    available_storeys = [
+        s.get("name") for s in report_dict.get("available_storeys", []) if s.get("name")
+    ]
+
+    # Strict Storey Resolution:
+    if target_storey:
+        # If caller requested an explicit storey that does not exist in the report, return None cleanly
+        if available_storeys and target_storey not in available_storeys:
+            # Check if any element actually has this explicit storey tag
+            has_matching_elem = any(_element_storey_name(e) == target_storey for e in all_elements)
+            if not has_matching_elem:
+                return None, target_storey
+
+        resolved_storey = target_storey
         storey_elements = [
             elem
             for elem in all_elements
-            if _element_storey_name(elem) == resolved_storey
+            if _element_storey_name(elem) == target_storey
         ]
     else:
-        storey_elements = list(all_elements)
+        resolved_storey = _resolve_target_storey(report_dict, None)
+        if resolved_storey:
+            storey_elements = [
+                elem
+                for elem in all_elements
+                if _element_storey_name(elem) == resolved_storey
+            ]
+        else:
+            storey_elements = list(all_elements)
 
-    # 1. Primary: Use real IFC SPACE footprints
+    # Use ONLY real authoritative IFC SPACE footprints belonging to the resolved storey
     space_geoms = [
         geom
         for elem in storey_elements
@@ -132,8 +155,8 @@ def extract_authoritative_boundary_from_report(
         and (geom := _element_geometry(elem)) is not None
     ]
 
-    # Fallback to all spaces in report if storey filter yielded none (e.g. spaces without explicit storey tags)
-    if not space_geoms:
+    # If no spaces were found on the resolved storey, check if single-storey model without explicit tags
+    if not space_geoms and not target_storey and not available_storeys:
         space_geoms = [
             geom
             for elem in all_elements
@@ -141,42 +164,24 @@ def extract_authoritative_boundary_from_report(
             and (geom := _element_geometry(elem)) is not None
         ]
 
-    boundary_geom: Optional[Polygon | MultiPolygon] = None
+    if not space_geoms:
+        return None, resolved_storey
 
-    if space_geoms:
-        boundary_geom = unary_union(space_geoms)
-        if not boundary_geom.is_valid:
-            boundary_geom = make_valid(boundary_geom)
+    boundary_geom = unary_union(space_geoms)
+    if not boundary_geom.is_valid:
+        boundary_geom = make_valid(boundary_geom)
 
-    if boundary_geom is None or boundary_geom.is_empty:
-        # 2. Fallback: Structural elements (WALL, COLUMN) if no explicit spaces
-        candidate_geoms = [
-            geom
-            for elem in storey_elements
-            if elem.get("category") in ("WALL", "COLUMN")
-            and (geom := _element_geometry(elem)) is not None
-        ]
-        if not candidate_geoms:
-            candidate_geoms = [
-                geom
-                for elem in all_elements
-                if elem.get("category") in ("WALL", "COLUMN")
-                and (geom := _element_geometry(elem)) is not None
-            ]
-        if candidate_geoms:
-            boundary_geom = unary_union(candidate_geoms).convex_hull
-            if not boundary_geom.is_valid:
-                boundary_geom = make_valid(boundary_geom)
+    if boundary_geom.is_empty or boundary_geom.area <= 1e-6:
+        return None, resolved_storey
 
-    if boundary_geom is not None and not boundary_geom.is_empty:
-        # Translate to (0, 0) origin matching normalizeFloorPlanRenderModel and _extract_room_entity_from_report
-        min_x, min_y, _, _ = boundary_geom.bounds
-        if abs(min_x) > 1e-4 or abs(min_y) > 1e-4:
-            from shapely.affinity import translate
-            boundary_geom = translate(boundary_geom, xoff=-min_x, yoff=-min_y)
-        return boundary_geom, resolved_storey
+    # Translate to (0, 0) origin matching normalizeFloorPlanRenderModel and _extract_room_entity_from_report
+    min_x, min_y, _, _ = boundary_geom.bounds
+    if abs(min_x) > 1e-4 or abs(min_y) > 1e-4:
+        from shapely.affinity import translate
+        boundary_geom = translate(boundary_geom, xoff=-min_x, yoff=-min_y)
 
-    return None, resolved_storey
+    return boundary_geom, resolved_storey
+
 
 
 

@@ -394,26 +394,53 @@ async def validate_and_clip_freehand_region(
             detail="floor_plan_id is required",
         )
 
-    # 1. Retrieve latest verified report from database if available
+    # 1. Retrieve authoritative source version from database (prefer published version)
+    from app.api.v1.projects import ensure_uuid
+    fp_uuid = ensure_uuid(payload.floor_plan_id)
+
     record = (
         db.query(FloorPlanSourceVersionModel)
-        .filter(FloorPlanSourceVersionModel.floor_plan_id == payload.floor_plan_id)
-        .order_by(FloorPlanSourceVersionModel.version_no.desc())
+        .filter(
+            (FloorPlanSourceVersionModel.floor_plan_id == payload.floor_plan_id)
+            | (FloorPlanSourceVersionModel.floor_plan_id == fp_uuid),
+            FloorPlanSourceVersionModel.is_published == True,
+        )
         .first()
     )
 
-    report_dict = record.verification_report if (record and record.verification_report) else {}
+    if not record:
+        record = (
+            db.query(FloorPlanSourceVersionModel)
+            .filter(
+                (FloorPlanSourceVersionModel.floor_plan_id == payload.floor_plan_id)
+                | (FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
+            )
+            .order_by(FloorPlanSourceVersionModel.version_no.desc())
+            .first()
+        )
 
-    # 2. Extract authoritative architectural boundary for target storey
+    if not record or not record.verification_report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Authoritative floor plan '{payload.floor_plan_id}' not found or lacks verified geometry.",
+        )
+
+    report_dict = record.verification_report
+
+    # 2. Extract authoritative architectural space boundary for target storey
     boundary_geom, resolved_storey = extract_authoritative_boundary_from_report(
         report_dict,
         target_storey=payload.storey_name,
     )
 
     if boundary_geom is None or boundary_geom.is_empty:
-        # Fallback for sample floor plans (e.g. rm_101 / fp_501) matching solver test boundary
-        boundary_geom = Polygon([(0.0, 0.0), (12.0, 0.0), (12.0, 8.0), (0.0, 8.0)])
-        resolved_storey = payload.storey_name or "Storey 1"
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No authoritative architectural boundary found on storey '{payload.storey_name or 'default'}' "
+                f"for floor plan '{payload.floor_plan_id}'."
+            ),
+        )
 
     # 3. Clip and validate user polygon against authoritative boundary
     result = clip_region_to_boundary(
@@ -424,6 +451,7 @@ async def validate_and_clip_freehand_region(
     )
 
     return result
+
 
 
 

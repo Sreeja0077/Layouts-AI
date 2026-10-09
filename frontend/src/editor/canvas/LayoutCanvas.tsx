@@ -162,8 +162,6 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   };
 
   // Compute and lock world region preview when freehand stroke updates
-  const [isValidatingRegion, setIsValidatingRegion] = useState<boolean>(false);
-
   const handleStrokeChange = useCallback(
     (stroke: FreehandStroke | null) => {
       setFreehandStroke(stroke);
@@ -176,7 +174,6 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         // Automatically validate with backend as soon as a region stroke is closed
         if (stroke.isClosed && !stroke.isDrawing && preview.isValid && preview.worldPoints.length >= 3) {
           const targetFpId = activeFloorPlanId || renderModel?.id || activeModel?.id || "fp_501";
-          setIsValidatingRegion(true);
           validateRegion({
             floor_plan_id: targetFpId,
             storey_name: activeStorey,
@@ -193,6 +190,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
                     isClipped: response.is_clipped,
                     message: response.message,
                     clippedWorldPoints: response.clipped_points,
+                    clippedPolygons: response.clipped_polygons,
                     areaSqMeters: response.area_sqm,
                     perimeterMeters: response.perimeter_m,
                     centroid: response.centroid || null,
@@ -202,14 +200,11 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
             })
             .catch((err) => {
               console.warn("Server Region Validation Notice:", err.message);
-            })
-            .finally(() => {
-              setIsValidatingRegion(false);
             });
         }
       }
     },
-    [viewport, activeFloorPlanId, activeStorey]
+    [viewport, activeFloorPlanId, activeStorey, renderModel?.id, activeModel?.id]
   );
 
   const handleClearRegion = useCallback(() => {

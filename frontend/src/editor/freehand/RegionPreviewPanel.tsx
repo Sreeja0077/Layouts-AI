@@ -9,15 +9,11 @@ import { RegionPreview } from "./freehandTypes";
 interface RegionPreviewPanelProps {
   regionPreview: RegionPreview | null;
   onClear?: () => void;
-  onValidate?: () => void;
-  isValidating?: boolean;
 }
 
 export const RegionPreviewPanel: React.FC<RegionPreviewPanelProps> = ({
   regionPreview,
   onClear,
-  onValidate,
-  isValidating = false,
 }) => {
   if (!regionPreview || !regionPreview.isClosed) return null;
 

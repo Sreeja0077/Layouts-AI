@@ -251,21 +251,24 @@ def test_9_storey_specific_boundary_isolation():
     assert ff_boundary is not None
     assert abs(ff_boundary.area - 100.0) < 1e-3
 
-    # User polygon at (2..4, 2..4) overlaps GF, but NOT FF
-    user_pts = [
-        Point2DModel(x=2.0, y=2.0),
-        Point2DModel(x=4.0, y=2.0),
-        Point2DModel(x=4.0, y=4.0),
-        Point2DModel(x=2.0, y=4.0),
+    # User polygon at (6..8, 6..8):
+    # - OUTSIDE Ground Floor boundary (which is 0..5, 0..5) -> NO_OVERLAP
+    # - INSIDE First Floor boundary (which is 0..10, 0..10) -> VALID
+    user_pts_outside_gf_inside_ff = [
+        Point2DModel(x=6.0, y=6.0),
+        Point2DModel(x=8.0, y=6.0),
+        Point2DModel(x=8.0, y=8.0),
+        Point2DModel(x=6.0, y=8.0),
     ]
 
-    res_gf = clip_region_to_boundary(user_pts, gf_boundary, "fp_multi", "Ground Floor")
-    assert res_gf.is_valid is True
-    assert abs(res_gf.area_sqm - 4.0) < 1e-3
+    res_gf = clip_region_to_boundary(user_pts_outside_gf_inside_ff, gf_boundary, "fp_multi", "Ground Floor")
+    assert res_gf.is_valid is False
+    assert res_gf.status == RegionValidationStatus.NO_OVERLAP
 
-    res_ff = clip_region_to_boundary(user_pts, ff_boundary, "fp_multi", "First Floor")
-    assert res_ff.is_valid is False
-    assert res_ff.status == RegionValidationStatus.NO_OVERLAP
+    res_ff = clip_region_to_boundary(user_pts_outside_gf_inside_ff, ff_boundary, "fp_multi", "First Floor")
+    assert res_ff.is_valid is True
+    assert res_ff.status == RegionValidationStatus.VALID
+    assert abs(res_ff.area_sqm - 4.0) < 1e-3
 
 
 def test_10_coordinate_system_consistency_with_task_6_2():
@@ -300,3 +303,124 @@ def test_10_coordinate_system_consistency_with_task_6_2():
     assert result.centroid is not None
     assert abs(result.centroid.x - 5.0) < 1e-2
     assert abs(result.centroid.y - 4.0) < 1e-2
+
+
+def test_11_missing_authoritative_geometry_returns_none():
+    """Test 11: When report has empty elements, extract_authoritative_boundary_from_report returns None."""
+    empty_report = {
+        "floor_plan_name": "Empty Test Floor",
+        "available_storeys": [{"name": "Level 1"}],
+        "all_elements_geometry": [],
+    }
+
+    boundary, storey = extract_authoritative_boundary_from_report(empty_report, "Level 1")
+    assert boundary is None
+    assert storey == "Level 1"
+
+
+def test_12_explicit_nonexistent_storey_returns_none():
+    """Test 12: Requesting an explicit nonexistent storey returns (None, requested_storey) cleanly."""
+    multi_storey_report = {
+        "floor_plan_name": "Office Complex",
+        "available_storeys": [{"name": "Level 1"}, {"name": "Level 2"}],
+        "all_elements_geometry": [
+            {
+                "id": "space_1",
+                "category": "SPACE",
+                "storey_name": "Level 1",
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+            }
+        ],
+    }
+
+    boundary, storey = extract_authoritative_boundary_from_report(multi_storey_report, "Nonexistent Level 99")
+    assert boundary is None
+    assert storey == "Nonexistent Level 99"
+
+
+def test_13_strict_storey_isolation_no_cross_storey_fallback():
+    """Test 13: Strict storey isolation - never fall back to spaces from another storey."""
+    report = {
+        "floor_plan_name": "Two Tower Site",
+        "available_storeys": [{"name": "Floor A"}, {"name": "Floor B"}],
+        "all_elements_geometry": [
+            {
+                "id": "space_a",
+                "category": "SPACE",
+                "storey_name": "Floor A",
+                "type": "Polygon",
+                "coordinates": [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]],
+            }
+            # Floor B has NO spaces defined
+        ],
+    }
+
+    # Requesting Floor B must NOT fall back to Floor A's spaces
+    boundary_b, storey_b = extract_authoritative_boundary_from_report(report, "Floor B")
+    assert boundary_b is None
+    assert storey_b == "Floor B"
+
+
+def test_14_no_convex_hull_fabricated_when_spaces_missing():
+    """Test 14: When spaces are missing, NO convex hull is fabricated from walls or columns."""
+    walls_only_report = {
+        "floor_plan_name": "Structural Framing Only",
+        "available_storeys": [{"name": "Level 1"}],
+        "all_elements_geometry": [
+            {
+                "id": "wall_1",
+                "category": "WALL",
+                "storey_name": "Level 1",
+                "type": "LineString",
+                "coordinates": [[0, 0], [10, 0]],
+            },
+            {
+                "id": "col_1",
+                "category": "COLUMN",
+                "storey_name": "Level 1",
+                "type": "Polygon",
+                "coordinates": [[[5, 5], [5.5, 5], [5.5, 5.5], [5, 5.5], [5, 5]]],
+            },
+        ],
+    }
+
+    boundary, storey = extract_authoritative_boundary_from_report(walls_only_report, "Level 1")
+    assert boundary is None, "Must not construct a convex-hull fallback for missing spaces"
+
+
+def test_15_multipolygon_result_components_preserved_for_frontend():
+    """Test 15: MultiPolygon components are preserved in clipped_polygons for frontend multi-component rendering."""
+    # Disconnected rooms A and B
+    room_a = Polygon([(0.0, 0.0), (3.0, 0.0), (3.0, 3.0), (0.0, 3.0)])
+    room_b = Polygon([(5.0, 0.0), (8.0, 0.0), (8.0, 3.0), (5.0, 3.0)])
+    multi_boundary = MultiPolygon([room_a, room_b])
+
+    # Region spanning across both rooms: (1..7) x (1..2)
+    user_pts = [
+        Point2DModel(x=1.0, y=1.0),
+        Point2DModel(x=7.0, y=1.0),
+        Point2DModel(x=7.0, y=2.0),
+        Point2DModel(x=1.0, y=2.0),
+    ]
+
+    result = clip_region_to_boundary(
+        user_points=user_pts,
+        boundary_geom=multi_boundary,
+        floor_plan_id="fp_test_multi_poly",
+        storey_name="Level 1",
+    )
+
+    assert result.is_valid is True
+    assert result.status == RegionValidationStatus.CLIPPED
+    assert result.clipped_polygons is not None
+    assert len(result.clipped_polygons) == 2
+    # Component 1 (in room A): 2m x 1m = 2m²
+    # Component 2 (in room B): 2m x 1m = 2m²
+    assert abs(result.area_sqm - 4.0) < 1e-3
+    assert len(result.clipped_points) > 0
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+

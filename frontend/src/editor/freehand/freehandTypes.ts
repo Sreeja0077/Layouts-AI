@@ -22,6 +22,7 @@ export interface ValidatedRegionData {
   isClipped: boolean;
   message: string;
   clippedWorldPoints: Point2D[];
+  clippedPolygons?: Point2D[][];
   areaSqMeters: number;
   perimeterMeters: number;
   centroid: Point2D | null;

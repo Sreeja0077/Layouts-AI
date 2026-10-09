@@ -28,6 +28,16 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
       ? serverVal.clippedWorldPoints
       : regionPreview?.worldPoints;
 
+  // Compute MultiPolygon screen points if server returned multiple polygon components
+  const multiScreenPolygons = useMemo(() => {
+    if (serverVal && serverVal.isValid && serverVal.clippedPolygons && serverVal.clippedPolygons.length > 1) {
+      return serverVal.clippedPolygons.map((poly) =>
+        poly.map((worldPt) => worldToScreen(worldPt, viewport))
+      );
+    }
+    return null;
+  }, [serverVal, viewport]);
+
   // If regionPreview with valid world points exists, render using worldToScreen projection
   const screenPoints = useMemo(() => {
     if (activeWorldPoints && activeWorldPoints.length > 0) {
@@ -39,7 +49,7 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
     return [];
   }, [activeWorldPoints, stroke, viewport]);
 
-  if (screenPoints.length === 0) {
+  if (screenPoints.length === 0 && !multiScreenPolygons) {
     return null;
   }
 
@@ -69,18 +79,50 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
 
   return (
     <Group key="layer-freehand-region" listening={false}>
-      {/* Freehand Region Stroke Line / Closed Polygon */}
-      {flatPoints.length >= 4 && (
-        <Line
-          points={flatPoints}
-          closed={isClosed}
-          stroke={strokeColor}
-          strokeWidth={2.5}
-          fill={isClosed ? fillColor : undefined}
-          lineCap="round"
-          lineJoin="round"
-          dash={isDrawing ? [6, 4] : undefined}
-        />
+      {/* If MultiPolygon with > 1 components, render each authoritative component polygon */}
+      {multiScreenPolygons ? (
+        multiScreenPolygons.map((polyPts, pIdx) => {
+          const polyFlat = polyPts.flatMap((pt) => [pt.x, pt.y]);
+          return (
+            <React.Fragment key={`multi-poly-${pIdx}`}>
+              {polyFlat.length >= 4 && (
+                <Line
+                  points={polyFlat}
+                  closed={true}
+                  stroke={strokeColor}
+                  strokeWidth={2.5}
+                  fill={fillColor}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              )}
+              {polyPts.map((pt, idx) => (
+                <Circle
+                  key={`mp-v-${pIdx}-${idx}`}
+                  x={pt.x}
+                  y={pt.y}
+                  radius={2.5}
+                  fill="#e9d5ff"
+                  opacity={0.8}
+                />
+              ))}
+            </React.Fragment>
+          );
+        })
+      ) : (
+        /* Single Freehand Region Stroke Line / Closed Polygon */
+        flatPoints.length >= 4 && (
+          <Line
+            points={flatPoints}
+            closed={isClosed}
+            stroke={strokeColor}
+            strokeWidth={2.5}
+            fill={isClosed ? fillColor : undefined}
+            lineCap="round"
+            lineJoin="round"
+            dash={isDrawing ? [6, 4] : undefined}
+          />
+        )
       )}
 
 
