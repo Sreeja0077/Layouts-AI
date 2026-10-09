@@ -16,6 +16,17 @@ export interface FreehandStroke {
   createdAt: number;
 }
 
+export interface ValidatedRegionData {
+  status: "VALID" | "CLIPPED" | "NO_OVERLAP" | "INVALID_INPUT" | "FAILED";
+  isValid: boolean;
+  isClipped: boolean;
+  message: string;
+  clippedWorldPoints: Point2D[];
+  areaSqMeters: number;
+  perimeterMeters: number;
+  centroid: Point2D | null;
+}
+
 export interface RegionPreview {
   strokeId: string;
   /** Polygon vertices in world metric units (meters) */
@@ -29,4 +40,7 @@ export interface RegionPreview {
   isClosed: boolean;
   /** True if polygon has ≥ 3 points and non-zero area */
   isValid: boolean;
+  /** Task 6.3 Server-validated authoritative clipping result */
+  serverValidation?: ValidatedRegionData | null;
 }
+

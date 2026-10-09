@@ -22,16 +22,22 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
   regionPreview,
   viewport,
 }) => {
+  const serverVal = regionPreview?.serverValidation;
+  const activeWorldPoints =
+    serverVal && serverVal.isValid && serverVal.clippedWorldPoints.length > 0
+      ? serverVal.clippedWorldPoints
+      : regionPreview?.worldPoints;
+
   // If regionPreview with valid world points exists, render using worldToScreen projection
   const screenPoints = useMemo(() => {
-    if (regionPreview && regionPreview.worldPoints.length > 0) {
-      return regionPreview.worldPoints.map((worldPt) => worldToScreen(worldPt, viewport));
+    if (activeWorldPoints && activeWorldPoints.length > 0) {
+      return activeWorldPoints.map((worldPt) => worldToScreen(worldPt, viewport));
     }
     if (stroke && stroke.points.length > 0) {
       return stroke.points;
     }
     return [];
-  }, [regionPreview, stroke, viewport]);
+  }, [activeWorldPoints, stroke, viewport]);
 
   if (screenPoints.length === 0) {
     return null;
@@ -44,9 +50,22 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
   const isDrawing = stroke?.isDrawing ?? false;
 
   // Project centroid to screen space if available
-  const screenCentroid = regionPreview?.centroid
-    ? worldToScreen(regionPreview.centroid, viewport)
+  const activeCentroid = serverVal?.centroid || regionPreview?.centroid;
+  const screenCentroid = activeCentroid
+    ? worldToScreen(activeCentroid, viewport)
     : null;
+
+  const strokeColor = serverVal?.isValid
+    ? serverVal.isClipped
+      ? "#0284c7"
+      : "#16a34a"
+    : "#a855f7";
+
+  const fillColor = serverVal?.isValid
+    ? serverVal.isClipped
+      ? "rgba(56, 189, 248, 0.22)"
+      : "rgba(34, 197, 94, 0.22)"
+    : "rgba(168, 85, 247, 0.18)";
 
   return (
     <Group key="layer-freehand-region" listening={false}>
@@ -55,14 +74,15 @@ export const FreehandRegionLayer: React.FC<FreehandRegionLayerProps> = React.mem
         <Line
           points={flatPoints}
           closed={isClosed}
-          stroke="#a855f7"
+          stroke={strokeColor}
           strokeWidth={2.5}
-          fill={isClosed ? "rgba(168, 85, 247, 0.18)" : undefined}
+          fill={isClosed ? fillColor : undefined}
           lineCap="round"
           lineJoin="round"
           dash={isDrawing ? [6, 4] : undefined}
         />
       )}
+
 
       {/* Start Point Indicator Marker */}
       {startPt && (

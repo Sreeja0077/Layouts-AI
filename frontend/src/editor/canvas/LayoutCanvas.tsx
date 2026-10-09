@@ -61,7 +61,9 @@ import {
   generateLayoutCandidates,
   applySuggestionToRenderModel,
   LayoutSuggestionPayload,
+  validateRegion,
 } from "../../api/layout";
+
 
 export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   initialScale = DEFAULT_INITIAL_SCALE,
@@ -160,6 +162,8 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   };
 
   // Compute and lock world region preview when freehand stroke updates
+  const [isValidatingRegion, setIsValidatingRegion] = useState<boolean>(false);
+
   const handleStrokeChange = useCallback(
     (stroke: FreehandStroke | null) => {
       setFreehandStroke(stroke);
@@ -168,15 +172,52 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
       } else {
         const preview = computeRegionPreview(stroke, viewport);
         setRegionPreview(preview);
+
+        // Automatically validate with backend as soon as a region stroke is closed
+        if (stroke.isClosed && !stroke.isDrawing && preview.isValid && preview.worldPoints.length >= 3) {
+          const targetFpId = activeFloorPlanId || renderModel?.id || activeModel?.id || "fp_501";
+          setIsValidatingRegion(true);
+          validateRegion({
+            floor_plan_id: targetFpId,
+            storey_name: activeStorey,
+            world_points: preview.worldPoints,
+          })
+            .then((response) => {
+              setRegionPreview((prev) => {
+                if (!prev || prev.strokeId !== preview.strokeId) return prev;
+                return {
+                  ...prev,
+                  serverValidation: {
+                    status: response.status,
+                    isValid: response.is_valid,
+                    isClipped: response.is_clipped,
+                    message: response.message,
+                    clippedWorldPoints: response.clipped_points,
+                    areaSqMeters: response.area_sqm,
+                    perimeterMeters: response.perimeter_m,
+                    centroid: response.centroid || null,
+                  },
+                };
+              });
+            })
+            .catch((err) => {
+              console.warn("Server Region Validation Notice:", err.message);
+            })
+            .finally(() => {
+              setIsValidatingRegion(false);
+            });
+        }
       }
     },
-    [viewport]
+    [viewport, activeFloorPlanId, activeStorey]
   );
 
   const handleClearRegion = useCallback(() => {
     setFreehandStroke(null);
     setRegionPreview(null);
   }, []);
+
+
 
   // Viewport Control Button Actions
   const handleZoomIn = useCallback(() => {
@@ -262,9 +303,13 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           onStrokeChange={handleStrokeChange}
         />
 
-        {/* Task 6.2 Region Preview Info Panel */}
-        <RegionPreviewPanel regionPreview={regionPreview} onClear={handleClearRegion} />
+        {/* Task 6.2 & 6.3 Region Preview & Authoritative Clipping Info Panel */}
+        <RegionPreviewPanel
+          regionPreview={regionPreview}
+          onClear={handleClearRegion}
+        />
       </div>
+
 
       {/* Bottom Status & Coordinates Display */}
       <div
@@ -292,11 +337,15 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           {selectedDoor && <>{`Selected Door: [${selectedDoor.id}] (Read-Only Aperture)`}</>}
           {selectedWindow && <>{`Selected Window: [${selectedWindow.id}] (Read-Only Aperture)`}</>}
           {selectedColumn && <>{`Selected Column: [${selectedColumn.id}] (Read-Only Structure)`}</>}
-          {!selectedObjectId && regionPreview?.isClosed && (
+          {!selectedObjectId && regionPreview?.serverValidation?.isValid && (
+            <>{`Authoritative Region (${regionPreview.serverValidation.isClipped ? "Clipped" : "Enclosed"}): ${regionPreview.serverValidation.areaSqMeters.toFixed(2)} m² | Perim: ${regionPreview.serverValidation.perimeterMeters.toFixed(2)} m | Centroid: (${regionPreview.serverValidation.centroid?.x.toFixed(2)}m, ${regionPreview.serverValidation.centroid?.y.toFixed(2)}m)`}</>
+          )}
+          {!selectedObjectId && !regionPreview?.serverValidation?.isValid && regionPreview?.isClosed && (
             <>{`Region Preview: ${regionPreview.areaSqMeters.toFixed(2)} m² | Perim: ${regionPreview.perimeterMeters.toFixed(2)} m | Centroid: (${regionPreview.centroid?.x.toFixed(2)}m, ${regionPreview.centroid?.y.toFixed(2)}m)`}</>
           )}
           {!selectedObjectId && !regionPreview?.isClosed && "Selected: None"}
         </div>
+
         <div>
           {activeStorey ? `Storey: ${activeStorey} | ` : ""}
           Tool: {toolMode.toUpperCase()} | Scale: {viewport.scale.toFixed(1)} px/m

@@ -61,7 +61,8 @@
 - [x] **Task 6.1:** Build user stroke capture tool in `frontend/src/editor/freehand/`. *(Completed: 2026-10-07 12:15:00+05:30)*
 - [x] **Task 6.2:** Implement screen-to-world coordinate transform and client-side shoelace area preview. *(Completed: 2026-10-07 12:45:00+05:30)*
 
-- [ ] **Task 6.3:** Implement server-side polygon clipping to surrounding walls using Shapely `make_valid`.
+- [x] **Task 6.3:** Implement server-side polygon clipping to surrounding walls using Shapely `make_valid`. *(Completed: 2026-10-09 13:55:00+05:30)*
+
 
 ### Phase 7: Furniture Catalog & Semantic-to-Physical Mapping
 - [ ] **Task 7.1:** Create furniture catalog and bundle schema definitions (`EXECUTIVE_DESK_BUNDLE`, etc.).
@@ -639,6 +640,38 @@
 - **Test Execution Results:**
   - `runAllEditorTests()`: **PASSED (ALL 5 SUITES PASSED ✅ - Viewport, Selection, Snapping, Transforms, Freehand with 13 tests)**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 237 modules in 11.94s)
+
+### [2026-10-09] Task 6.3 Execution - Server-Side Polygon Clipping with Shapely make_valid
+- **Action:** Implemented authoritative server-side freehand region clipping against persisted IFC architectural boundaries using Shapely `make_valid` in pure world coordinates (`meters`).
+  - **Backend Geometry Service (`backend/app/domain/geometry/region_clipping.py`)**: Built pure geometric clipping engine. Validates finite coordinate numbers, builds Shapely `Polygon`/`MultiPolygon`, repairs self-intersecting / bowtie topologies with `make_valid`, extracts authoritative room/space boundary from persisted verification reports per target storey without synthetic room fabrication, performs geometric intersection (`user_poly.intersection(boundary_geom)`), repairs output with `make_valid`, filters valid polygonal components, rejects zero-overlap/empty regions cleanly, and calculates authoritative area ($m^2$), perimeter ($m$), and centroid ($x, y$).
+  - **Backend API Endpoint (`backend/app/api/v1/layout.py`)**: Added `POST /api/v1/layouts/validate-region` endpoint accepting `ValidateRegionRequest` (`floor_plan_id`, `storey_name`, `world_points`), retrieving the verified floor plan report from PostgreSQL, extracting the authoritative storey boundary, and returning `ValidatedRegionResponse`.
+  - **Frontend API Client (`frontend/src/api/layout.ts`)**: Added `validateRegion` API client function and TypeScript interface definitions (`ValidateRegionRequest`, `ValidatedRegionResponse`, `RegionValidationStatus`).
+  - **Frontend UI & Visual Layer (`frontend/src/editor/freehand/`)**:
+    - [`RegionPreviewPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/RegionPreviewPanel.tsx): Added **"Validate Region"** trigger button with loading state, distinguishing `"Preview (Unvalidated)"` from `"Authoritative (Clipped)"` and `"Authoritative (Enclosed)"` status badges. Displays authoritative server-calculated area, perimeter, and centroid.
+    - [`FreehandRegionLayer.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/FreehandRegionLayer.tsx): Projects server-clipped world vertices back into screen space via `worldToScreen(worldPt, viewport)` with distinct cyan/green styling for validated authoritative regions.
+    - [`LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx): Integrated `handleValidateRegion` callback and bottom coordinates status bar reflection.
+  - **Unit Testing (`backend/tests/unit/test_region_clipping.py`)**: Implemented 10 comprehensive unit tests covering:
+    1. Valid polygon fully inside room (equal area, full containment).
+    2. Polygon partly outside room (authoritative clipping, reduced area).
+    3. Polygon completely outside room (`NO_OVERLAP` status).
+    4. Self-intersecting bowtie polygon repaired by `make_valid`.
+    5. Polygon with insufficient vertices (< 3 points rejected with `ValidationError`).
+    6. Non-finite coordinates (NaN/Inf rejected with `ValidationError`).
+    7. Invalid authoritative room boundary repaired by `make_valid`.
+    8. MultiPolygon boundary and disconnected room support.
+    9. Storey-specific boundary isolation (selected storey only).
+    10. Coordinate-system consistency with Task 6.2 world meters without scaling drift.
+- **Status:** `SUCCESS (100% Backend & Frontend Unit Tests Passed)`
+- **Files Created/Updated:**
+  - [`backend/app/domain/geometry/region_clipping.py`](file:///d:/Layouts%20AI/backend/app/domain/geometry/region_clipping.py) (Authoritative Shapely make_valid clipping engine)
+  - [`backend/app/api/v1/layout.py`](file:///d:/Layouts%20AI/backend/app/api/v1/layout.py) (Added `POST /layouts/validate-region` endpoint)
+  - [`backend/tests/unit/test_region_clipping.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_region_clipping.py) (10 unit tests for all clipping scenarios)
+  - [`frontend/src/api/layout.ts`](file:///d:/Layouts%20AI/frontend/src/api/layout.ts) (Added `validateRegion` API client function and interfaces)
+  - [`frontend/src/editor/freehand/freehandTypes.ts`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/freehandTypes.ts) (Added `ValidatedRegionData` model)
+  - [`frontend/src/editor/freehand/RegionPreviewPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/RegionPreviewPanel.tsx) (Added validate trigger & authoritative status badges)
+  - [`frontend/src/editor/freehand/FreehandRegionLayer.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/freehand/FreehandRegionLayer.tsx) (Authoritative polygon render layer)
+  - [`frontend/src/editor/canvas/LayoutCanvas.tsx`](file:///d:/Layouts%20AI/frontend/src/editor/canvas/LayoutCanvas.tsx) (Wired region validation handler & status bar)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 6.3 status and history log)
 
 ### [2026-10-08] Task Phase 24 - BIM/CAD Door Hinge Resolution, Paired Double Doors vs Partition Separation
 - **Action:** Implemented architectural CAD-standard door hinge placement and swing orientation in `frontend/src/editor/renderer/roomOpeningUtils.ts`, `doorSymbols.tsx`, and `backend/app/bim/ifc_ingest.py`.

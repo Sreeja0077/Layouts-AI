@@ -90,3 +90,44 @@ export function applySuggestionToRenderModel(
     furniture: [...nonGeneratedFurniture, ...generatedFurniture],
   };
 }
+
+export interface ValidateRegionRequest {
+  floor_plan_id: string;
+  storey_name?: string;
+  world_points: Array<{ x: number; y: number }>;
+}
+
+export type RegionValidationStatus = "VALID" | "CLIPPED" | "NO_OVERLAP" | "INVALID_INPUT" | "FAILED";
+
+export interface ValidatedRegionResponse {
+  status: RegionValidationStatus;
+  is_valid: boolean;
+  is_clipped: boolean;
+  message: string;
+  floor_plan_id: string;
+  storey_name?: string;
+  submitted_points: Array<{ x: number; y: number }>;
+  clipped_points: Array<{ x: number; y: number }>;
+  clipped_polygons?: Array<Array<{ x: number; y: number }>>;
+  area_sqm: number;
+  perimeter_m: number;
+  centroid?: { x: number; y: number } | null;
+}
+
+export async function validateRegion(
+  request: ValidateRegionRequest
+): Promise<ValidatedRegionResponse> {
+  const resp = await fetch(`${API_BASE}/layouts/validate-region`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to validate region (${resp.status})`);
+  }
+
+  return resp.json();
+}
+
