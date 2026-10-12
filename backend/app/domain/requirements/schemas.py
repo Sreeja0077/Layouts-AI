@@ -28,6 +28,9 @@ class RequirementItem(BaseModel):
 
     id: str = Field(..., description="Unique identifier for this requirement item entry")
     raw_phrase: str = Field(..., description="Raw phrase parsed from user input (e.g., '6 executive desks')")
+    semantic_type: Optional[str] = Field(
+        None, description="Normalized semantic item or space type (e.g. 'PROFESSIONAL_DESK', 'CONFERENCE_ROOM')"
+    )
     resolved_catalog_item_id: Optional[str] = Field(
         None, description="Catalog item ID resolved after catalog/alias lookup"
     )
@@ -37,7 +40,7 @@ class RequirementItem(BaseModel):
     confidence: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Resolution confidence score (0.0 - 1.0)"
     )
-    quantity: int = Field(default=1, ge=1, description="Quantity requested")
+    quantity: int = Field(default=1, ge=0, description="Quantity requested (0 if unspecified)")
     slot_tags: List[str] = Field(
         default_factory=list,
         description="Slot or zone tags (e.g. ['manager_cabin', 'window_side'])"

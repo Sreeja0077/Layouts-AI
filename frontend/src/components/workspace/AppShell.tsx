@@ -6,7 +6,6 @@
 import React, { useState } from "react";
 import { TopNav } from "./TopNav";
 import { ProjectNavigator } from "./ProjectNavigator";
-import { InspectorPanel } from "./InspectorPanel";
 import { AILayoutPanel } from "./AILayoutPanel";
 import { StatusBar } from "./StatusBar";
 import { LayoutCanvas } from "../../editor/canvas/LayoutCanvas";
@@ -140,13 +139,6 @@ export const AppShell: React.FC<AppShellProps> = ({
             onClose={() => setIsAiPanelOpen(false)}
           />
         )}
-
-        {/* RIGHT PROPERTIES INSPECTOR */}
-        <InspectorPanel
-          renderModel={renderModel}
-          selectedObjectId={selectedObjectId}
-          onClearSelection={() => setSelectedObjectId(null)}
-        />
       </div>
 
       {/* 3. BOTTOM STATUS BAR */}

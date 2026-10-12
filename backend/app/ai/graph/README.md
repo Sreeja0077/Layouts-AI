@@ -1,19 +1,13 @@
-# LangGraph State Graph & Checkpointing
+# LangGraph StateGraph Workflows
 
 ## 📌 Purpose & Overview
-LangGraph graph configuration, state definition, and PostgreSQL checkpoint persistence for long-running clarification pause/resume flows.
+Orchestrates AI multi-step reasoning workflows using LangGraph state graphs with persistent checkpointing.
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `backend/app/ai/graph`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
-
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
-
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
-
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## 🏗️ Phase 8 Requirement Workflow (`requirement_workflow.py`)
+- **State Schema (`RequirementWorkflowState`)**: Carries `raw_text`, `requirement_set`, `needs_clarification`, `questions`, and `user_answer`.
+- **Node Execution Flow**:
+  1. `parse_node`: Invokes `RequirementParser` on raw text to produce initial `RequirementSet`.
+  2. `evaluate_node`: Invokes deterministic completeness checklist. If resuming with `user_answer`, non-destructively merges the answer via `merge_clarification_answer`.
+  3. `clarification_pause`: Pauses workflow when blocking questions remain (`CLARIFICATION_REQUIRED`).
+  4. `finalize`: Completes and marks state as `NORMALIZED`.
+- **State Checkpointing**: Uses `MemorySaver` keyed by `thread_id` (matching `requirement_set_id`) for turn-by-turn pause and resume.

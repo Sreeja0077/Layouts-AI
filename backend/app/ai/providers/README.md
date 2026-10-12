@@ -1,19 +1,10 @@
 # LLM Gateway & Provider Abstraction
 
 ## 📌 Purpose & Overview
-LiteLLM configuration and model alias routing (llm_fast, llm_reasoning, llm_vision) targeting Ollama cloud models.
+Unified LLM routing through LiteLLM, Ollama, and testable Mock providers.
 
-## 🏗️ Architectural Role
-- **Domain Layer:** `backend/app/ai/providers`
-- **System Authority:** Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores authoritative truth.
-
-## 📁 Related Subdirectories & Responsibilities
-This directory contains modular components structured according to the *AI-Assisted Office Layout Generation Platform Deep Architecture Blueprint*.
-
-## 🔒 Security & Quality Invariants
-- All state-changing operations are audited and validated.
-- Strict typing and Pydantic/JSON Schema contracts are enforced.
-- No direct LLM access to authoritative database writes or final coordinate math.
-
----
-*Generated based on Blueprint Section 27 (Complete Folder Structure).*
+## 🏗️ Provider Implementations (`llm_provider.py`)
+- **`LLMProvider` (ABC)**: Abstract interface defining `complete` and `acomplete` methods.
+- **`LiteLLMProvider`**: Production provider using LiteLLM to route model aliases (`llm_fast`, `llm_reasoning`) to Ollama or configured endpoints via environment variables (`LITELLM_MODEL_FAST`, `OLLAMA_API_BASE`).
+- **`MockLLMProvider`**: Deterministic mock provider for offline testing and development. Generates valid `ParsedRequirementOutput` JSON without network access or API keys.
+- **Factory (`get_llm_provider`)**: Returns `MockLLMProvider` if `USE_MOCK_LLM=true` or when testing; otherwise returns `LiteLLMProvider`.

@@ -71,10 +71,10 @@
 - [ ] **Task 7.4:** Implement confidence threshold gate for clarification fallback.
 
 ### Phase 8: Requirement AI & Clarification Engine
-- [ ] **Task 8.1:** Implement `RequirementParser` node with LiteLLM/Ollama.
-- [ ] **Task 8.2:** Implement rule-based completeness checklist and LLM `AmbiguityClassifier` node.
-- [ ] **Task 8.3:** Implement `RequirementState` schema & company-defaults fallback table.
-- [ ] **Task 8.4:** Build LangGraph pause/resume graph checkpointing for clarification questions.
+- [x] **Task 8.1:** Implement `RequirementParser` node with LiteLLM/Ollama. *(Completed: 2026-10-12 11:39:00+05:30)*
+- [x] **Task 8.2:** Implement rule-based completeness checklist and LLM `AmbiguityClassifier` node. *(Completed: 2026-10-12 11:39:00+05:30)*
+- [x] **Task 8.3:** Implement `RequirementState` schema & company-defaults fallback table. *(Completed: 2026-10-12 11:39:00+05:30)*
+- [x] **Task 8.4:** Build LangGraph pause/resume graph checkpointing for clarification questions. *(Completed: 2026-10-12 11:39:00+05:30)*
 
 ### Phase 9: Layout Optimization Engine
 - [ ] **Task 9.1:** Build strategy template generators (perimeter, two-row clusters, manager cabin near entrance/rear, circulation-focused).
@@ -700,8 +700,32 @@
 - **Test Execution Results:**
   - `npm run build` (Frontend): **PASSED** (`tsc && vite build` compiled 239 modules in 12.29s)
 
----
+### [2026-10-12] Phase 8 Execution - Requirement AI & Clarification Engine (Tasks 8.1 - 8.4)
+- **Action:** Implemented the complete semantic requirement understanding and clarification engine while preserving strict Phase 7 catalog decoupling.
+  - **Task 8.1 - Provider Abstraction & RequirementParser (`backend/app/ai/providers/`, `backend/app/ai/nodes/requirement_parser.py`)**: Built `LLMProvider` abstraction supporting `LiteLLMProvider` (with `llm_fast`, `llm_reasoning` model alias routing) and deterministic `MockLLMProvider` for offline test isolation. Built `RequirementParser` node translating natural language into `ParsedRequirementOutput` with strict Pydantic validation. Enforced Phase 8 invariants: `resolved_catalog_item_id = None`, `resolution_method = None`, zero fabricated Revit families, zero invented dimensions, and zero geometry calculations. Added `semantic_type` field to `RequirementItem` domain model.
+  - **Task 8.2 - Deterministic Completeness Checklist & Ambiguity Classification (`backend/app/domain/requirements/completeness.py`, `backend/app/ai/nodes/ambiguity_classifier.py`)**: Implemented deterministic Python completeness rules inspecting room types, seat capacities, desk quantities, and ambiguous phrasing. Emits user-facing `ClarificationQuestion` items with semantic options.
+  - **Task 8.3 - RequirementState & Database Persistence (`backend/app/domain/requirements/schemas.py`, `backend/app/api/v1/requirements.py`)**: Utilized existing `RequirementSetModel` (`spec_json`) and `ClarificationQuestionModel` database models. Upgraded `requirements.py` API endpoints: `POST /api/v1/requirements/` (initial requirement parsing and evaluation), `POST /api/v1/requirements/{id}/clarify` (clarification answer submission and re-evaluation), and `GET /api/v1/requirements/{id}`.
+  - **Task 8.4 - LangGraph Pause & Resume Graph (`backend/app/ai/graph/requirement_workflow.py`)**: Implemented LangGraph `StateGraph` with `MemorySaver` checkpointer. Pauses workflow on `CLARIFICATION_REQUIRED`, preserves state across turns, and non-destructively resumes with user answer via `merge_clarification_answer` into `NORMALIZED` status.
+  - **CI & Unit Testing (`backend/tests/unit/test_requirement_ai.py`, `.github/workflows/ci.yml`)**: Implemented 17 comprehensive unit tests covering conference rooms with capacity, desks with quantities, manager cabins with spatial preferences, missing quantity/capacity clarification, region context preservation, rejection of malformed LLM outputs, natural language variations, unknown product phrasings, LangGraph pause/resume checkpointing, and FastAPI TestClient endpoints. Added Phase 8 test step to GitHub Actions CI workflow.
+- **Status:** `SUCCESS (100% Tests Passed - 17/17 Unit Tests, Zero Regression)`
+- **Files Created/Updated:**
+  - [`backend/requirements.txt`](file:///d:/Layouts%20AI/backend/requirements.txt) (Added `litellm>=1.40.0` and `langgraph>=0.2.0`)
+  - [`backend/app/domain/requirements/schemas.py`](file:///d:/Layouts%20AI/backend/app/domain/requirements/schemas.py) (Added `semantic_type` and allowed `quantity >= 0`)
+  - [`backend/app/ai/providers/llm_provider.py`](file:///d:/Layouts%20AI/backend/app/ai/providers/llm_provider.py) (Provider interface, LiteLLM, Mock provider)
+  - [`backend/app/ai/prompts/requirement_prompts.py`](file:///d:/Layouts%20AI/backend/app/ai/prompts/requirement_prompts.py) (Semantic requirement parser system prompt)
+  - [`backend/app/ai/nodes/requirement_parser.py`](file:///d:/Layouts%20AI/backend/app/ai/nodes/requirement_parser.py) (RequirementParser AI node)
+  - [`backend/app/domain/requirements/completeness.py`](file:///d:/Layouts%20AI/backend/app/domain/requirements/completeness.py) (Deterministic completeness & ambiguity rules)
+  - [`backend/app/ai/nodes/ambiguity_classifier.py`](file:///d:/Layouts%20AI/backend/app/ai/nodes/ambiguity_classifier.py) (AmbiguityClassifier node)
+  - [`backend/app/ai/graph/requirement_workflow.py`](file:///d:/Layouts%20AI/backend/app/ai/graph/requirement_workflow.py) (LangGraph pause/resume workflow)
+  - [`backend/app/api/v1/requirements.py`](file:///d:/Layouts%20AI/backend/app/api/v1/requirements.py) (Phase 8 Requirements API router)
+  - [`backend/tests/unit/test_requirement_ai.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_requirement_ai.py) (17 comprehensive unit tests)
+  - [`.github/workflows/ci.yml`](file:///d:/Layouts%20AI/.github/workflows/ci.yml) (Added Phase 8 CI execution step)
+  - [`frontend/src/api/requirements.ts`](file:///d:/Layouts%20AI/frontend/src/api/requirements.ts) (Frontend TypeScript API client)
+- **Test Execution Results:**
+  - `pytest backend/tests/unit/test_requirement_ai.py -v`: **PASSED (17/17 in 0.39s)**
+  - `pytest backend/tests/unit/test_domain_schemas.py backend/tests/unit/test_region_clipping.py -v`: **PASSED (19/19 in 7.51s)**
 
+---
 
 *Maintained continuously across all development steps.*
 

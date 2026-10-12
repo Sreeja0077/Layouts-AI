@@ -172,7 +172,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         setRegionPreview(preview);
 
         // Automatically validate with backend as soon as a region stroke is closed
-        if (stroke.isClosed && !stroke.isDrawing && preview.isValid && preview.worldPoints.length >= 3) {
+        if (stroke.isClosed && !stroke.isDrawing && preview && preview.isValid && preview.worldPoints.length >= 3) {
           const targetFpId = activeFloorPlanId || renderModel?.id || activeModel?.id || "fp_501";
           validateRegion({
             floor_plan_id: targetFpId,
@@ -181,7 +181,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
           })
             .then((response) => {
               setRegionPreview((prev) => {
-                if (!prev || prev.strokeId !== preview.strokeId) return prev;
+                if (!prev || (preview && prev.strokeId !== preview.strokeId)) return prev;
                 return {
                   ...prev,
                   serverValidation: {

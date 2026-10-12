@@ -65,6 +65,7 @@ export interface RenderDoor {
   swingDirection?: "INWARD" | "OUTWARD";
   swingAngleDeg?: number;
   isGarageDoor?: boolean;
+  properties?: Record<string, any>;
   /** Full polygon geometry from IFC (preferred for imported doors) */
   geometry?: RenderGeometry;
 }
