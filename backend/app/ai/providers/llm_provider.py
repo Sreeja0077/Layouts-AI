@@ -48,14 +48,26 @@ class LiteLLMProvider(LLMProvider):
     def __init__(self, model_alias: str = "llm_fast"):
         self.model_alias = model_alias
         self.model_name = self._resolve_model_name(model_alias)
-        self.api_base = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
+        self.oma_base_url = os.getenv("OMA_BASE_URL", "https://oma.novelinfra.com")
+        self.oma_api_key = os.getenv("OMA_API_KEY")
+        self.ollama_api_base = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
 
     def _resolve_model_name(self, alias: str) -> str:
-        if alias == "llm_fast":
-            return os.getenv("LITELLM_MODEL_FAST", "ollama/llama3.2:3b")
-        elif alias == "llm_reasoning":
-            return os.getenv("LITELLM_MODEL_REASONING", "ollama/llama3.1:8b")
-        return os.getenv("LITELLM_MODEL", alias)
+        if alias in ("llm_fast", "spec"):
+            return os.getenv("OMA_MODEL_SPEC", os.getenv("LITELLM_MODEL_FAST", "glm-5.2-cloud"))
+        elif alias in ("llm_reasoning", "layout"):
+            return os.getenv("OMA_MODEL_LAYOUT", os.getenv("LITELLM_MODEL_REASONING", "glm-5.2-cloud"))
+        elif alias == "change":
+            return os.getenv("OMA_MODEL_CHANGE", "glm-5.2-cloud")
+        elif alias == "explain":
+            return os.getenv("OMA_MODEL_EXPLAIN", "glm-5.1-cloud")
+        elif alias == "ocr":
+            return os.getenv("OMA_MODEL_OCR", "glm-ocr-latest")
+        elif alias == "vision":
+            return os.getenv("OMA_MODEL_VISION", "glm-5.1-cloud")
+        elif alias == "code":
+            return os.getenv("OMA_MODEL_CODE", "kimi-k2.7-code-cloud")
+        return os.getenv("OMA_MODEL_DEFAULT", os.getenv("LITELLM_MODEL", alias))
 
     def _build_messages(self, prompt: str, system_prompt: Optional[str]) -> List[Dict[str, str]]:
         messages = []
@@ -63,6 +75,41 @@ class LiteLLMProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
         return messages
+
+    def _build_kwargs(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        response_model: Optional[Type[BaseModel]] = None,
+    ) -> Dict[str, Any]:
+        messages = self._build_messages(prompt, system_prompt)
+        resolved_model = self.model_name
+        api_base = None
+        api_key = None
+
+        if "ollama" in self.model_name.lower():
+            api_base = self.ollama_api_base
+        elif self.oma_base_url or self.oma_api_key:
+            api_base = self.oma_base_url
+            api_key = self.oma_api_key or os.getenv("OPENAI_API_KEY")
+            if not any(resolved_model.startswith(p) for p in ("openai/", "azure/", "ollama/", "anthropic/")):
+                resolved_model = f"openai/{resolved_model}"
+        elif os.getenv("OPENAI_API_KEY"):
+            api_key = os.getenv("OPENAI_API_KEY")
+
+        kwargs: Dict[str, Any] = {
+            "model": resolved_model,
+            "messages": messages,
+            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.0")),
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        if api_key:
+            kwargs["api_key"] = api_key
+        if response_model is not None:
+            kwargs["response_format"] = response_model
+
+        return kwargs
 
     def complete(
         self,
@@ -73,24 +120,17 @@ class LiteLLMProvider(LLMProvider):
         try:
             import litellm
         except ImportError:
-            raise RuntimeError("litellm is not installed. Please install litellm or use MockLLMProvider.")
+            raise RuntimeError("Configured LLM provider failed: litellm is not installed.")
 
-        messages = self._build_messages(prompt, system_prompt)
-        kwargs: Dict[str, Any] = {
-            "model": self.model_name,
-            "messages": messages,
-            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.0")),
-        }
-        if "ollama" in self.model_name and self.api_base:
-            kwargs["api_base"] = self.api_base
-
-        if response_model is not None:
-            kwargs["response_format"] = response_model
-
-        logger.info(f"Invoking LiteLLMProvider with model={self.model_name}, alias={self.model_alias}")
-        response = litellm.completion(**kwargs)
-        content = response.choices[0].message.content
-        return content
+        kwargs = self._build_kwargs(prompt, system_prompt, response_model)
+        logger.info(f"Invoking LiteLLMProvider with model={kwargs.get('model')}, alias={self.model_alias}")
+        try:
+            response = litellm.completion(**kwargs)
+            content = response.choices[0].message.content
+            return content
+        except Exception as e:
+            logger.error(f"Configured LLM provider call failed: {e}")
+            raise RuntimeError(f"Configured LLM provider failed: {e}") from e
 
     async def acomplete(
         self,
@@ -101,24 +141,17 @@ class LiteLLMProvider(LLMProvider):
         try:
             import litellm
         except ImportError:
-            raise RuntimeError("litellm is not installed. Please install litellm or use MockLLMProvider.")
+            raise RuntimeError("Configured LLM provider failed: litellm is not installed.")
 
-        messages = self._build_messages(prompt, system_prompt)
-        kwargs: Dict[str, Any] = {
-            "model": self.model_name,
-            "messages": messages,
-            "temperature": float(os.getenv("LLM_TEMPERATURE", "0.0")),
-        }
-        if "ollama" in self.model_name and self.api_base:
-            kwargs["api_base"] = self.api_base
-
-        if response_model is not None:
-            kwargs["response_format"] = response_model
-
-        logger.info(f"Invoking LiteLLMProvider async with model={self.model_name}, alias={self.model_alias}")
-        response = await litellm.acompletion(**kwargs)
-        content = response.choices[0].message.content
-        return content
+        kwargs = self._build_kwargs(prompt, system_prompt, response_model)
+        logger.info(f"Invoking LiteLLMProvider async with model={kwargs.get('model')}, alias={self.model_alias}")
+        try:
+            response = await litellm.acompletion(**kwargs)
+            content = response.choices[0].message.content
+            return content
+        except Exception as e:
+            logger.error(f"Configured LLM provider async call failed: {e}")
+            raise RuntimeError(f"Configured LLM provider failed: {e}") from e
 
 
 class MockLLMProvider(LLMProvider):
@@ -142,6 +175,14 @@ class MockLLMProvider(LLMProvider):
         for trigger, response in self.custom_responses.items():
             if trigger in prompt_lower:
                 return response
+
+        # Ambiguity classifier evaluation prompt support
+        if "semantic ambiguity" in prompt_lower:
+            return json.dumps({
+                "needs_clarification": False,
+                "questions": [],
+                "reasoning": "Semantic intent is clear and complete."
+            })
 
         # Deterministic semantic inference based on user phrasing:
         # 1. 10 seater conference room
@@ -374,18 +415,24 @@ _ACTIVE_PROVIDER: Optional[LLMProvider] = None
 def get_llm_provider(alias: str = "llm_fast", force_mock: bool = False) -> LLMProvider:
     """
     Get the configured LLMProvider instance.
-    Defaults to MockLLMProvider if USE_MOCK_LLM=true or force_mock=True.
+    Uses MockLLMProvider when USE_MOCK_LLM=true or force_mock=True.
+    When USE_MOCK_LLM=false, strictly instantiates LiteLLMProvider and does NOT silently fall back to mock.
     """
     global _ACTIVE_PROVIDER
-    if force_mock or os.getenv("USE_MOCK_LLM", "true").lower() in ("true", "1", "yes"):
+    if force_mock:
         return MockLLMProvider()
 
-    if _ACTIVE_PROVIDER is None:
-        try:
-            _ACTIVE_PROVIDER = LiteLLMProvider(model_alias=alias)
-        except Exception as e:
-            logger.warning(f"Could not initialize LiteLLMProvider ({e}). Falling back to MockLLMProvider.")
-            _ACTIVE_PROVIDER = MockLLMProvider()
+    if _ACTIVE_PROVIDER is not None:
+        return _ACTIVE_PROVIDER
+
+    if os.getenv("USE_MOCK_LLM", "true").lower() in ("true", "1", "yes"):
+        return MockLLMProvider()
+
+    try:
+        _ACTIVE_PROVIDER = LiteLLMProvider(model_alias=alias)
+    except Exception as e:
+        logger.error(f"Failed to initialize LiteLLMProvider: {e}")
+        raise RuntimeError(f"Configured LLM provider failed: {e}") from e
 
     return _ACTIVE_PROVIDER
 
@@ -394,3 +441,8 @@ def set_active_llm_provider(provider: Optional[LLMProvider]) -> None:
     """Override active provider for testing or specific workflows."""
     global _ACTIVE_PROVIDER
     _ACTIVE_PROVIDER = provider
+    try:
+        from app.ai.graph import requirement_workflow
+        requirement_workflow._GLOBAL_REQUIREMENT_WORKFLOW = None
+    except ImportError:
+        pass

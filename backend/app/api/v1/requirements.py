@@ -89,6 +89,13 @@ async def create_requirement_set(
 
     try:
         final_state = workflow.invoke(state_input, config)
+    except RuntimeError as re:
+        err_msg = str(re)
+        logger.error(f"Provider or runtime error in requirement workflow: {err_msg}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY if "provider" in err_msg.lower() else status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=err_msg,
+        )
     except Exception as e:
         logger.error(f"Error executing requirement workflow: {e}")
         raise HTTPException(
@@ -167,6 +174,13 @@ async def clarify_requirement_set(
 
     try:
         updated_state = workflow.invoke(resume_input, config)
+    except RuntimeError as re:
+        err_msg = str(re)
+        logger.error(f"Provider or runtime error resuming requirement workflow: {err_msg}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY if "provider" in err_msg.lower() else status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=err_msg,
+        )
     except Exception as e:
         logger.error(f"Error resuming requirement workflow: {e}")
         raise HTTPException(

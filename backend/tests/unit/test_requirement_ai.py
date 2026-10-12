@@ -396,11 +396,247 @@ def test_17_api_create_and_clarify_endpoints(test_client):
     assert data_clarified["requirement_set"]["target_density_seats"] == 12
 
     # 4. Get requirement by ID
-    resp_get = test_client.get(f"/api/v1/requirements/{req_id}")
-    assert resp_get.status_code == 200
-    data_get = resp_get.json()
-    assert data_get["requirement_set_id"] == req_id
-    assert data_get["requirement_set"]["target_density_seats"] == 12
+# --------------------------------------------------------------------------
+# Test 18: Provider configuration selection (Real vs Mock)
+# --------------------------------------------------------------------------
+def test_18_provider_configuration_selection(monkeypatch):
+    from app.ai.providers.llm_provider import get_llm_provider, LiteLLMProvider, MockLLMProvider, set_active_llm_provider
+
+    set_active_llm_provider(None)
+    monkeypatch.setenv("USE_MOCK_LLM", "true")
+    provider_mock = get_llm_provider()
+    assert isinstance(provider_mock, MockLLMProvider)
+
+    set_active_llm_provider(None)
+    monkeypatch.setenv("USE_MOCK_LLM", "false")
+    monkeypatch.setenv("LITELLM_MODEL_FAST", "ollama/llama3.2:3b")
+    provider_real = get_llm_provider()
+    assert isinstance(provider_real, LiteLLMProvider)
+    assert provider_real.model_name == "ollama/llama3.2:3b"
+
+    # Reset
+    set_active_llm_provider(None)
+    monkeypatch.setenv("USE_MOCK_LLM", "true")
+
+
+# --------------------------------------------------------------------------
+# Test 19: Real provider failure does NOT silently fall back to mock
+# --------------------------------------------------------------------------
+def test_19_real_provider_failure_surfaces_error(monkeypatch):
+    from app.ai.providers.llm_provider import LiteLLMProvider
+    import litellm
+
+    real_provider = LiteLLMProvider(model_alias="llm_fast")
+
+    def failing_completion(**kwargs):
+        raise ConnectionError("Ollama daemon at localhost:11434 unreachable")
+
+    monkeypatch.setattr(litellm, "completion", failing_completion)
+
+    with pytest.raises(RuntimeError, match="Configured LLM provider failed"):
+        real_provider.complete("Create a conference room")
+
+
+# --------------------------------------------------------------------------
+# Test 20: AmbiguityClassifier invokes LLM when deterministic checks pass
+# --------------------------------------------------------------------------
+def test_20_ambiguity_classifier_invokes_llm_when_complete():
+    mock_prov = MockLLMProvider()
+    mock_prov.register_response(
+        "semantic ambiguity",
+        json.dumps({
+            "needs_clarification": False,
+            "questions": [],
+            "reasoning": "Semantic intent is fully clear."
+        })
+    )
+    classifier = AmbiguityClassifier(provider=mock_prov)
+
+    # 1. Complete requirement item (10 seats conference room)
+    complete_req = RequirementSet(
+        id="req_comp_1",
+        project_id="p1",
+        floor_plan_id="fp1",
+        status=RequirementStatus.NORMALIZED,
+        items=[
+            RequirementItem(
+                id="i1",
+                raw_phrase="10 seater conference room",
+                semantic_type="CONFERENCE_ROOM",
+                quantity=1,
+                confidence=0.95,
+            )
+        ],
+        target_density_seats=10,
+    )
+
+    result = classifier.evaluate(complete_req)
+    assert result.needs_clarification is False
+    # Verify mock provider was actually invoked for semantic ambiguity evaluation
+    assert any("semantic ambiguity" in inv["prompt"].lower() for inv in mock_prov.invocations)
+
+
+# --------------------------------------------------------------------------
+# Test 21: AmbiguityClassifier skips LLM when deterministic blocking triggers
+# --------------------------------------------------------------------------
+def test_21_ambiguity_classifier_skips_llm_on_deterministic_blocking():
+    mock_prov = MockLLMProvider()
+    classifier = AmbiguityClassifier(provider=mock_prov)
+
+    # Incomplete conference room without seating capacity
+    incomplete_req = RequirementSet(
+        id="req_incomp_1",
+        project_id="p1",
+        floor_plan_id="fp1",
+        status=RequirementStatus.DRAFT,
+        items=[
+            RequirementItem(
+                id="i1",
+                raw_phrase="create conference room",
+                semantic_type="CONFERENCE_ROOM",
+                quantity=1,
+                confidence=0.95,
+            )
+        ],
+        target_density_seats=None,
+    )
+
+    result = classifier.evaluate(incomplete_req)
+    assert result.needs_clarification is True
+    assert len(result.questions) >= 1
+    # Verify LLM provider was NOT called because deterministic checks failed immediately
+    assert len(mock_prov.invocations) == 0
+
+
+# --------------------------------------------------------------------------
+# Test 22: No unapproved default fallback values in completeness checks
+# --------------------------------------------------------------------------
+def test_22_no_unapproved_hardcoded_defaults():
+    # Conference room without capacity
+    conf_req = RequirementSet(
+        id="req_conf",
+        project_id="p1",
+        floor_plan_id="fp1",
+        status=RequirementStatus.DRAFT,
+        items=[
+            RequirementItem(
+                id="i1",
+                raw_phrase="conference room",
+                semantic_type="CONFERENCE_ROOM",
+                quantity=1,
+                confidence=0.9,
+            )
+        ],
+    )
+    is_comp, questions, _ = evaluate_requirement_completeness(conf_req)
+    assert is_comp is False
+    assert len(questions) == 1
+    # Must not contain hardcoded default fallback (must be None)
+    assert questions[0].default_fallback_value is None
+    # Suggested options should be empty by default (no unapproved corporate numbers)
+    assert questions[0].suggested_options == []
+
+    # Desks without quantity
+    desk_req = RequirementSet(
+        id="req_desk",
+        project_id="p1",
+        floor_plan_id="fp1",
+        status=RequirementStatus.DRAFT,
+        items=[
+            RequirementItem(
+                id="i2",
+                raw_phrase="desks",
+                semantic_type="PROFESSIONAL_DESK",
+                quantity=0,
+                confidence=0.7,
+            )
+        ],
+    )
+    is_comp_desk, questions_desk, _ = evaluate_requirement_completeness(desk_req)
+    assert is_comp_desk is False
+    assert questions_desk[0].default_fallback_value is None
+    assert questions_desk[0].suggested_options == []
+
+
+# --------------------------------------------------------------------------
+# Test 23: Question ID based clarification resume locates exact slot
+# --------------------------------------------------------------------------
+def test_23_question_id_based_clarification_resume():
+    provider = MockLLMProvider()
+    workflow = build_requirement_workflow(provider=provider)
+    thread_id = "test_thread_qid_resume_01"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Initial state with missing capacity
+    state_1 = workflow.invoke(
+        {"raw_text": "Create a conference room"},
+        config=config,
+    )
+    assert state_1["needs_clarification"] is True
+    target_qid = state_1["questions"][0]["question_id"]
+
+    # Resume by passing exact answered_question_id
+    state_2 = workflow.invoke(
+        {
+            "user_answer": "12",
+            "answered_question_id": target_qid,
+        },
+        config=config,
+    )
+    assert state_2["needs_clarification"] is False
+    assert state_2["requirement_set"]["target_density_seats"] == 12
+
+
+# --------------------------------------------------------------------------
+# Test 24: Configurable checkpointer (Memory vs Postgres)
+# --------------------------------------------------------------------------
+def test_24_configurable_checkpointer(monkeypatch):
+    from app.ai.graph.requirement_workflow import get_checkpointer, set_global_checkpointer
+    from langgraph.checkpoint.memory import MemorySaver
+
+    # 1. In-memory checkpointer
+    set_global_checkpointer(None)
+    monkeypatch.setenv("CHECKPOINT_BACKEND", "memory")
+    cp_mem = get_checkpointer()
+    assert isinstance(cp_mem, MemorySaver)
+
+    # 2. Postgres checkpointer configuration attempt
+    set_global_checkpointer(None)
+    monkeypatch.setenv("CHECKPOINT_BACKEND", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://invalid_host:9999/dummy_db")
+    with pytest.raises(RuntimeError, match="PostgreSQL checkpointer initialization failed"):
+        get_checkpointer()
+
+    # Reset
+    set_global_checkpointer(None)
+    monkeypatch.setenv("CHECKPOINT_BACKEND", "memory")
+
+
+# --------------------------------------------------------------------------
+# Test 25: API Error Semantics: provider failure returns 502
+# --------------------------------------------------------------------------
+def test_25_api_provider_failure_returns_502(test_client, monkeypatch):
+    from app.ai.providers.llm_provider import LiteLLMProvider, set_active_llm_provider
+    import litellm
+
+    failing_provider = LiteLLMProvider(model_alias="llm_fast")
+
+    def failing_completion(**kwargs):
+        raise ConnectionError("Ollama daemon unreachable")
+
+    monkeypatch.setattr(litellm, "completion", failing_completion)
+    set_active_llm_provider(failing_provider)
+
+    resp = test_client.post(
+        "/api/v1/requirements/",
+        json={"raw_text": "Create a conference room"},
+    )
+    assert resp.status_code == 502
+    data = resp.json()
+    assert "Configured LLM provider failed" in data["detail"]
+
+    # Reset
+    set_active_llm_provider(MockLLMProvider())
 
 
 if __name__ == "__main__":

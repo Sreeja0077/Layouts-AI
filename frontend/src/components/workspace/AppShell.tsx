@@ -11,6 +11,11 @@ import { StatusBar } from "./StatusBar";
 import { LayoutCanvas } from "../../editor/canvas/LayoutCanvas";
 import { FloorPlanRenderModel } from "../../editor/renderer/renderTypes";
 import { LayoutSuggestionPayload } from "../../api/layout";
+import {
+  submitRequirement,
+  clarifyRequirement,
+  RequirementAnalysisResponse,
+} from "../../api/requirements";
 
 export interface AppShellProps {
   renderModel?: FloorPlanRenderModel;
@@ -51,11 +56,53 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [isAiPanelOpen, setIsAiPanelOpen] = useState<boolean>(false);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
 
-  // AI Layout Solver State
-  const [promptInput, setPromptInput] = useState<string>("6 Professional Desks + 1 Manager Cabin");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  // Phase 8.5 Requirement AI State
+  const [promptInput, setPromptInput] = useState<string>("6 Professional Desks + 1 Manager Cabin near the window");
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isClarifying, setIsClarifying] = useState<boolean>(false);
+  const [analysisResult, setAnalysisResult] = useState<RequirementAnalysisResponse | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const [candidates, setCandidates] = useState<LayoutSuggestionPayload[]>([]);
   const [activeCandidateIdx, setActiveCandidateIdx] = useState<number>(0);
+
+  const handleAnalyzeRequirement = async () => {
+    if (!promptInput.trim() || isAnalyzing) return;
+    setIsAnalyzing(true);
+    setAiError(null);
+    try {
+      const targetFpId = activeFloorPlanId || renderModel?.id || "fp_default";
+      const targetProjId = activeProjectId || "proj_default";
+      const res = await submitRequirement({
+        raw_text: promptInput.trim(),
+        project_id: targetProjId,
+        floor_plan_id: targetFpId,
+      });
+      setAnalysisResult(res);
+    } catch (err: any) {
+      setAiError(err.message || "Failed to analyze requirement");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleClarifyRequirement = async (questionId: string, answer: string) => {
+    if (!analysisResult || !answer.trim() || isClarifying) return;
+    setIsClarifying(true);
+    setAiError(null);
+    try {
+      const res = await clarifyRequirement(
+        analysisResult.requirement_set_id,
+        answer.trim(),
+        questionId
+      );
+      setAnalysisResult(res);
+    } catch (err: any) {
+      setAiError(err.message || "Failed to submit clarification");
+    } finally {
+      setIsClarifying(false);
+    }
+  };
 
   const totalElements =
     (renderModel?.walls?.length || 0) +
@@ -131,8 +178,12 @@ export const AppShell: React.FC<AppShellProps> = ({
           <AILayoutPanel
             promptInput={promptInput}
             onPromptChange={setPromptInput}
-            onGenerate={() => {}}
-            isGenerating={isGenerating}
+            onAnalyze={handleAnalyzeRequirement}
+            isAnalyzing={isAnalyzing}
+            analysisResult={analysisResult}
+            error={aiError}
+            onClarify={handleClarifyRequirement}
+            isClarifying={isClarifying}
             candidates={candidates}
             activeCandidateIdx={activeCandidateIdx}
             onSelectCandidate={setActiveCandidateIdx}

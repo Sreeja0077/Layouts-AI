@@ -76,6 +76,9 @@
 - [x] **Task 8.3:** Implement `RequirementState` schema & company-defaults fallback table. *(Completed: 2026-10-12 11:39:00+05:30)*
 - [x] **Task 8.4:** Build LangGraph pause/resume graph checkpointing for clarification questions. *(Completed: 2026-10-12 11:39:00+05:30)*
 
+### Phase 8.5: Frontend Requirement AI Integration
+- [x] **Task 8.5:** Connect AI requirement workflow to the existing React AI panel and implement clarification/resolution UI. *(Completed: 2026-10-12 12:45:00+05:30)*
+
 ### Phase 9: Layout Optimization Engine
 - [ ] **Task 9.1:** Build strategy template generators (perimeter, two-row clusters, manager cabin near entrance/rear, circulation-focused).
 - [ ] **Task 9.2:** Implement OR-Tools CP-SAT exact constraint solver in `geometry/geo_engine/optimizer_cpsat.py`.
@@ -724,6 +727,33 @@
 - **Test Execution Results:**
   - `pytest backend/tests/unit/test_requirement_ai.py -v`: **PASSED (17/17 in 0.39s)**
   - `pytest backend/tests/unit/test_domain_schemas.py backend/tests/unit/test_region_clipping.py -v`: **PASSED (19/19 in 7.51s)**
+
+### [2026-10-12] Phase 8 Stabilization & Phase 8.5 Frontend Integration
+- **Action:** Stabilized Phase 8 Requirement AI provider configuration and implemented Phase 8.5 Frontend Integration across FastAPI, LangGraph, LiteLLM, and Vite/React workspace.
+  - **Part 1 & 2 - Configuration Unification & Real LLM Routing**: Unified environment variable names across `.env.example`, `docker-compose.yml`, and `llm_provider.py` (`USE_MOCK_LLM`, `LITELLM_MODEL_FAST`, `LITELLM_MODEL_REASONING`, `OLLAMA_API_BASE`, `OPENAI_API_KEY`, `LLM_TEMPERATURE`, `CHECKPOINT_BACKEND`). Enforced that when `USE_MOCK_LLM=false`, `LiteLLMProvider` is strictly used and surfaces clear runtime errors (`Configured LLM provider failed: ...`) without falling back silently to `MockLLMProvider`. Added Docker networking passthrough (`host.docker.internal:host-gateway`) for Windows Ollama daemon.
+  - **Part 3 - Structured Output Robustness**: Added bounded retry to `RequirementParser.parse()` and `aparse()`. Schema failures capture validation errors and retry with explicit schema correction prompts before failing. Strictly prohibited fabrication of catalog IDs, Revit families, or unstated dimensions.
+  - **Part 4 - AmbiguityClassifier Semantic LLM Invocation**: Separated evaluation into two sequential steps: Step 1 executes deterministic completeness checks as authoritative ground truth; Step 2 invokes the configured LLM provider with `AMBIGUITY_CLASSIFIER_SYSTEM_PROMPT` to evaluate subtle semantic ambiguities. Added unit tests proving real provider invocation on complete requirements and immediate short-circuiting on deterministic blocking conditions.
+  - **Part 5 - Removal of Premature Company Defaults**: Refactored `completeness.py` to set `suggested_options = []` and `default_fallback_value = None` by default, eliminating unapproved corporate seating/capacity numbers.
+  - **Part 6 - Exact Question ID Clarification Resume**: Updated `requirement_workflow.py` to match user answers against `answered_question_id` rather than defaulting to `questions[0]`. Non-destructively merges capacity, desk quantity, room type, and table type into the existing `RequirementSet`.
+  - **Part 7 - Durable Checkpointing**: Added `langgraph-checkpoint-postgres` and `psycopg[binary]` dependencies. Implemented `get_checkpointer()` supporting `CHECKPOINT_BACKEND=memory` (for test isolation) and `CHECKPOINT_BACKEND=postgres` (with connection pooling and automatic migration via `PostgresSaver.setup()`).
+  - **Part 8 - React AI Space Planner Integration**: Refactored `frontend/src/components/workspace/AILayoutPanel.tsx` and wired `AppShell.tsx` to call `/api/v1/requirements/` on `"Analyze Requirement"`, display interactive clarification questions with suggested option pills and free-text inputs, call `clarifyRequirement()` on submit, and render normalized semantic requirements (quantities, semantic types, spatial preferences, target seating) with zero fake layout metrics or fabricated candidate scores.
+- **Status:** `SUCCESS (Stabilization & Frontend Integration Complete)`
+- **Files Created/Updated:**
+  - [`.env.example`](file:///d:/Layouts%20AI/.env.example) (Unified LiteLLM & checkpointer environment configuration)
+  - [`docker-compose.yml`](file:///d:/Layouts%20AI/docker-compose.yml) (Added AI env variables & host.docker.internal extra_hosts)
+  - [`backend/requirements.txt`](file:///d:/Layouts%20AI/backend/requirements.txt) (Added `langgraph-checkpoint-postgres` and `psycopg[binary]`)
+  - [`backend/app/ai/providers/llm_provider.py`](file:///d:/Layouts%20AI/backend/app/ai/providers/llm_provider.py) (Removed silent mock fallback, unified model aliases, enhanced error reporting)
+  - [`backend/app/ai/prompts/requirement_prompts.py`](file:///d:/Layouts%20AI/backend/app/ai/prompts/requirement_prompts.py) (Added `AMBIGUITY_CLASSIFIER_SYSTEM_PROMPT`)
+  - [`backend/app/ai/nodes/requirement_parser.py`](file:///d:/Layouts%20AI/backend/app/ai/nodes/requirement_parser.py) (Added bounded retry for malformed LLM responses)
+  - [`backend/app/ai/nodes/ambiguity_classifier.py`](file:///d:/Layouts%20AI/backend/app/ai/nodes/ambiguity_classifier.py) (Step 1 deterministic + Step 2 LLM ambiguity check)
+  - [`backend/app/domain/requirements/completeness.py`](file:///d:/Layouts%20AI/backend/app/domain/requirements/completeness.py) (Removed hardcoded defaults, null fallbacks)
+  - [`backend/app/ai/graph/requirement_workflow.py`](file:///d:/Layouts%20AI/backend/app/ai/graph/requirement_workflow.py) (Question ID resume, PostgresSaver durable checkpointer)
+  - [`backend/app/api/v1/requirements.py`](file:///d:/Layouts%20AI/backend/app/api/v1/requirements.py) (502 Gateway error semantics for provider failures)
+  - [`backend/tests/unit/test_requirement_ai.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_requirement_ai.py) (Expanded to 25 unit tests covering all Phase 8/8.5 requirements)
+  - [`frontend/src/components/workspace/AILayoutPanel.tsx`](file:///d:/Layouts%20AI/frontend/src/components/workspace/AILayoutPanel.tsx) (Clarification Q&A and normalized summary UI)
+  - [`frontend/src/components/workspace/AppShell.tsx`](file:///d:/Layouts%20AI/frontend/src/components/workspace/AppShell.tsx) (Wired requirement submission and clarification state)
+  - [`backend/frontend` integration]: Configured dual `.env` (gitignored local runtime) and `.env.example` (tracked template) with OMA Cloud AI Gateway contract (`OMA_API_KEY`, `OMA_BASE_URL`, `OMA_MODEL_*`, `USE_MOCK_LLM=false`). Loaded via `python-dotenv` at root.
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 8.5 checklist and execution log)
 
 ---
 

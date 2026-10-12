@@ -7,9 +7,18 @@ import sys
 from pathlib import Path
 
 # Ensure repo root is available in sys.path
-_repo_root = str(Path(__file__).resolve().parent.parent.parent)
+_repo_path = Path(__file__).resolve().parent.parent.parent
+_repo_root = str(_repo_path)
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
+
+try:
+    from dotenv import load_dotenv
+    _env_file = _repo_path / ".env"
+    if _env_file.exists():
+        load_dotenv(dotenv_path=_env_file)
+except ImportError:
+    pass
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware

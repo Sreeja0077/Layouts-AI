@@ -50,6 +50,27 @@ services:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres_secure_password@postgres_db:5432/layouts_ai
       REDIS_URL: redis://redis_cache:6379/0
       JWT_SECRET_KEY: dev_super_secret_jwt_key_32bytes_min
+      # OMA Cloud AI Gateway
+      OMA_API_KEY: ${OMA_API_KEY:-}
+      OMA_BASE_URL: ${OMA_BASE_URL:-https://oma.novelinfra.com}
+      OMA_MODEL_DEFAULT: ${OMA_MODEL_DEFAULT:-glm-5.1-cloud}
+      OMA_MODEL_SPEC: ${OMA_MODEL_SPEC:-glm-5.2-cloud}
+      OMA_MODEL_LAYOUT: ${OMA_MODEL_LAYOUT:-glm-5.2-cloud}
+      OMA_MODEL_CHANGE: ${OMA_MODEL_CHANGE:-glm-5.2-cloud}
+      OMA_MODEL_EXPLAIN: ${OMA_MODEL_EXPLAIN:-glm-5.1-cloud}
+      OMA_MODEL_OCR: ${OMA_MODEL_OCR:-glm-ocr-latest}
+      OMA_MODEL_VISION: ${OMA_MODEL_VISION:-glm-5.1-cloud}
+      OMA_MODEL_CODE: ${OMA_MODEL_CODE:-kimi-k2.7-code-cloud}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0}
+      USE_MOCK_LLM: ${USE_MOCK_LLM:-false}
+      CHECKPOINT_BACKEND: ${CHECKPOINT_BACKEND:-memory}
+      # Local Ollama / Alternate Cloud Fallbacks
+      LITELLM_MODEL_FAST: ${LITELLM_MODEL_FAST:-}
+      LITELLM_MODEL_REASONING: ${LITELLM_MODEL_REASONING:-}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:

@@ -1,19 +1,21 @@
-"""
-AmbiguityClassifier Node (Task 8.2).
-Applies deterministic completeness checks first, with optional fallback for semantic nuance.
-"""
-
+import json
+import logging
 from typing import Optional
+from app.ai.nodes.requirement_parser import _clean_json_markdown
+from app.ai.prompts.requirement_prompts import AMBIGUITY_CLASSIFIER_SYSTEM_PROMPT
 from app.ai.providers.llm_provider import LLMProvider, get_llm_provider
 from app.ai.schemas.structured_output import ClarificationRequest
 from app.domain.requirements.completeness import classify_ambiguity_and_completeness
 from app.domain.requirements.schemas import RequirementSet
 
+logger = logging.getLogger("app.ai.nodes.ambiguity_classifier")
+
 
 class AmbiguityClassifier:
     """
     Evaluates semantic ambiguity on a parsed RequirementSet.
-    Prioritizes deterministic Python rules first.
+    Step 1: Run deterministic completeness checks first (ground truth baseline).
+    Step 2: If deterministic checks pass, invoke configured LLM to inspect semantic ambiguity.
     """
 
     def __init__(self, provider: Optional[LLMProvider] = None):
@@ -23,12 +25,44 @@ class AmbiguityClassifier:
         """
         Evaluate requirement set for completeness and ambiguity.
         """
-        # 1. Deterministic rules first (ground truth)
-        result = classify_ambiguity_and_completeness(req_set)
-        return result
+        # Step 1: Deterministic rules first (ground truth)
+        det_result = classify_ambiguity_and_completeness(req_set)
+        if det_result.needs_clarification:
+            return det_result
+
+        # Step 2: Semantic ambiguity check via configured LLM provider
+        prompt = f"Evaluate this parsed RequirementSet for semantic ambiguity:\n{req_set.model_dump_json(indent=2)}"
+        logger.info("Invoking LLM for semantic ambiguity classification.")
+        raw_response = self.provider.complete(
+            prompt=prompt,
+            system_prompt=AMBIGUITY_CLASSIFIER_SYSTEM_PROMPT,
+        )
+        cleaned = _clean_json_markdown(raw_response)
+        try:
+            return ClarificationRequest.model_validate_json(cleaned)
+        except Exception as e:
+            logger.error(f"Failed to validate LLM output for ambiguity classification: {e}")
+            raise ValueError(f"Malformed LLM structured output for ambiguity classification: {e}") from e
 
     async def aevaluate(self, req_set: RequirementSet) -> ClarificationRequest:
         """
         Async evaluation.
         """
-        return self.evaluate(req_set)
+        # Step 1: Deterministic rules first (ground truth)
+        det_result = classify_ambiguity_and_completeness(req_set)
+        if det_result.needs_clarification:
+            return det_result
+
+        # Step 2: Semantic ambiguity check via configured LLM provider
+        prompt = f"Evaluate this parsed RequirementSet for semantic ambiguity:\n{req_set.model_dump_json(indent=2)}"
+        logger.info("Invoking LLM async for semantic ambiguity classification.")
+        raw_response = await self.provider.acomplete(
+            prompt=prompt,
+            system_prompt=AMBIGUITY_CLASSIFIER_SYSTEM_PROMPT,
+        )
+        cleaned = _clean_json_markdown(raw_response)
+        try:
+            return ClarificationRequest.model_validate_json(cleaned)
+        except Exception as e:
+            logger.error(f"Failed to validate LLM output for async ambiguity classification: {e}")
+            raise ValueError(f"Malformed LLM structured output for ambiguity classification: {e}") from e

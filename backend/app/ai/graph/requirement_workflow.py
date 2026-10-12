@@ -4,6 +4,7 @@ Supports state persistence, pause on clarification required, and resume with use
 """
 
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.checkpoint.memory import MemorySaver
@@ -67,7 +68,6 @@ def merge_clarification_answer(
         val = _extract_first_int(answer_clean)
         if val is not None:
             req_set.target_density_seats = val
-            # Update notes
             req_set.notes = f"{req_set.notes or ''} [Clarified capacity: {val}]"
 
     # 2. Quantity answer (e.g. slot='quantity_professional_desk')
@@ -137,7 +137,10 @@ def build_requirement_workflow(
         }
 
     def evaluate_node(state: RequirementWorkflowState) -> Dict[str, Any]:
-        """Evaluate completeness and apply user clarification answers if resuming."""
+        """
+        Evaluate completeness and apply user clarification answers if resuming.
+        Locates the exact pending question by question_id when supplied by frontend.
+        """
         req_dict = state["requirement_set"]
         req_set = RequirementSet.model_validate(req_dict)
 
@@ -145,8 +148,20 @@ def build_requirement_workflow(
         user_answer = state.get("user_answer")
         if user_answer:
             slot_name = None
-            if state.get("questions"):
-                slot_name = state["questions"][0].get("slot")
+            answered_qid = state.get("answered_question_id")
+            pending_questions = state.get("questions") or []
+
+            # 1. Match exact question by question_id if supplied
+            if answered_qid and pending_questions:
+                for q in pending_questions:
+                    if q.get("question_id") == answered_qid:
+                        slot_name = q.get("slot")
+                        break
+
+            # 2. If question_id didn't match or wasn't provided, fallback to first pending question's slot
+            if not slot_name and pending_questions:
+                slot_name = pending_questions[0].get("slot")
+
             req_set = merge_clarification_answer(req_set, user_answer, slot_name)
 
         is_complete, questions, reasoning = evaluate_requirement_completeness(req_set)
@@ -159,6 +174,7 @@ def build_requirement_workflow(
                 "questions": [q.model_dump() for q in questions],
                 "reasoning": reasoning,
                 "user_answer": None,
+                "answered_question_id": None,
                 "status": RequirementStatus.CLARIFICATION_REQUIRED.value,
             }
         else:
@@ -169,6 +185,7 @@ def build_requirement_workflow(
                 "questions": [],
                 "reasoning": reasoning,
                 "user_answer": None,
+                "answered_question_id": None,
                 "status": RequirementStatus.NORMALIZED.value,
             }
 
@@ -208,21 +225,76 @@ def build_requirement_workflow(
     builder.add_edge("clarification_pause", END)
     builder.add_edge("finalize", END)
 
-    memory = checkpointer if checkpointer is not None else MemorySaver()
+    memory = checkpointer if checkpointer is not None else get_checkpointer()
     compiled_app = builder.compile(checkpointer=memory)
     return compiled_app
 
 
-# Global workflow instance with in-memory checkpointer
-_GLOBAL_CHECKPOINTER = MemorySaver()
+# Checkpointer management
+_GLOBAL_CHECKPOINTER: Optional[Any] = None
 _GLOBAL_REQUIREMENT_WORKFLOW = None
 
 
-def get_requirement_workflow(provider: Optional[LLMProvider] = None):
+def get_checkpointer():
+    """
+    Returns the configured checkpointer.
+    Controlled by CHECKPOINT_BACKEND=memory|postgres (default: memory).
+    For memory: returns MemorySaver().
+    For postgres: returns PostgresSaver initialized with connection pool,
+    with automatic table migration setup.
+    """
+    global _GLOBAL_CHECKPOINTER
+    if _GLOBAL_CHECKPOINTER is not None:
+        return _GLOBAL_CHECKPOINTER
+
+    backend_type = os.getenv("CHECKPOINT_BACKEND", "memory").lower()
+    if backend_type == "postgres":
+        try:
+            from psycopg_pool import ConnectionPool
+            from langgraph.checkpoint.postgres import PostgresSaver
+
+            raw_db_url = os.getenv(
+                "DATABASE_URL",
+                "postgresql://postgres:postgres_secure_password@localhost:5432/layouts_ai",
+            )
+            pg_conn_str = raw_db_url.replace("postgresql+psycopg2://", "postgresql://")
+            pool = ConnectionPool(
+                pg_conn_str,
+                max_size=10,
+                open=False,
+                kwargs={"autocommit": True, "connect_timeout": 1},
+            )
+            pool.open(wait=True, timeout=1.0)
+            saver = PostgresSaver(pool)
+            saver.setup()
+            _GLOBAL_CHECKPOINTER = saver
+            logger.info("Initialized durable PostgreSQL checkpointer for LangGraph.")
+            return _GLOBAL_CHECKPOINTER
+        except Exception as e:
+            logger.error(f"Failed to initialize PostgreSQL checkpointer: {e}")
+            raise RuntimeError(f"PostgreSQL checkpointer initialization failed: {e}") from e
+
+    _GLOBAL_CHECKPOINTER = MemorySaver()
+    logger.info("Initialized in-memory checkpointer for LangGraph.")
+    return _GLOBAL_CHECKPOINTER
+
+
+def set_global_checkpointer(checkpointer: Optional[Any]) -> None:
+    """Override checkpointer instance for testing."""
+    global _GLOBAL_CHECKPOINTER, _GLOBAL_REQUIREMENT_WORKFLOW
+    _GLOBAL_CHECKPOINTER = checkpointer
+    _GLOBAL_REQUIREMENT_WORKFLOW = None
+
+
+def get_requirement_workflow(
+    provider: Optional[LLMProvider] = None,
+    checkpointer: Optional[Any] = None,
+):
     """Get compiled LangGraph requirement workflow."""
     global _GLOBAL_REQUIREMENT_WORKFLOW
-    if _GLOBAL_REQUIREMENT_WORKFLOW is None or provider is not None:
+    if _GLOBAL_REQUIREMENT_WORKFLOW is None or provider is not None or checkpointer is not None:
+        active_checkpointer = checkpointer if checkpointer is not None else get_checkpointer()
         _GLOBAL_REQUIREMENT_WORKFLOW = build_requirement_workflow(
-            provider=provider, checkpointer=_GLOBAL_CHECKPOINTER
+            provider=provider, checkpointer=active_checkpointer
         )
     return _GLOBAL_REQUIREMENT_WORKFLOW

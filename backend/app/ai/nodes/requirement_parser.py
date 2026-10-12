@@ -68,8 +68,22 @@ class RequirementParser:
         try:
             parsed_output = ParsedRequirementOutput.model_validate_json(cleaned_json)
         except (ValidationError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to validate LLM output against ParsedRequirementOutput: {e}")
-            raise ValueError(f"Malformed LLM structured output: {str(e)}")
+            logger.warning(f"First parsing attempt failed ({e}). Performing bounded retry...")
+            retry_prompt = (
+                f"The previous output was invalid or violated schema constraints: {e}\n"
+                f"Please fix and return ONLY valid JSON matching ParsedRequirementOutput schema for:\n"
+                f"{raw_text.strip()}"
+            )
+            try:
+                retry_response = self.provider.complete(
+                    prompt=retry_prompt,
+                    system_prompt=REQUIREMENT_PARSER_SYSTEM_PROMPT,
+                )
+                cleaned_retry_json = _clean_json_markdown(retry_response)
+                parsed_output = ParsedRequirementOutput.model_validate_json(cleaned_retry_json)
+            except Exception as retry_err:
+                logger.error(f"Bounded retry also failed: {retry_err}")
+                raise ValueError(f"Malformed LLM structured output: {str(retry_err)}") from retry_err
 
         return self._to_requirement_set(
             parsed_output=parsed_output,
@@ -87,7 +101,7 @@ class RequirementParser:
         region_id: Optional[str] = None,
     ) -> RequirementSet:
         """
-        Asynchronously parse user text into a RequirementSet.
+        Asynchronously parse user text into a RequirementSet with bounded retry.
         """
         if not raw_text or not raw_text.strip():
             raise ValueError("Input raw_text cannot be empty")
@@ -104,8 +118,22 @@ class RequirementParser:
         try:
             parsed_output = ParsedRequirementOutput.model_validate_json(cleaned_json)
         except (ValidationError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to validate LLM output against ParsedRequirementOutput: {e}")
-            raise ValueError(f"Malformed LLM structured output: {str(e)}")
+            logger.warning(f"First async parsing attempt failed ({e}). Performing bounded retry...")
+            retry_prompt = (
+                f"The previous output was invalid or violated schema constraints: {e}\n"
+                f"Please fix and return ONLY valid JSON matching ParsedRequirementOutput schema for:\n"
+                f"{raw_text.strip()}"
+            )
+            try:
+                retry_response = await self.provider.acomplete(
+                    prompt=retry_prompt,
+                    system_prompt=REQUIREMENT_PARSER_SYSTEM_PROMPT,
+                )
+                cleaned_retry_json = _clean_json_markdown(retry_response)
+                parsed_output = ParsedRequirementOutput.model_validate_json(cleaned_retry_json)
+            except Exception as retry_err:
+                logger.error(f"Bounded async retry also failed: {retry_err}")
+                raise ValueError(f"Malformed LLM structured output: {str(retry_err)}") from retry_err
 
         return self._to_requirement_set(
             parsed_output=parsed_output,

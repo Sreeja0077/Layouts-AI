@@ -5,7 +5,7 @@ or whether clarification questions must be asked to the user.
 """
 
 import uuid
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from app.ai.schemas.structured_output import ClarificationQuestion, ClarificationRequest
 from app.domain.requirements.schemas import RequirementSet, RequirementStatus
 
@@ -31,11 +31,18 @@ GENERIC_DESK_TYPES = {
 
 def evaluate_requirement_completeness(
     req_set: RequirementSet,
+    options_config: Optional[dict] = None,
 ) -> Tuple[bool, List[ClarificationQuestion], str]:
     """
     Deterministic rule-based completeness checklist.
     Returns: (is_complete, clarification_questions, reasoning)
+
+    Adheres strictly to the invariant:
+    No unapproved company defaults or hard-coded seat choices.
+    suggested_options is empty unless explicitly configured.
+    default_fallback_value is None unless explicitly configured.
     """
+    opts = options_config or {}
     questions: List[ClarificationQuestion] = []
     reasons: List[str] = []
 
@@ -45,8 +52,8 @@ def evaluate_requirement_completeness(
             question_id=f"q_{uuid.uuid4().hex[:8]}",
             slot="general_requirement",
             question_text="Could you specify what kind of workspace or room you would like to create?",
-            suggested_options=["Office Workstations", "Meeting Room", "Conference Room", "Manager Cabin"],
-            default_fallback_value=None,
+            suggested_options=opts.get("general_requirement", []),
+            default_fallback_value=opts.get("default_general_requirement", None),
         )
         questions.append(q)
         return False, questions, "No requirement items or room specification provided."
@@ -70,8 +77,8 @@ def evaluate_requirement_completeness(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
                     question_text=f"How many seats are needed for the {display_name}?",
-                    suggested_options=["6", "8", "10", "12", "16"],
-                    default_fallback_value="8" if sem_type == "MEETING_ROOM" else "10",
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get(f"default_{slot_name}", None),
                 )
                 questions.append(q)
                 reasons.append(f"{display_name} requires a seating capacity.")
@@ -84,22 +91,22 @@ def evaluate_requirement_completeness(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
                     question_text="How many desks would you like to place?",
-                    suggested_options=["4", "6", "8", "12"],
-                    default_fallback_value="6",
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get(f"default_{slot_name}", None),
                 )
                 questions.append(q)
                 reasons.append("Desk requirement requires a specific quantity.")
 
         # Rule 2C: Highly Ambiguous Item (e.g., 'table' without context)
-        if sem_type in ("TABLE_GENERIC", "TABLE") or "table" in raw_phrase_lower and sem_type not in ROOM_SPACE_TYPES:
+        if sem_type in ("TABLE_GENERIC", "TABLE") or ("table" in raw_phrase_lower and sem_type not in ROOM_SPACE_TYPES):
             if not any(k in raw_phrase_lower for k in ["meeting", "conference", "coffee", "desk", "dining"]):
                 slot_name = "table_type"
                 q = ClarificationQuestion(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
                     question_text="What type of table would you like to place?",
-                    suggested_options=["Meeting Table", "Coffee Table", "Workstation Table"],
-                    default_fallback_value=None,
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get("default_table_type", None),
                 )
                 questions.append(q)
                 reasons.append("Ambiguous table type specified.")
@@ -112,8 +119,8 @@ def evaluate_requirement_completeness(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
                     question_text="What type of room should this be?",
-                    suggested_options=["Meeting Room", "Conference Room", "Training Room"],
-                    default_fallback_value="Meeting Room",
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get("default_room_type", None),
                 )
                 questions.append(q)
                 reasons.append("Room type is unspecified.")
@@ -125,11 +132,12 @@ def evaluate_requirement_completeness(
 
 def classify_ambiguity_and_completeness(
     req_set: RequirementSet,
+    options_config: Optional[dict] = None,
 ) -> ClarificationRequest:
     """
     Wraps deterministic completeness evaluation into a ClarificationRequest structure.
     """
-    is_complete, questions, reasoning = evaluate_requirement_completeness(req_set)
+    is_complete, questions, reasoning = evaluate_requirement_completeness(req_set, options_config=options_config)
     return ClarificationRequest(
         needs_clarification=not is_complete,
         questions=questions,
