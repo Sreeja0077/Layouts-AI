@@ -55,54 +55,122 @@ def merge_clarification_answer(
     req_set: RequirementSet,
     answer: str,
     question_slot: Optional[str] = None,
+    target_item_id: Optional[str] = None,
 ) -> RequirementSet:
     """
     Non-destructively merges a user clarification answer into an existing RequirementSet.
-    Preserves all previously valid semantic information.
+    Preserves all previously valid semantic information and targets specific items when specified.
     """
     answer_clean = answer.strip()
     slot = (question_slot or "").lower()
 
-    # 1. Capacity answer (e.g. slot='capacity_conference_room')
-    if "capacity" in slot or "seat" in slot:
+    # Find the specific target item if target_item_id was passed
+    target_item: Optional[RequirementItem] = None
+    if target_item_id:
+        for item in req_set.items:
+            if item.id == target_item_id:
+                target_item = item
+                break
+
+    # 1. Desk Type answer (slot='desk_type')
+    if slot == "desk_type" or ("desk" in slot and "type" in slot):
+        norm_type = answer_clean.upper().replace(" ", "_").replace("-", "_")
+        if not norm_type.endswith("_DESK") and "DESK" not in norm_type:
+            norm_type = f"{norm_type}_DESK"
+        if target_item:
+            target_item.semantic_type = norm_type
+        else:
+            # Fallback to first generic desk item
+            for item in req_set.items:
+                if item.semantic_type in ("DESK_GENERIC", "DESK", "DESKS") or ("DESK" in (item.semantic_type or "")):
+                    item.semantic_type = norm_type
+                    break
+        req_set.notes = f"{req_set.notes or ''} [Clarified desk type: {norm_type}]"
+
+    # 2. Chair Type answer (slot='chair_type')
+    elif slot == "chair_type" or ("chair" in slot and "type" in slot):
+        norm_type = answer_clean.upper().replace(" ", "_").replace("-", "_")
+        if not norm_type.endswith("_CHAIR") and "CHAIR" not in norm_type:
+            norm_type = f"{norm_type}_CHAIR"
+        if target_item:
+            target_item.semantic_type = norm_type
+        else:
+            for item in req_set.items:
+                if item.semantic_type in ("CHAIR_GENERIC", "CHAIR", "CHAIRS") or ("CHAIR" in (item.semantic_type or "")):
+                    item.semantic_type = norm_type
+                    break
+        req_set.notes = f"{req_set.notes or ''} [Clarified chair type: {norm_type}]"
+
+    # 3. Table Type answer (slot='table_type')
+    elif slot == "table_type" or ("table" in slot and "type" in slot):
+        norm_type = answer_clean.upper().replace(" ", "_").replace("-", "_")
+        if not norm_type.endswith("_TABLE") and "TABLE" not in norm_type:
+            norm_type = f"{norm_type}_TABLE"
+        if target_item:
+            target_item.semantic_type = norm_type
+        else:
+            for item in req_set.items:
+                if item.semantic_type in ("TABLE_GENERIC", "TABLE", "TABLES") or ("TABLE" in (item.semantic_type or "")):
+                    item.semantic_type = norm_type
+                    break
+        req_set.notes = f"{req_set.notes or ''} [Clarified table type: {norm_type}]"
+
+    # 4. Capacity answer (e.g. slot='capacity_conference_room')
+    elif "capacity" in slot or "seat" in slot:
         val = _extract_first_int(answer_clean)
         if val is not None:
             req_set.target_density_seats = val
+            if target_item and "seater" in target_item.raw_phrase.lower():
+                target_item.quantity = val
             req_set.notes = f"{req_set.notes or ''} [Clarified capacity: {val}]"
 
-    # 2. Quantity answer (e.g. slot='quantity_professional_desk')
-    elif "quantity" in slot or "desk" in slot:
-        val = _extract_first_int(answer_clean)
-        if val is not None:
-            for item in req_set.items:
-                if item.quantity <= 0 or (item.semantic_type and "DESK" in item.semantic_type):
-                    item.quantity = val
-            req_set.notes = f"{req_set.notes or ''} [Clarified quantity: {val}]"
-
-    # 3. Room Type answer (e.g. slot='room_type')
+    # 5. Room Type answer (e.g. slot='room_type')
     elif "room_type" in slot:
-        norm_type = answer_clean.upper().replace(" ", "_")
-        for item in req_set.items:
-            item.semantic_type = norm_type
+        norm_type = answer_clean.upper().replace(" ", "_").replace("-", "_")
+        if target_item:
+            target_item.semantic_type = norm_type
+        else:
+            for item in req_set.items:
+                item.semantic_type = norm_type
         req_set.notes = f"{req_set.notes or ''} [Clarified room type: {norm_type}]"
 
-    # 4. Table Type answer (e.g. slot='table_type')
-    elif "table_type" in slot:
-        norm_type = answer_clean.upper().replace(" ", "_")
-        for item in req_set.items:
-            item.semantic_type = norm_type
-        req_set.notes = f"{req_set.notes or ''} [Clarified table type: {norm_type}]"
+    # 6. Quantity answer (e.g. slot='quantity_desk', 'quantity_chair', 'quantity')
+    elif "quantity" in slot:
+        val = _extract_first_int(answer_clean)
+        if val is not None:
+            if target_item:
+                target_item.quantity = val
+            else:
+                found = False
+                for item in req_set.items:
+                    if item.quantity <= 0 and item.semantic_type and item.semantic_type.lower() in slot:
+                        item.quantity = val
+                        found = True
+                        break
+                if not found:
+                    for item in req_set.items:
+                        if item.quantity <= 0:
+                            item.quantity = val
+                            break
+            req_set.notes = f"{req_set.notes or ''} [Clarified quantity: {val}]"
 
     # General fallback
     else:
         num = _extract_first_int(answer_clean)
         if num is not None:
-            if not req_set.target_density_seats:
+            if target_item:
+                target_item.quantity = num
+            elif not req_set.target_density_seats:
                 req_set.target_density_seats = num
             else:
                 for item in req_set.items:
                     if item.quantity <= 0:
                         item.quantity = num
+                        break
+        else:
+            norm_type = answer_clean.upper().replace(" ", "_")
+            if target_item:
+                target_item.semantic_type = norm_type
         req_set.notes = f"{req_set.notes or ''} [Clarification: {answer_clean}]"
 
     return req_set
@@ -148,6 +216,7 @@ def build_requirement_workflow(
         user_answer = state.get("user_answer")
         if user_answer:
             slot_name = None
+            target_item_id = None
             answered_qid = state.get("answered_question_id")
             pending_questions = state.get("questions") or []
 
@@ -156,13 +225,20 @@ def build_requirement_workflow(
                 for q in pending_questions:
                     if q.get("question_id") == answered_qid:
                         slot_name = q.get("slot")
+                        target_item_id = q.get("item_id")
                         break
 
-            # 2. If question_id didn't match or wasn't provided, fallback to first pending question's slot
+            # 2. If question_id didn't match or wasn't provided, fallback to first pending question's slot & item_id
             if not slot_name and pending_questions:
                 slot_name = pending_questions[0].get("slot")
+                target_item_id = pending_questions[0].get("item_id")
 
-            req_set = merge_clarification_answer(req_set, user_answer, slot_name)
+            req_set = merge_clarification_answer(
+                req_set=req_set,
+                answer=user_answer,
+                question_slot=slot_name,
+                target_item_id=target_item_id,
+            )
 
         is_complete, questions, reasoning = evaluate_requirement_completeness(req_set)
 

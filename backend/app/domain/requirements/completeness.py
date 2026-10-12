@@ -76,6 +76,7 @@ def evaluate_requirement_completeness(
                 q = ClarificationQuestion(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
+                    item_id=item.id,
                     question_text=f"How many seats are needed for the {display_name}?",
                     suggested_options=opts.get(slot_name, []),
                     default_fallback_value=opts.get(f"default_{slot_name}", None),
@@ -83,13 +84,32 @@ def evaluate_requirement_completeness(
                 questions.append(q)
                 reasons.append(f"{display_name} requires a seating capacity.")
 
-        # Rule 2B: Desks or Workstations with Missing/Zero Quantity
-        if sem_type in GENERIC_DESK_TYPES:
-            if item.quantity <= 0 or ("desks" in raw_phrase_lower and not any(ch.isdigit() for ch in raw_phrase_lower) and "a desk" not in raw_phrase_lower and "one desk" not in raw_phrase_lower):
-                slot_name = f"quantity_{sem_type.lower()}"
+        # Rule 2B: Desks
+        is_desk = (
+            sem_type in ("DESK_GENERIC", "DESK", "DESKS", "WORKSTATION", "WORKSTATIONS", "PROFESSIONAL_DESK", "EXECUTIVE_DESK", "MANAGER_DESK")
+            or ("desk" in raw_phrase_lower and not any(k in sem_type for k in ("CABIN", "ROOM")))
+        )
+        if is_desk:
+            # Case 1: Generic desk with known quantity -> ask for desk TYPE, not quantity
+            if sem_type in ("DESK_GENERIC", "DESK", "DESKS") and item.quantity > 0:
+                slot_name = "desk_type"
                 q = ClarificationQuestion(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
+                    item_id=item.id,
+                    question_text="What type of desk would you like to place?",
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get(f"default_{slot_name}", None),
+                )
+                questions.append(q)
+                reasons.append("Generic desk requirement requires a specific desk type.")
+            # Case 2: Desk missing quantity (quantity <= 0 or unspecified)
+            elif item.quantity <= 0:
+                slot_name = "quantity_desk" if sem_type in ("DESK_GENERIC", "DESK", "DESKS") else f"quantity_{sem_type.lower()}"
+                q = ClarificationQuestion(
+                    question_id=f"q_{uuid.uuid4().hex[:8]}",
+                    slot=slot_name,
+                    item_id=item.id,
                     question_text="How many desks would you like to place?",
                     suggested_options=opts.get(slot_name, []),
                     default_fallback_value=opts.get(f"default_{slot_name}", None),
@@ -97,13 +117,46 @@ def evaluate_requirement_completeness(
                 questions.append(q)
                 reasons.append("Desk requirement requires a specific quantity.")
 
-        # Rule 2C: Highly Ambiguous Item (e.g., 'table' without context)
+        # Rule 2C: Chairs
+        is_chair = (
+            sem_type in ("CHAIR_GENERIC", "CHAIR", "CHAIRS", "OFFICE_CHAIR", "TASK_CHAIR")
+            or ("chair" in raw_phrase_lower and not any(k in sem_type for k in ("CABIN", "ROOM")))
+        )
+        if is_chair:
+            if item.quantity <= 0:
+                slot_name = "quantity_chair" if sem_type in ("CHAIR_GENERIC", "CHAIR", "CHAIRS") else f"quantity_{sem_type.lower()}"
+                q = ClarificationQuestion(
+                    question_id=f"q_{uuid.uuid4().hex[:8]}",
+                    slot=slot_name,
+                    item_id=item.id,
+                    question_text="How many chairs would you like to place?",
+                    suggested_options=opts.get(slot_name, []),
+                    default_fallback_value=opts.get(f"default_{slot_name}", None),
+                )
+                questions.append(q)
+                reasons.append("Chair requirement requires a specific quantity.")
+            elif opts.get("require_chair_type", False) or opts.get("clarify_chair_type", False):
+                if sem_type in ("CHAIR_GENERIC", "CHAIR", "CHAIRS"):
+                    slot_name = "chair_type"
+                    q = ClarificationQuestion(
+                        question_id=f"q_{uuid.uuid4().hex[:8]}",
+                        slot=slot_name,
+                        item_id=item.id,
+                        question_text="What type of chair would you like to place?",
+                        suggested_options=opts.get(slot_name, []),
+                        default_fallback_value=opts.get(f"default_{slot_name}", None),
+                    )
+                    questions.append(q)
+                    reasons.append("Generic chair requirement requires a specific chair type.")
+
+        # Rule 2D: Highly Ambiguous Item (e.g., 'table' without context)
         if sem_type in ("TABLE_GENERIC", "TABLE") or ("table" in raw_phrase_lower and sem_type not in ROOM_SPACE_TYPES):
             if not any(k in raw_phrase_lower for k in ["meeting", "conference", "coffee", "desk", "dining"]):
                 slot_name = "table_type"
                 q = ClarificationQuestion(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
+                    item_id=item.id,
                     question_text="What type of table would you like to place?",
                     suggested_options=opts.get(slot_name, []),
                     default_fallback_value=opts.get("default_table_type", None),
@@ -111,13 +164,14 @@ def evaluate_requirement_completeness(
                 questions.append(q)
                 reasons.append("Ambiguous table type specified.")
 
-        # Rule 2D: Ambiguous Room ('10 seater room' without room type)
+        # Rule 2E: Ambiguous Room ('10 seater room' without room type)
         if sem_type in ("ROOM", "UNKNOWN_ROOM") or ("room" in raw_phrase_lower and sem_type not in ROOM_SPACE_TYPES and sem_type != "MANAGER_CABIN"):
             if not any(k in raw_phrase_lower for k in ["conference", "meeting", "training", "break", "server", "manager"]):
                 slot_name = "room_type"
                 q = ClarificationQuestion(
                     question_id=f"q_{uuid.uuid4().hex[:8]}",
                     slot=slot_name,
+                    item_id=item.id,
                     question_text="What type of room should this be?",
                     suggested_options=opts.get(slot_name, []),
                     default_fallback_value=opts.get("default_room_type", None),

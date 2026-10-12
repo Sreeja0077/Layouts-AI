@@ -8,6 +8,7 @@ const API_BASE = "/api/v1";
 export interface ClarificationQuestion {
   question_id: string;
   slot: string;
+  item_id?: string | null;
   question_text: string;
   suggested_options: string[];
   default_fallback_value?: string | null;

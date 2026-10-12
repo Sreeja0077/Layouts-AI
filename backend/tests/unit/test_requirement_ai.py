@@ -409,6 +409,8 @@ def test_18_provider_configuration_selection(monkeypatch):
 
     set_active_llm_provider(None)
     monkeypatch.setenv("USE_MOCK_LLM", "false")
+    monkeypatch.delenv("OMA_MODEL_SPEC", raising=False)
+    monkeypatch.delenv("OMA_MODEL_DEFAULT", raising=False)
     monkeypatch.setenv("LITELLM_MODEL_FAST", "ollama/llama3.2:3b")
     provider_real = get_llm_provider()
     assert isinstance(provider_real, LiteLLMProvider)
@@ -637,6 +639,284 @@ def test_25_api_provider_failure_returns_502(test_client, monkeypatch):
 
     # Reset
     set_active_llm_provider(MockLLMProvider())
+
+
+# --------------------------------------------------------------------------
+# Fix Verification Tests (Targeted Bug Fix: Generic vs Specific, Multi-Item, Targeted Clarification)
+# --------------------------------------------------------------------------
+
+def test_target_fix_1_two_chairs_and_two_desks(parser):
+    """
+    TEST 1:
+    Input: "2 chairs and 2 desks"
+    Expected:
+    2 RequirementItems:
+    - CHAIR_GENERIC, quantity = 2
+    - DESK_GENERIC, quantity = 2
+    No PROFESSIONAL_DESK inference.
+    No quantity = 0.
+    No missing chair.
+    Clarification must NOT ask for desk quantity.
+    """
+    result = parser.parse(raw_text="2 chairs and 2 desks")
+    assert len(result.items) == 2, f"Expected 2 items, got {len(result.items)}"
+
+    types = {item.semantic_type: item for item in result.items}
+    assert "CHAIR_GENERIC" in types, "CHAIR_GENERIC missing"
+    assert "DESK_GENERIC" in types, "DESK_GENERIC missing"
+    assert "PROFESSIONAL_DESK" not in types, "PROFESSIONAL_DESK must not be inferred from generic desk"
+
+    chair_item = types["CHAIR_GENERIC"]
+    desk_item = types["DESK_GENERIC"]
+    assert chair_item.quantity == 2, f"Expected chair quantity 2, got {chair_item.quantity}"
+    assert desk_item.quantity == 2, f"Expected desk quantity 2, got {desk_item.quantity}"
+    assert chair_item.resolved_catalog_item_id is None
+    assert desk_item.resolved_catalog_item_id is None
+
+    is_complete, questions, reasoning = evaluate_requirement_completeness(result)
+    assert is_complete is False, "DESK_GENERIC must require desk_type clarification"
+    assert len(questions) == 1
+    q = questions[0]
+    assert q.slot == "desk_type"
+    assert "type" in q.question_text.lower()
+    assert "how many" not in q.question_text.lower()
+    assert q.item_id == desk_item.id
+
+
+def test_target_fix_2_two_desks_asks_type_not_quantity(parser):
+    """
+    TEST 2:
+    Input: "2 desks"
+    Expected:
+    semantic_type = DESK_GENERIC, quantity = 2
+    needs_clarification = True
+    question slot = desk_type
+    question text asks which desk type, NOT quantity.
+    """
+    result = parser.parse(raw_text="2 desks")
+    assert len(result.items) == 1
+    item = result.items[0]
+    assert item.semantic_type == "DESK_GENERIC"
+    assert item.quantity == 2
+    assert item.resolved_catalog_item_id is None
+
+    is_complete, questions, reasoning = evaluate_requirement_completeness(result)
+    assert is_complete is False
+    assert len(questions) == 1
+    q = questions[0]
+    assert q.slot == "desk_type"
+    assert "type" in q.question_text.lower()
+    assert "how many" not in q.question_text.lower()
+    assert q.item_id == item.id
+
+
+def test_target_fix_3_two_professional_desks_no_clarification(parser):
+    """
+    TEST 3:
+    Input: "2 professional desks"
+    Expected:
+    semantic_type = PROFESSIONAL_DESK, quantity = 2
+    needs_clarification = False for desk type.
+    """
+    result = parser.parse(raw_text="2 professional desks")
+    assert len(result.items) == 1
+    item = result.items[0]
+    assert item.semantic_type == "PROFESSIONAL_DESK"
+    assert item.quantity == 2
+
+    is_complete, questions, reasoning = evaluate_requirement_completeness(result)
+    assert is_complete is True
+    assert len(questions) == 0
+
+
+def test_target_fix_4_two_executive_desks(parser):
+    """
+    TEST 4:
+    Input: "2 executive desks"
+    Expected:
+    semantic_type = EXECUTIVE_DESK, quantity = 2
+    """
+    result = parser.parse(raw_text="2 executive desks")
+    assert len(result.items) == 1
+    item = result.items[0]
+    assert item.semantic_type == "EXECUTIVE_DESK"
+    assert item.quantity == 2
+
+    is_complete, questions, _ = evaluate_requirement_completeness(result)
+    assert is_complete is True
+    assert len(questions) == 0
+
+
+def test_target_fix_5_two_chairs_and_two_desks_word_numbers(parser):
+    """
+    TEST 5:
+    Input: "two chairs and two desks"
+    Expected:
+    CHAIR_GENERIC x 2, DESK_GENERIC x 2
+    """
+    result = parser.parse(raw_text="two chairs and two desks")
+    assert len(result.items) == 2
+    types = {item.semantic_type: item for item in result.items}
+    assert "CHAIR_GENERIC" in types
+    assert "DESK_GENERIC" in types
+    assert types["CHAIR_GENERIC"].quantity == 2
+    assert types["DESK_GENERIC"].quantity == 2
+
+
+def test_target_fix_6_six_professional_desks_and_one_manager_desk(parser):
+    """
+    TEST 6:
+    Input: "6 professional desks and 1 manager desk"
+    Expected:
+    PROFESSIONAL_DESK x 6, MANAGER_DESK x 1 (two separate items)
+    """
+    result = parser.parse(raw_text="6 professional desks and 1 manager desk")
+    assert len(result.items) == 2
+    types = {item.semantic_type: item for item in result.items}
+    assert "PROFESSIONAL_DESK" in types
+    assert "MANAGER_DESK" in types
+    assert types["PROFESSIONAL_DESK"].quantity == 6
+    assert types["MANAGER_DESK"].quantity == 1
+
+
+def test_target_fix_7_resume_workflow_updates_desk_type_and_preserves_quantity():
+    """
+    TEST 7:
+    Input: "2 desks"
+    Then answer: "Professional Desk"
+    Expected:
+    before: DESK_GENERIC x 2
+    after: PROFESSIONAL_DESK x 2 (quantity remains 2)
+    """
+    provider = MockLLMProvider()
+    workflow = build_requirement_workflow(provider=provider)
+    thread_id = "test_target_fix_7_thread"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    state_1 = workflow.invoke({"raw_text": "2 desks"}, config=config)
+    assert state_1["needs_clarification"] is True
+    req_items_1 = state_1["requirement_set"]["items"]
+    assert len(req_items_1) == 1
+    assert req_items_1[0]["semantic_type"] == "DESK_GENERIC"
+    assert req_items_1[0]["quantity"] == 2
+    q = state_1["questions"][0]
+    assert q["slot"] == "desk_type"
+
+    state_2 = workflow.invoke(
+        {"user_answer": "Professional Desk", "answered_question_id": q["question_id"]},
+        config=config,
+    )
+    assert state_2["needs_clarification"] is False
+    assert state_2["status"] == RequirementStatus.NORMALIZED.value
+    req_items_2 = state_2["requirement_set"]["items"]
+    assert len(req_items_2) == 1
+    assert req_items_2[0]["semantic_type"] == "PROFESSIONAL_DESK"
+    assert req_items_2[0]["quantity"] == 2
+    assert req_items_2[0]["resolved_catalog_item_id"] is None
+
+
+def test_target_fix_8_multiple_clarification_targets():
+    """
+    TEST 8:
+    Multiple clarification target test.
+    Input: "2 chairs and 2 desks"
+    If both chair and desk types require clarification, create two distinct questions.
+    Answer the desk question.
+    Expected:
+    Only desk item changes. Chair item remains unchanged.
+    """
+    req_set = RequirementSet(
+        id="req_multi_test",
+        project_id="p1",
+        floor_plan_id="fp1",
+        status=RequirementStatus.CLARIFICATION_REQUIRED,
+        items=[
+            RequirementItem(
+                id="req_item_chair",
+                raw_phrase="2 chairs",
+                semantic_type="CHAIR_GENERIC",
+                quantity=2,
+                confidence=0.95,
+            ),
+            RequirementItem(
+                id="req_item_desk",
+                raw_phrase="2 desks",
+                semantic_type="DESK_GENERIC",
+                quantity=2,
+                confidence=0.95,
+            ),
+        ],
+    )
+
+    # Both chair and desk require clarification questions
+    is_comp, questions, _ = evaluate_requirement_completeness(
+        req_set,
+        options_config={"require_chair_type": True},
+    )
+    assert is_comp is False
+    assert len(questions) == 2
+    desk_q = next(q for q in questions if q.slot == "desk_type")
+    chair_q = next(q for q in questions if q.slot == "chair_type")
+    assert desk_q.item_id == "req_item_desk"
+    assert chair_q.item_id == "req_item_chair"
+
+    # Answer ONLY the desk question
+    updated_req_set = merge_clarification_answer(
+        req_set=req_set,
+        answer="Professional Desk",
+        question_slot=desk_q.slot,
+        target_item_id=desk_q.item_id,
+    )
+
+    items_map = {it.id: it for it in updated_req_set.items}
+    # Desk changed to PROFESSIONAL_DESK, quantity 2
+    assert items_map["req_item_desk"].semantic_type == "PROFESSIONAL_DESK"
+    assert items_map["req_item_desk"].quantity == 2
+    assert items_map["req_item_desk"].resolved_catalog_item_id is None
+    # Chair remains CHAIR_GENERIC, quantity 2
+    assert items_map["req_item_chair"].semantic_type == "CHAIR_GENERIC"
+    assert items_map["req_item_chair"].quantity == 2
+    assert items_map["req_item_chair"].resolved_catalog_item_id is None
+
+
+def test_target_fix_9_no_quantity_hallucination(parser):
+    """
+    TEST 9:
+    No quantity hallucination.
+    Input: "desks" -> DESK_GENERIC, quantity = 0, quantity clarification allowed.
+    But: "2 desks" must never result in quantity 0.
+    """
+    res_unspecified = parser.parse(raw_text="desks")
+    assert res_unspecified.items[0].semantic_type == "DESK_GENERIC"
+    assert res_unspecified.items[0].quantity == 0
+    is_comp, questions, _ = evaluate_requirement_completeness(res_unspecified)
+    assert is_comp is False
+    assert any("quantity" in q.slot.lower() for q in questions)
+
+    res_specified = parser.parse(raw_text="2 desks")
+    assert res_specified.items[0].quantity == 2
+    assert res_specified.items[0].quantity != 0
+
+
+def test_target_fix_10_no_semantic_specificity_hallucination(parser):
+    """
+    TEST 10:
+    No semantic specificity hallucination.
+    Input: "desks" -> Must never produce PROFESSIONAL_DESK.
+    Input: "chairs" -> Must never produce OFFICE_CHAIR.
+    Input: "tables" -> Must never produce CONFERENCE_TABLE.
+    """
+    res_desk = parser.parse(raw_text="desks")
+    assert res_desk.items[0].semantic_type == "DESK_GENERIC"
+    assert res_desk.items[0].semantic_type != "PROFESSIONAL_DESK"
+
+    res_chair = parser.parse(raw_text="chairs")
+    assert res_chair.items[0].semantic_type == "CHAIR_GENERIC"
+    assert res_chair.items[0].semantic_type != "OFFICE_CHAIR"
+
+    res_table = parser.parse(raw_text="tables")
+    assert res_table.items[0].semantic_type == "TABLE_GENERIC"
+    assert res_table.items[0].semantic_type != "CONFERENCE_TABLE"
 
 
 if __name__ == "__main__":

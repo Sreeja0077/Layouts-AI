@@ -25,7 +25,8 @@ class ClarificationQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question_id: str = Field(..., description="Unique question ID")
-    slot: str = Field(..., description="Target requirement slot in question (e.g. 'quantity_executive_desk')")
+    slot: str = Field(..., description="Target requirement slot in question (e.g. 'desk_type', 'quantity_executive_desk')")
+    item_id: Optional[str] = Field(None, description="Optional target requirement item ID")
     question_text: str = Field(..., description="Clear user-facing question prompt")
     suggested_options: List[str] = Field(default_factory=list, description="Pre-baked answer choices")
     default_fallback_value: Optional[str] = Field(None, description="Fallback value if user skips")

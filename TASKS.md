@@ -75,6 +75,7 @@
 - [x] **Task 8.2:** Implement rule-based completeness checklist and LLM `AmbiguityClassifier` node. *(Completed: 2026-10-12 11:39:00+05:30)*
 - [x] **Task 8.3:** Implement `RequirementState` schema & company-defaults fallback table. *(Completed: 2026-10-12 11:39:00+05:30)*
 - [x] **Task 8.4:** Build LangGraph pause/resume graph checkpointing for clarification questions. *(Completed: 2026-10-12 11:39:00+05:30)*
+- [x] **Task 8.6:** Fix generic-vs-specific semantic parsing, explicit quantity preservation, multi-item requirement splitting, and item-targeted clarification handling. *(Completed: 2026-10-12 14:00:00+05:30)*
 
 ### Phase 8.5: Frontend Requirement AI Integration
 - [x] **Task 8.5:** Connect AI requirement workflow to the existing React AI panel and implement clarification/resolution UI. *(Completed: 2026-10-12 12:45:00+05:30)*
@@ -754,6 +755,26 @@
   - [`frontend/src/components/workspace/AppShell.tsx`](file:///d:/Layouts%20AI/frontend/src/components/workspace/AppShell.tsx) (Wired requirement submission and clarification state)
   - [`backend/frontend` integration]: Configured dual `.env` (gitignored local runtime) and `.env.example` (tracked template) with OMA Cloud AI Gateway contract (`OMA_API_KEY`, `OMA_BASE_URL`, `OMA_MODEL_*`, `USE_MOCK_LLM=false`). Loaded via `python-dotenv` at root.
   - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 8.5 checklist and execution log)
+
+### [2026-10-12] Phase 8 Targeted Fix: Generic vs Specific Parsing, Quantity Preservation & Item-Targeted Clarification (Task 8.6)
+- **Action:** Implemented targeted architectural fix to Phase 8 Requirement Understanding & Clarification Engine:
+  - **Generic vs Specific Semantic Types**: Explicit prompt rules in `REQUIREMENT_PARSER_SYSTEM_PROMPT` distinguishing generic terms (`DESK_GENERIC`, `CHAIR_GENERIC`, `TABLE_GENERIC`) from specific types (`PROFESSIONAL_DESK`, `EXECUTIVE_DESK`, `MANAGER_DESK`, `OFFICE_CHAIR`, `TASK_CHAIR`, `CONFERENCE_TABLE`). Prohibited silent inference of `PROFESSIONAL_DESK` or `OFFICE_CHAIR` from generic nouns.
+  - **Deterministic Post-Validation & Explicit Quantity Preservation**: Added `_deterministic_validate_and_normalize()` to `RequirementParser`. Enforces that explicit user counts (`2`, `two`, `6`, etc.) are never converted to 0. Corrects parsed quantities deterministically without LLM hallucination. Quantity = 0 reserved strictly for unspecified counts (`desks`, `chairs`).
+  - **Multi-Item Conjunction Splitting**: Automatically splits conjoined phrases (`and`, `&`, `+`, `,`, `;`) into separate `RequirementItem`s with clean sub-phrases (e.g. `2 chairs` and `2 desks`). Recovers dropped conjoined items deterministically.
+  - **Desk Type Clarification (Slot: `desk_type`)**: In `completeness.py`, `DESK_GENERIC` with explicit quantity > 0 generates a targeted question for `desk_type` (`"What type of desk would you like to place?"`), NEVER asking for quantity when quantity is already known.
+  - **Targeted Question-Item Association & Workflow Resume**: Added optional `item_id` to `ClarificationQuestion` schema. Updated `merge_clarification_answer` and `evaluate_node` in `requirement_workflow.py` to target the exact `item_id` associated with `answered_question_id`. Answering `"Professional Desk"` updates ONLY the desk item to `PROFESSIONAL_DESK`, leaving chair items and explicit quantities completely untouched.
+  - **Phase 8 Invariants Preserved**: `resolved_catalog_item_id = None`, `resolution_method = None`, zero fabricated Revit families, dimensions, coordinates, or layout generation.
+- **Status:** `SUCCESS (35/35 Unit Tests Passed)`
+- **Files Updated:**
+  - [`backend/app/ai/schemas/structured_output.py`](file:///d:/Layouts%20AI/backend/app/ai/schemas/structured_output.py) (Added `item_id` to `ClarificationQuestion`)
+  - [`frontend/src/api/requirements.ts`](file:///d:/Layouts%20AI/frontend/src/api/requirements.ts) (Added `item_id` to `ClarificationQuestion`)
+  - [`backend/app/ai/prompts/requirement_prompts.py`](file:///d:/Layouts%20AI/backend/app/ai/prompts/requirement_prompts.py) (Added generic/specific, multi-item splitting, quantity rules)
+  - [`backend/app/domain/requirements/completeness.py`](file:///d:/Layouts%20AI/backend/app/domain/requirements/completeness.py) (Added `desk_type` clarification and item-level question targeting)
+  - [`backend/app/ai/graph/requirement_workflow.py`](file:///d:/Layouts%20AI/backend/app/ai/graph/requirement_workflow.py) (Item-targeted answer merge preserving sibling items)
+  - [`backend/app/ai/nodes/requirement_parser.py`](file:///d:/Layouts%20AI/backend/app/ai/nodes/requirement_parser.py) (Deterministic post-validation & normalization layer)
+  - [`backend/app/ai/providers/llm_provider.py`](file:///d:/Layouts%20AI/backend/app/ai/providers/llm_provider.py) (MockLLMProvider multi-item and generic type handling)
+  - [`backend/tests/unit/test_requirement_ai.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_requirement_ai.py) (Added 10 targeted test cases; all 35 tests passing)
+  - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 8.6 checklist and execution log)
 
 ---
 

@@ -8,6 +8,7 @@ Deterministic Python owns geometry & state; AI proposes intent; PostGIS stores s
 import json
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 from pydantic import BaseModel
@@ -249,8 +250,86 @@ class MockLLMProvider(LLMProvider):
                 "confidence_score": 0.95
             })
 
-        # 3. Manager cabin near window
-        if "manager" in prompt_lower or "cabin" in prompt_lower:
+        # 3. Conjoined / Multi-item requests (e.g. '2 chairs and 2 desks', '6 professional desks and 1 manager desk')
+        is_conjoined = any(sep in prompt_lower for sep in [" and ", " & ", " + ", ",", ";"])
+        has_chair = "chair" in prompt_lower
+        has_desk = "desk" in prompt_lower
+        has_cabin = "cabin" in prompt_lower or ("manager" in prompt_lower and "desk" not in prompt_lower)
+
+        if is_conjoined and (
+            (has_chair and has_desk)
+            or (has_desk and ("manager" in prompt_lower or "cabin" in prompt_lower))
+            or (has_desk and "executive" in prompt_lower and "professional" in prompt_lower)
+            or prompt_lower.count("desk") > 1
+            or prompt_lower.count("chair") > 1
+        ):
+            segments = [s.strip() for s in re.split(r'\band\b|&|\+|,|;', prompt, flags=re.IGNORECASE) if s.strip()]
+            items = []
+            word_map = {
+                "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "twelve": 12, "sixteen": 16, "twenty": 20,
+            }
+            total_seats = 0
+            for s_idx, seg in enumerate(segments):
+                seg_l = seg.lower()
+                qty = 0
+                for w, v in word_map.items():
+                    if re.search(rf"\b{w}\b", seg_l):
+                        qty = v
+                        break
+                if qty == 0:
+                    m = re.search(r"\b(\d+)\b", seg_l)
+                    if m:
+                        qty = int(m.group(1))
+
+                sem_type = "UNKNOWN_ELEMENT"
+                tags = []
+                if "chair" in seg_l:
+                    if "office" in seg_l:
+                        sem_type = "OFFICE_CHAIR"
+                    elif "task" in seg_l:
+                        sem_type = "TASK_CHAIR"
+                    else:
+                        sem_type = "CHAIR_GENERIC"
+                    tags = ["chairs"]
+                elif "desk" in seg_l:
+                    if "professional" in seg_l:
+                        sem_type = "PROFESSIONAL_DESK"
+                    elif "executive" in seg_l:
+                        sem_type = "EXECUTIVE_DESK"
+                    elif "manager" in seg_l:
+                        sem_type = "MANAGER_DESK"
+                    else:
+                        sem_type = "DESK_GENERIC"
+                    tags = ["desks"]
+                elif "cabin" in seg_l or ("manager" in seg_l and "desk" not in seg_l):
+                    sem_type = "MANAGER_CABIN"
+                    tags = ["cabin"]
+
+                total_seats += qty
+                items.append({
+                    "id": f"req_item_{s_idx + 1}",
+                    "raw_phrase": seg,
+                    "semantic_type": sem_type,
+                    "resolved_catalog_item_id": None,
+                    "resolution_method": None,
+                    "confidence": 0.95,
+                    "quantity": qty,
+                    "slot_tags": tags,
+                    "dimensions_override": None,
+                })
+
+            return json.dumps({
+                "summary": f"Place {', '.join(item['raw_phrase'] for item in items)}.",
+                "items": items,
+                "preferences": [],
+                "target_density_seats": total_seats if total_seats > 0 else None,
+                "confidence_score": 0.95,
+            })
+
+        # 4. Manager cabin near window (single requirement item)
+        if ("cabin" in prompt_lower) or ("manager" in prompt_lower and "desk" not in prompt_lower):
             prefs = []
             if "window" in prompt_lower:
                 prefs.append({
@@ -277,42 +356,59 @@ class MockLLMProvider(LLMProvider):
                 "confidence_score": 0.95
             })
 
-        # 4. Professional / executive desks with quantities
+        # 5. Desks (single requirement item)
         if "desk" in prompt_lower:
             # Check for quantity
-            qty = 1
+            word_map = {
+                "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "twelve": 12, "sixteen": 16, "twenty": 20,
+            }
+            qty = 0
             has_explicit_qty = False
-            for num_str, num_val in [("6", 6), ("six", 6), ("4", 4), ("four", 4), ("8", 8), ("eight", 8), ("10", 10), ("ten", 10)]:
-                if num_str in prompt_lower:
-                    qty = num_val
+            for w, v in word_map.items():
+                if re.search(rf"\b{w}\b", prompt_lower):
+                    qty = v
                     has_explicit_qty = True
                     break
+            if not has_explicit_qty:
+                m = re.search(r"\b(\d+)\b", prompt_lower)
+                if m:
+                    qty = int(m.group(1))
+                    has_explicit_qty = True
 
-            desk_type = "EXECUTIVE_DESK" if "executive" in prompt_lower else "PROFESSIONAL_DESK"
+            if "professional" in prompt_lower:
+                desk_type = "PROFESSIONAL_DESK"
+            elif "executive" in prompt_lower:
+                desk_type = "EXECUTIVE_DESK"
+            elif "manager" in prompt_lower:
+                desk_type = "MANAGER_DESK"
+            else:
+                desk_type = "DESK_GENERIC"
+
             prefs = []
             if "window" in prompt_lower:
                 prefs.append({
                     "target_zone": "window",
                     "item_ids_or_tags": ["desks"],
                     "preference_type": "NEAR_WINDOW",
-                    "importance": "HIGH"
+                    "importance": "HIGH",
                 })
             if "perimeter" in prompt_lower:
                 prefs.append({
                     "target_zone": "perimeter",
                     "item_ids_or_tags": ["desks"],
                     "preference_type": "ALONG_PERIMETER",
-                    "importance": "HIGH"
+                    "importance": "HIGH",
                 })
             if "entrance" in prompt_lower:
                 prefs.append({
                     "target_zone": "entrance",
                     "item_ids_or_tags": ["desks"],
                     "preference_type": "NEAR_ENTRANCE",
-                    "importance": "MEDIUM"
+                    "importance": "MEDIUM",
                 })
 
-            # If user said "put desks here" without quantity:
             if not has_explicit_qty:
                 return json.dumps({
                     "summary": f"Place {desk_type.lower()}s (unspecified quantity).",
@@ -323,13 +419,13 @@ class MockLLMProvider(LLMProvider):
                         "resolved_catalog_item_id": None,
                         "resolution_method": None,
                         "confidence": 0.65,
-                        "quantity": 0,  # Unspecified quantity indicator
+                        "quantity": 0,
                         "slot_tags": ["desks"],
-                        "dimensions_override": None
+                        "dimensions_override": None,
                     }],
                     "preferences": prefs,
                     "target_density_seats": None,
-                    "confidence_score": 0.65
+                    "confidence_score": 0.65,
                 })
 
             return json.dumps({
@@ -343,31 +439,115 @@ class MockLLMProvider(LLMProvider):
                     "confidence": 0.95,
                     "quantity": qty,
                     "slot_tags": ["desks"],
-                    "dimensions_override": None
+                    "dimensions_override": None,
                 }],
                 "preferences": prefs,
                 "target_density_seats": qty,
-                "confidence_score": 0.95
+                "confidence_score": 0.95,
             })
 
-        # 5. Generic ambiguous input
-        if "table" in prompt_lower:
+        # 6. Chairs (single requirement item)
+        if "chair" in prompt_lower:
+            word_map = {
+                "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "twelve": 12, "sixteen": 16, "twenty": 20,
+            }
+            qty = 0
+            has_explicit_qty = False
+            for w, v in word_map.items():
+                if re.search(rf"\b{w}\b", prompt_lower):
+                    qty = v
+                    has_explicit_qty = True
+                    break
+            if not has_explicit_qty:
+                m = re.search(r"\b(\d+)\b", prompt_lower)
+                if m:
+                    qty = int(m.group(1))
+                    has_explicit_qty = True
+
+            if "office" in prompt_lower:
+                chair_type = "OFFICE_CHAIR"
+            elif "task" in prompt_lower:
+                chair_type = "TASK_CHAIR"
+            else:
+                chair_type = "CHAIR_GENERIC"
+
+            if not has_explicit_qty:
+                return json.dumps({
+                    "summary": f"Place {chair_type.lower()}s (unspecified quantity).",
+                    "items": [{
+                        "id": "req_item_1",
+                        "raw_phrase": prompt.strip(),
+                        "semantic_type": chair_type,
+                        "resolved_catalog_item_id": None,
+                        "resolution_method": None,
+                        "confidence": 0.65,
+                        "quantity": 0,
+                        "slot_tags": ["chairs"],
+                        "dimensions_override": None,
+                    }],
+                    "preferences": [],
+                    "target_density_seats": None,
+                    "confidence_score": 0.65,
+                })
+
             return json.dumps({
-                "summary": "Place a table (ambiguous type).",
+                "summary": f"Place {qty} {chair_type.lower()}s.",
                 "items": [{
                     "id": "req_item_1",
                     "raw_phrase": prompt.strip(),
-                    "semantic_type": "TABLE_GENERIC",
+                    "semantic_type": chair_type,
                     "resolved_catalog_item_id": None,
                     "resolution_method": None,
-                    "confidence": 0.5,
-                    "quantity": 1,
+                    "confidence": 0.95,
+                    "quantity": qty,
+                    "slot_tags": ["chairs"],
+                    "dimensions_override": None,
+                }],
+                "preferences": [],
+                "target_density_seats": qty,
+                "confidence_score": 0.95,
+            })
+
+        # 7. Tables (single requirement item)
+        if "table" in prompt_lower:
+            word_map = {
+                "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "twelve": 12, "sixteen": 16, "twenty": 20,
+            }
+            qty = 0
+            has_explicit_qty = False
+            for w, v in word_map.items():
+                if re.search(rf"\b{w}\b", prompt_lower):
+                    qty = v
+                    has_explicit_qty = True
+                    break
+            if not has_explicit_qty:
+                m = re.search(r"\b(\d+)\b", prompt_lower)
+                if m:
+                    qty = int(m.group(1))
+                    has_explicit_qty = True
+
+            table_type = "CONFERENCE_TABLE" if "conference" in prompt_lower else "TABLE_GENERIC"
+
+            return json.dumps({
+                "summary": f"Place {table_type.lower()}.",
+                "items": [{
+                    "id": "req_item_1",
+                    "raw_phrase": prompt.strip(),
+                    "semantic_type": table_type,
+                    "resolved_catalog_item_id": None,
+                    "resolution_method": None,
+                    "confidence": 0.5 if table_type == "TABLE_GENERIC" else 0.95,
+                    "quantity": qty if has_explicit_qty else 0,
                     "slot_tags": ["table"],
-                    "dimensions_override": None
+                    "dimensions_override": None,
                 }],
                 "preferences": [],
                 "target_density_seats": None,
-                "confidence_score": 0.5
+                "confidence_score": 0.5 if table_type == "TABLE_GENERIC" else 0.95,
             })
 
         # Default fallback:
