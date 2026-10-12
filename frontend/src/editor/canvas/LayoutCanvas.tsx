@@ -78,6 +78,7 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   availableStoreys,
   activeStorey,
   onSwitchStorey,
+  onRegionChange,
 }) => {
   const initialModel = renderModel || demoModel || SAMPLE_FLOOR_PLAN_RENDER_MODEL;
   const [activeModel, setActiveModel] = useState<FloorPlanRenderModel>(initialModel);
@@ -167,9 +168,13 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
       setFreehandStroke(stroke);
       if (!stroke) {
         setRegionPreview(null);
+        onRegionChange?.(null);
       } else {
         const preview = computeRegionPreview(stroke, viewport);
         setRegionPreview(preview);
+        if (preview && preview.worldPoints && preview.worldPoints.length >= 3) {
+          onRegionChange?.(preview.worldPoints);
+        }
 
         // Automatically validate with backend as soon as a region stroke is closed
         if (stroke.isClosed && !stroke.isDrawing && preview && preview.isValid && preview.worldPoints.length >= 3) {
@@ -197,6 +202,9 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
                   },
                 };
               });
+              if (response.is_valid && response.clipped_points && response.clipped_points.length >= 3) {
+                onRegionChange?.(response.clipped_points);
+              }
             })
             .catch((err) => {
               console.warn("Server Region Validation Notice:", err.message);
@@ -204,13 +212,14 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
         }
       }
     },
-    [viewport, activeFloorPlanId, activeStorey, renderModel?.id, activeModel?.id]
+    [viewport, activeFloorPlanId, activeStorey, renderModel?.id, activeModel?.id, onRegionChange]
   );
 
   const handleClearRegion = useCallback(() => {
     setFreehandStroke(null);
     setRegionPreview(null);
-  }, []);
+    onRegionChange?.(null);
+  }, [onRegionChange]);
 
 
 

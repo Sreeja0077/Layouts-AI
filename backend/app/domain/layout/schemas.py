@@ -62,6 +62,11 @@ class PlacedObject(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Semantic tags (e.g. ['manager_cabin', 'locked_user'])")
     custom_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional properties or attributes")
 
+    source_object_id: Optional[str] = Field(default=None, description="Original source object ID if existing item")
+    is_relocated: bool = Field(default=False, description="True if existing layout item was moved/repositioned")
+    is_new: bool = Field(default=True, description="True if newly created item; False if preserved or relocated existing item")
+    movability_status: Optional[str] = Field(default=None, description="Movability status (e.g. SOLD_FIXED, AVAILABLE_MOVABLE)")
+
 
 class CirculationPath(BaseModel):
     """An egress or aisle circulation line/corridor in the floor plan."""
@@ -105,6 +110,32 @@ class LayoutSuggestion(BaseModel):
     explanation: Optional[str] = Field(None, description="Natural language explanation of layout strategy & trade-offs")
 
     created_at: Optional[str] = Field(None, description="ISO timestamp")
+    spatial_signature: Optional[str] = Field(default=None, description="Deterministic spatial hash signature for candidate deduplication")
+    is_feasible: bool = Field(default=True, description="Whether layout candidate is fully feasible")
+
+
+class InfeasibilityReport(BaseModel):
+    """Deterministic structured report when 0 valid layout candidates can be generated."""
+    model_config = ConfigDict(extra="forbid")
+
+    is_feasible: bool = Field(default=False)
+    candidate_count: int = Field(default=0)
+    requested_items: List[Dict[str, Any]] = Field(default_factory=list)
+    selected_region_polygon: Optional[List[Tuple[float, float]]] = None
+    usable_area_sqm: float = Field(default=0.0)
+    reasons: List[str] = Field(default_factory=list)
+    violated_constraints: List[str] = Field(default_factory=list)
+    max_feasible_quantity: Optional[int] = None
+
+
+class GenerateLayoutResponse(BaseModel):
+    """Container for Phase 9 dynamic 0..N layout candidates and infeasibility report."""
+    model_config = ConfigDict(extra="forbid")
+
+    success: bool = Field(default=True)
+    candidate_count: int = Field(default=0)
+    candidates: List[LayoutSuggestion] = Field(default_factory=list)
+    infeasibility_report: Optional[InfeasibilityReport] = None
 
 
 class LayoutAction(BaseModel):

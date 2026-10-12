@@ -6,7 +6,7 @@ Defines Shapely-compatible 2D spatial models for Wall, Door, Window, Column, Bea
 import math
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class EntityType(str, Enum):
@@ -19,6 +19,13 @@ class EntityType(str, Enum):
     EXISTING_FURNITURE = "EXISTING_FURNITURE"
 
 
+class MovabilityStatus(str, Enum):
+    SOLD_FIXED = "SOLD_FIXED"
+    AVAILABLE_MOVABLE = "AVAILABLE_MOVABLE"
+    STRUCTURAL_FIXED = "STRUCTURAL_FIXED"
+    INTERNAL_WALL_MOVABLE = "INTERNAL_WALL_MOVABLE"
+
+
 class WallEntity(BaseModel):
     """Canonical 2D Wall entity (interior partition or exterior load-bearing wall)."""
     model_config = ConfigDict(extra="forbid")
@@ -28,6 +35,10 @@ class WallEntity(BaseModel):
     end_point: Tuple[float, float] = Field(..., description="End coordinate (x1, y1) in meters")
     thickness_m: float = Field(default=0.15, gt=0.0, description="Wall thickness in meters (e.g. 0.15m drywall, 0.30m exterior)")
     is_exterior: bool = Field(default=False, description="True if load-bearing exterior perimeter wall")
+    movability_status: MovabilityStatus = Field(
+        default=MovabilityStatus.STRUCTURAL_FIXED,
+        description="STRUCTURAL_FIXED for exterior/bearing walls, INTERNAL_WALL_MOVABLE for interior partition walls"
+    )
 
 
 class DoorEntity(BaseModel):
@@ -117,6 +128,31 @@ class ExistingFurnitureEntity(BaseModel):
     position: Tuple[float, float] = Field(..., description="Center (x, y) coordinates in meters")
     rotation: float = Field(default=0.0, description="Orientation angle in degrees")
     keep_flag: bool = Field(default=True, description="True if retained from source plan; False if movable/removable")
+    movability_status: MovabilityStatus = Field(
+        default=MovabilityStatus.AVAILABLE_MOVABLE,
+        description="Movability state: SOLD_FIXED or AVAILABLE_MOVABLE"
+    )
+    width_m: float = Field(default=1.2, gt=0.0, description="Bounding width in meters")
+    depth_m: float = Field(default=0.6, gt=0.0, description="Bounding depth in meters")
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_movability_and_keep(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            status = data.get("movability_status")
+            keep = data.get("keep_flag")
+            if status is None:
+                if keep is False:
+                    data["movability_status"] = MovabilityStatus.AVAILABLE_MOVABLE
+                else:
+                    data["movability_status"] = MovabilityStatus.SOLD_FIXED
+            else:
+                if keep is None:
+                    if status in (MovabilityStatus.SOLD_FIXED, "SOLD_FIXED"):
+                        data["keep_flag"] = True
+                    else:
+                        data["keep_flag"] = False
+        return data
 
 
 class RoomEntity(BaseModel):

@@ -17,7 +17,7 @@ import {
   Compass,
 } from "lucide-react";
 import { RequirementAnalysisResponse } from "../../api/requirements";
-import { LayoutSuggestionPayload } from "../../api/layout";
+import { InfeasibilityReportPayload, LayoutSuggestionPayload } from "../../api/layout";
 
 export interface AILayoutPanelProps {
   promptInput: string;
@@ -28,7 +28,10 @@ export interface AILayoutPanelProps {
   error: string | null;
   onClarify: (questionId: string, answer: string) => void;
   isClarifying: boolean;
+  onGenerateLayout?: () => void;
+  isGenerating?: boolean;
   candidates?: LayoutSuggestionPayload[];
+  infeasibilityReport?: InfeasibilityReportPayload | null;
   activeCandidateIdx?: number;
   onSelectCandidate?: (idx: number) => void;
   onClose: () => void;
@@ -43,7 +46,10 @@ export const AILayoutPanel: React.FC<AILayoutPanelProps> = ({
   error,
   onClarify,
   isClarifying,
+  onGenerateLayout,
+  isGenerating = false,
   candidates = [],
+  infeasibilityReport = null,
   activeCandidateIdx = 0,
   onSelectCandidate,
   onClose,
@@ -517,14 +523,96 @@ export const AILayoutPanel: React.FC<AILayoutPanelProps> = ({
                 </div>
               )}
             </div>
+
+            {/* PHASE 9 TRIGGER BUTTON */}
+            {onGenerateLayout && (
+              <button
+                id="generate-layout-candidates-btn"
+                onClick={onGenerateLayout}
+                disabled={isGenerating || isAnalyzing || isClarifying}
+                style={{
+                  width: "100%",
+                  marginTop: "12px",
+                  backgroundColor: isGenerating ? "#A78BFA" : "#10B981",
+                  color: "#FFFFFF",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "10px 14px",
+                  fontWeight: 700,
+                  fontSize: "0.82rem",
+                  cursor: isGenerating ? "not-allowed" : "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+                  transition: "background-color 0.15s ease",
+                }}
+              >
+                {isGenerating ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    <span>Optimizing Spatial Layout...</span>
+                  </>
+                ) : (
+                  <>
+                    <Layers size={14} />
+                    <span>Generate Spatial Configurations</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* INFEASIBILITY REPORT BANNER */}
+        {infeasibilityReport && !infeasibilityReport.is_feasible && (
+          <div
+            id="infeasibility-report-card"
+            style={{
+              marginBottom: "16px",
+              padding: "12px",
+              backgroundColor: "#FFF1F2",
+              border: "1px solid #FECDD3",
+              borderRadius: "6px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                color: "#BE123C",
+                fontWeight: 700,
+                fontSize: "0.8rem",
+                marginBottom: "6px",
+              }}
+            >
+              <AlertCircle size={16} color="#E11D48" />
+              <span>0 Feasible Configurations Found</span>
+            </div>
+            <div style={{ fontSize: "0.74rem", color: "#9F1239", marginBottom: "8px", lineHeight: 1.4 }}>
+              {infeasibilityReport.reasons.map((r, i) => (
+                <div key={i} style={{ marginBottom: "2px" }}>• {r}</div>
+              ))}
+            </div>
+            <div style={{ fontSize: "0.7rem", color: "#881337", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+              <span>Usable Area: <strong>{infeasibilityReport.usable_area_sqm} sqm</strong></span>
+              {infeasibilityReport.violated_constraints?.length > 0 && (
+                <span>Constraints: <strong>{infeasibilityReport.violated_constraints.join(", ")}</strong></span>
+              )}
+            </div>
           </div>
         )}
 
         {/* CANDIDATE LAYOUT OPTIONS (Only displayed when real candidate models exist) */}
         {candidates.length > 0 && (
-          <div>
+          <div id="candidates-section">
             <div
               style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
                 fontSize: "0.7rem",
                 fontWeight: 700,
                 color: "#4B5563",
@@ -532,23 +620,30 @@ export const AILayoutPanel: React.FC<AILayoutPanelProps> = ({
                 marginBottom: "8px",
               }}
             >
-              Layout Options ({candidates.length})
+              <span>Layout Configurations ({candidates.length})</span>
+              <span style={{ fontSize: "0.68rem", color: "#10B981", textTransform: "none", fontWeight: 600 }}>
+                Dynamic 0..N Candidates
+              </span>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {candidates.map((cand, idx) => {
                 const isSelected = idx === activeCandidateIdx;
                 const totalPlacements = cand.placed_objects?.length || 0;
+                const newCount = cand.placed_objects?.filter((o) => o.is_new).length || 0;
+                const movedCount = cand.placed_objects?.filter((o) => o.is_relocated).length || 0;
+                const soldCount = cand.placed_objects?.filter((o) => o.movability_status === "SOLD_FIXED" || o.locked).length || 0;
                 const compScore = cand.metrics ? Math.round(cand.metrics.composite_score) : null;
 
                 return (
                   <div
                     key={`cand-${cand.id || idx}`}
+                    id={`candidate-card-${idx}`}
                     onClick={() => onSelectCandidate && onSelectCandidate(idx)}
                     style={{
                       padding: "10px",
-                      backgroundColor: isSelected ? "#F5F3FF" : "#F9FAFB",
-                      border: isSelected ? "1.5px solid #7C3AED" : "1px solid #E5E7EB",
+                      backgroundColor: isSelected ? "#F0FDF4" : "#FFFFFF",
+                      border: isSelected ? "1.5px solid #10B981" : "1px solid #E5E7EB",
                       borderRadius: "6px",
                       cursor: "pointer",
                       transition: "all 0.1s ease",
@@ -562,27 +657,42 @@ export const AILayoutPanel: React.FC<AILayoutPanelProps> = ({
                         marginBottom: "4px",
                       }}
                     >
-                      <span style={{ fontWeight: 700, color: "#1F2937", fontSize: "0.85rem" }}>
+                      <span style={{ fontWeight: 700, color: "#1F2937", fontSize: "0.82rem" }}>
                         Option {idx + 1}
                       </span>
                       {compScore !== null && (
-                        <span style={{ fontSize: "0.7rem", color: "#7C3AED", fontWeight: 600 }}>
+                        <span
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#059669",
+                            backgroundColor: "#ECFDF5",
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            fontWeight: 700,
+                          }}
+                        >
                           Score: {compScore}%
                         </span>
                       )}
+                    </div>
+
+                    <div style={{ fontSize: "0.72rem", color: "#4B5563", marginBottom: "4px", fontWeight: 500 }}>
+                      {cand.strategy_name}
                     </div>
 
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "12px",
-                        fontSize: "0.72rem",
+                        gap: "8px",
+                        fontSize: "0.68rem",
                         color: "#6B7280",
                       }}
                     >
-                      <span>Placements: {totalPlacements}</span>
-                      {cand.metrics?.total_seats && <span>Seats: {cand.metrics.total_seats}</span>}
+                      <span>Total: <strong>{totalPlacements}</strong></span>
+                      {newCount > 0 && <span style={{ color: "#2563EB" }}>+{newCount} New</span>}
+                      {movedCount > 0 && <span style={{ color: "#D97706" }}>{movedCount} Moved</span>}
+                      {soldCount > 0 && <span style={{ color: "#DC2626" }}>🔒 {soldCount} Sold</span>}
                     </div>
                   </div>
                 );

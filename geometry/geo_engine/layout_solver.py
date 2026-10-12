@@ -1,19 +1,29 @@
 """
-Authoritative Deterministic Layout Solver Engine (Task 4.3).
-Generates geometrically valid, scale-correct 2D architectural spatial layout candidates
-using real world metric dimensions, polygon containment, obstacle subtraction, and 20-rule evaluation.
+Authoritative Deterministic Layout Solver Engine (Phase 9).
+Performs deterministic layout reconfiguration & optimization within authoritative architectural geometry
+and validated user selected regions.
 
-CRITICAL INVARIANT: The LLM MUST NOT specify arbitrary canvas pixel coordinates.
-All coordinates (x, y), sizes (width, depth), and clearances are in world meters.
+CRITICAL INVARIANTS:
+1. Reconfigures the selected portion of current layout (existing items are part of optimization).
+2. SOLD_FIXED (red) items are strictly immutable (cannot move, rotate, resize, delete, or collide).
+3. AVAILABLE_MOVABLE (green) items can relocate/rotate, preserving stable source object IDs without duplication.
+4. Outer perimeter walls and structural columns are ALWAYS fixed.
+5. Internal walls are preserved by default; outer concrete walls never enter optimizer as movable.
+6. Selected region (intersected with room) is authoritative solving scope.
+7. Coordinates generated strictly by deterministic Python optimization (CP-SAT / Heuristic). LLM never generates coordinates.
+8. Dynamic candidate count: 0..N valid distinct candidates. Near-identical layouts deduplicated via spatial signatures.
+9. Infeasible requests return explicit structured InfeasibilityReport (candidate count = 0); never return partial layouts.
 """
 
+import hashlib
 import math
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 try:
-    from shapely.geometry import GeometryCollection, MultiPolygon, Point, Polygon, box
+    from shapely.geometry import MultiPolygon, Point, Polygon, box
     from shapely.ops import unary_union
+    from shapely.validation import make_valid
     HAS_SHAPELY = True
 except ImportError:
     HAS_SHAPELY = False
@@ -21,15 +31,29 @@ except ImportError:
 from app.domain.geometry.entities import (
     ColumnEntity,
     DoorEntity,
+    ExistingFurnitureEntity,
+    MovabilityStatus,
     RoomEntity,
     WallEntity,
     WindowEntity,
 )
-from app.domain.layout.schemas import CirculationPath, LayoutMetrics, LayoutSuggestion, PlacedObject
+from app.domain.layout.schemas import (
+    CirculationPath,
+    GenerateLayoutResponse,
+    InfeasibilityReport,
+    LayoutMetrics,
+    LayoutSuggestion,
+    PlacedObject,
+)
 from app.domain.requirements.schemas import RequirementItem, RequirementSet
+from geometry.geo_engine.circulation import CirculationEngine
 from geometry.geo_engine.freespace import FreeSpaceEngine
+from geometry.geo_engine.optimizer_cpsat import CPSATLayoutOptimizer
+from geometry.geo_engine.optimizer_heuristic import HeuristicLayoutOptimizer
+from geometry.geo_engine.rules.circulation.clearance_rule import ClearanceRule
 from geometry.geo_engine.rules.geometry.collision_rule import CollisionRule
 from geometry.geo_engine.rules.rule_evaluator import RuleEvaluator
+from geometry.geo_engine.strategies import ALL_STRATEGIES, StrategyTemplate, get_all_strategies, get_strategy
 
 
 DEFAULT_FURNITURE_CATALOG: Dict[str, Dict[str, Any]] = {
@@ -45,15 +69,47 @@ DEFAULT_FURNITURE_CATALOG: Dict[str, Dict[str, Any]] = {
 }
 
 
+def compute_spatial_signature(
+    placed_objects: List[PlacedObject],
+    precision_grid_m: float = 0.05,
+) -> str:
+    """
+    Computes a deterministic hash signature of a spatial layout configuration.
+    Normalizes coordinates and rotations to avoid floating point jitter.
+    Sorts elements canonically so object list order does not affect uniqueness.
+    """
+    elements = []
+    for obj in placed_objects:
+        norm_x = round(round(obj.x / precision_grid_m) * precision_grid_m, 2)
+        norm_y = round(round(obj.y / precision_grid_m) * precision_grid_m, 2)
+        norm_rot = int(round(obj.rotation_deg)) % 360
+        norm_w = round(obj.width, 2)
+        norm_h = round(obj.height, 2)
+        norm_type = obj.item_type.upper()
+        ref_id = obj.source_object_id or norm_type
+        is_rel = "1" if obj.is_relocated else "0"
+        is_new = "1" if obj.is_new else "0"
+
+        elements.append((norm_type, ref_id, norm_x, norm_y, norm_rot, norm_w, norm_h, is_rel, is_new))
+
+    elements.sort()
+    sig_str = ";".join(
+        f"{e[0]}:{e[1]}:{e[2]:.2f},{e[3]:.2f}@{e[4]}:{e[5]:.2f}x{e[6]:.2f}:{e[7]}:{e[8]}"
+        for e in elements
+    )
+    return hashlib.sha256(sig_str.encode("utf-8")).hexdigest()[:16]
+
+
 class DeterministicLayoutSolver:
     """
-    Deterministic Spatial Layout Solver Engine.
-    Solves layout candidates inside real architectural Shapely room geometry.
+    Deterministic Spatial Layout Reconfiguration & Optimization Solver.
     """
 
     def __init__(self, catalog: Optional[Dict[str, Dict[str, Any]]] = None):
         self.catalog = {**DEFAULT_FURNITURE_CATALOG, **(catalog or {})}
         self.evaluator = RuleEvaluator()
+        self.cpsat_optimizer = CPSATLayoutOptimizer(self.catalog)
+        self.heuristic_optimizer = HeuristicLayoutOptimizer(self.catalog)
 
     def get_catalog_entry(self, item_type: str) -> Dict[str, Any]:
         """Lookup physical world metric footprint dimensions for an item type."""
@@ -65,40 +121,49 @@ class DeterministicLayoutSolver:
                 return c_val
         return self.catalog["GENERIC"]
 
-    def extract_obstacles(self, room: RoomEntity) -> List[Polygon]:
+    def extract_obstacles(
+        self,
+        room: RoomEntity,
+        allow_internal_wall_moves: bool = False,
+    ) -> List[Polygon]:
         """
         Extract authoritative 2D obstacle polygons from room architectural elements:
-        walls, door opening cutouts, door swing arcs, door approach zones, and columns.
+        perimeter concrete walls, structural columns, interior walls, and door swing arcs.
         """
         obstacles: List[Polygon] = []
 
         # 1. Structural Walls
         walls = getattr(room, "walls", None) or []
-        if walls:
-            for wall in walls:
-                p1, p2 = wall.start_point, wall.end_point
-                dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-                length = math.hypot(dx, dy)
-                if length > 0.001:
-                    nx, ny = -dy / length, dx / length
-                    ht = wall.thickness_m / 2.0
-                    wall_poly = Polygon([
-                        (p1[0] - nx * ht, p1[1] - ny * ht),
-                        (p2[0] - nx * ht, p2[1] - ny * ht),
-                        (p2[0] + nx * ht, p2[1] + ny * ht),
-                        (p1[0] + nx * ht, p1[1] + ny * ht),
-                    ])
-                    obstacles.append(wall_poly)
+        for wall in walls:
+            # If wall is internal partition and moves are explicitly allowed, skip from rigid obstacle list
+            is_internal_movable = (
+                not wall.is_exterior
+                and getattr(wall, "movability_status", None) == MovabilityStatus.INTERNAL_WALL_MOVABLE
+            )
+            if allow_internal_wall_moves and is_internal_movable:
+                continue
 
-        # 2. Doors (Opening Cutout + Swing Arc + Approach Clearance Zone)
+            p1, p2 = wall.start_point, wall.end_point
+            dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+            length = math.hypot(dx, dy)
+            if length > 0.001:
+                nx, ny = -dy / length, dx / length
+                ht = wall.thickness_m / 2.0
+                wall_poly = Polygon([
+                    (p1[0] - nx * ht, p1[1] - ny * ht),
+                    (p2[0] - nx * ht, p2[1] - ny * ht),
+                    (p2[0] + nx * ht, p2[1] + ny * ht),
+                    (p1[0] + nx * ht, p1[1] + ny * ht),
+                ])
+                obstacles.append(wall_poly)
+
+        # 2. Doors (Swing Arc + Approach Zone)
         if room.doors:
             for door in room.doors:
-                # Door swing arc polygon
                 swing_verts = door.get_swing_arc_polygon()
                 if len(swing_verts) >= 3:
                     obstacles.append(Polygon(swing_verts))
 
-                # Door entrance clearance box (1.0m x 1.0m around door center)
                 cx, cy = door.center_x, door.center_y
                 r = max(0.5, door.width_m / 2.0 + 0.2)
                 door_clearance_poly = Polygon([
@@ -109,7 +174,7 @@ class DeterministicLayoutSolver:
                 ])
                 obstacles.append(door_clearance_poly)
 
-        # 3. Columns
+        # 3. Structural Columns
         if room.columns:
             for col in room.columns:
                 col_verts = col.get_obstacle_polygon()
@@ -118,317 +183,263 @@ class DeterministicLayoutSolver:
 
         return [obs for obs in obstacles if not obs.is_empty and obs.is_valid]
 
+    def solve_reconfiguration(
+        self,
+        floor_plan_id: str,
+        room: RoomEntity,
+        requested_items: List[Dict[str, Any]],
+        requirements_set: Optional[RequirementSet] = None,
+        selected_region_polygon: Optional[List[Tuple[float, float]]] = None,
+        max_candidates: int = 20,
+        solver_mode: str = "AUTO",
+        allow_internal_wall_moves: bool = False,
+    ) -> GenerateLayoutResponse:
+        """
+        Core Phase 9 Layout Reconfiguration & Optimization Engine.
+        Returns complete GenerateLayoutResponse with dynamic 0..N candidates and InfeasibilityReport if 0 candidates.
+        """
+        if not HAS_SHAPELY:
+            raise RuntimeError("Shapely is required for DeterministicLayoutSolver.")
+
+        # 1. Authoritative Solving Scope: room_boundary INTERSECT selected_region
+        room_poly = Polygon(room.boundary_polygon)
+        if not room_poly.is_valid:
+            room_poly = make_valid(room_poly)
+
+        effective_scope = room_poly
+        if selected_region_polygon and len(selected_region_polygon) >= 3:
+            user_poly = Polygon(selected_region_polygon)
+            if not user_poly.is_valid:
+                user_poly = make_valid(user_poly)
+
+            clipped = room_poly.intersection(user_poly)
+            if clipped.is_empty or clipped.area < 0.1:
+                # Infeasible scope: selected region has zero overlap with room
+                return GenerateLayoutResponse(
+                    success=False,
+                    candidate_count=0,
+                    candidates=[],
+                    infeasibility_report=InfeasibilityReport(
+                        is_feasible=False,
+                        candidate_count=0,
+                        requested_items=requested_items,
+                        selected_region_polygon=selected_region_polygon,
+                        usable_area_sqm=0.0,
+                        reasons=["Selected user region has zero overlap with authoritative room boundary."],
+                        violated_constraints=["REGION_CONTAINMENT", "MINIMUM_AREA"],
+                    ),
+                )
+            # If multi-polygon, select contiguous component with largest area
+            if clipped.geom_type == "MultiPolygon":
+                effective_scope = max(clipped.geoms, key=lambda g: g.area)
+            else:
+                effective_scope = clipped
+
+        # 2. Partition Existing Furniture into SOLD_FIXED vs AVAILABLE_MOVABLE
+        fixed_sold_objects: List[PlacedObject] = []
+        movable_existing_items: List[ExistingFurnitureEntity] = []
+
+        all_existing = getattr(room, "existing_furniture", None) or []
+        for ef in all_existing:
+            status = getattr(ef, "movability_status", None)
+            is_sold = (
+                status == MovabilityStatus.SOLD_FIXED
+                or status == "SOLD_FIXED"
+                or (getattr(ef, "keep_flag", True) and status != MovabilityStatus.AVAILABLE_MOVABLE and status != "AVAILABLE_MOVABLE")
+            )
+
+            cat_info = self.get_catalog_entry(ef.catalog_item_id)
+            w = getattr(ef, "width_m", None) or cat_info["width"]
+            d = getattr(ef, "depth_m", None) or cat_info["depth"]
+
+            if is_sold:
+                fixed_sold_objects.append(
+                    PlacedObject(
+                        id=ef.id,
+                        catalog_item_id=ef.catalog_item_id,
+                        item_type=cat_info["item_type"],
+                        x=ef.position[0],
+                        y=ef.position[1],
+                        rotation_deg=ef.rotation,
+                        width=float(w),
+                        height=float(d),
+                        clearance_back=float(cat_info.get("clearance_back", 0.5)),
+                        locked=True,
+                        source_object_id=ef.id,
+                        is_relocated=False,
+                        is_new=False,
+                        movability_status="SOLD_FIXED",
+                    )
+                )
+            else:
+                movable_existing_items.append(ef)
+
+        # 3. Extract Architectural Obstacles & Calculate Usable Geometry
+        obstacles = self.extract_obstacles(room, allow_internal_wall_moves=allow_internal_wall_moves)
+
+        # Fixed sold objects are solid physical obstacles
+        for fixed_obj in fixed_sold_objects:
+            obstacles.append(CollisionRule.get_object_polygon(fixed_obj))
+
+        scope_vertices = [(round(x, 4), round(y, 4)) for x, y in effective_scope.exterior.coords]
+        usable_geom = FreeSpaceEngine.compute_usable_geometry(
+            room_polygon=scope_vertices,
+            obstacles=obstacles,
+            wall_inset_buffer=0.15,
+            obstacle_clearance_buffer=0.05,
+        )
+
+        # 4. Check Preliminary Usable Area Infeasibility
+        # Compute total minimum required area for requested items
+        total_req_area = 0.0
+        for r in requested_items:
+            cat = self.get_catalog_entry(r.get("item_type", "GENERIC"))
+            rw = float(r.get("width_m") or cat["width"])
+            rd = float(r.get("depth_m") or cat["depth"])
+            total_req_area += rw * rd * int(r.get("quantity", 1))
+
+        for m in movable_existing_items:
+            cat = self.get_catalog_entry(m.catalog_item_id)
+            mw = float(getattr(m, "width_m", None) or cat["width"])
+            md = float(getattr(m, "depth_m", None) or cat["depth"])
+            total_req_area += mw * md
+
+        if usable_geom.is_empty or usable_geom.area < 0.3 or (usable_geom.area < total_req_area * 0.9):
+            reasons = [
+                f"Selected region has insufficient usable floor area ({usable_geom.area:.2f} sqm) "
+                f"to accommodate requested program (requires ~{total_req_area:.2f} sqm plus clearances)."
+            ]
+            return GenerateLayoutResponse(
+                success=False,
+                candidate_count=0,
+                candidates=[],
+                infeasibility_report=InfeasibilityReport(
+                    is_feasible=False,
+                    candidate_count=0,
+                    requested_items=requested_items,
+                    selected_region_polygon=selected_region_polygon,
+                    usable_area_sqm=round(usable_geom.area, 2) if not usable_geom.is_empty else 0.0,
+                    reasons=reasons,
+                    violated_constraints=["USABLE_AREA_DEFICIT", "MINIMUM_CLEARANCE"],
+                ),
+            )
+
+        # 5. Execute Multi-Strategy Optimization (CP-SAT + Heuristic Fallback)
+        strategies: List[StrategyTemplate] = get_all_strategies()
+        seen_signatures: Set[str] = set()
+        valid_candidates: List[LayoutSuggestion] = []
+
+        doors = getattr(room, "doors", None) or []
+
+        for strat in strategies:
+            if len(valid_candidates) >= max_candidates:
+                break
+
+            strat_candidates: List[LayoutSuggestion] = []
+
+            # A) Attempt OR-Tools CP-SAT if enabled/available
+            if solver_mode.upper() in ("AUTO", "CPSAT") and self.cpsat_optimizer.is_available():
+                cpsat_results = self.cpsat_optimizer.optimize(
+                    floor_plan_id=floor_plan_id,
+                    room=room,
+                    usable_geom=usable_geom,
+                    obstacles=obstacles,
+                    doors=doors,
+                    fixed_objects=fixed_sold_objects,
+                    movable_existing=movable_existing_items,
+                    requested_items=requested_items,
+                    strategy=strat,
+                    selected_region_polygon=selected_region_polygon,
+                    max_solutions=3,
+                )
+                strat_candidates.extend(cpsat_results)
+
+            # B) If CP-SAT produced 0 candidates for this strategy, run Heuristic Fallback
+            if not strat_candidates and solver_mode.upper() in ("AUTO", "HEURISTIC"):
+                heur_cand = self.heuristic_optimizer.optimize(
+                    floor_plan_id=floor_plan_id,
+                    room=room,
+                    usable_geom=usable_geom,
+                    obstacles=obstacles,
+                    doors=doors,
+                    fixed_objects=fixed_sold_objects,
+                    movable_existing=movable_existing_items,
+                    requested_items=requested_items,
+                    strategy=strat,
+                    selected_region_polygon=selected_region_polygon,
+                )
+                if heur_cand:
+                    strat_candidates.append(heur_cand)
+
+            # C) Deduplicate Candidates using Spatial Signatures
+            for cand in strat_candidates:
+                sig = compute_spatial_signature(cand.placed_objects)
+                if sig in seen_signatures:
+                    continue
+                seen_signatures.add(sig)
+                cand.spatial_signature = sig
+                valid_candidates.append(cand)
+                if len(valid_candidates) >= max_candidates:
+                    break
+
+        # 6. Verify Requirement Quantity Preservation (Rule: Never partially fulfill)
+        total_expected_new = sum(int(r.get("quantity", 1)) for r in requested_items)
+        total_expected_movable = len(movable_existing_items)
+        total_expected_fixed = len(fixed_sold_objects)
+        total_expected_all = total_expected_new + total_expected_movable + total_expected_fixed
+
+        filtered_candidates: List[LayoutSuggestion] = []
+        for cand in valid_candidates:
+            if len(cand.placed_objects) == total_expected_all:
+                filtered_candidates.append(cand)
+
+        # 7. Final Response Assembly: 0..N Candidates or Explicit Infeasibility
+        if not filtered_candidates:
+            reasons = [
+                f"No complete spatial configuration satisfying all clearance, collision, and door egress rules "
+                f"could be resolved for {total_expected_new} requested items in the specified region ({usable_geom.area:.2f} sqm usable)."
+            ]
+            return GenerateLayoutResponse(
+                success=False,
+                candidate_count=0,
+                candidates=[],
+                infeasibility_report=InfeasibilityReport(
+                    is_feasible=False,
+                    candidate_count=0,
+                    requested_items=requested_items,
+                    selected_region_polygon=selected_region_polygon,
+                    usable_area_sqm=round(usable_geom.area, 2),
+                    reasons=reasons,
+                    violated_constraints=["SPATIAL_SOLVER_INFEASIBLE", "QUANTITY_FULFILLMENT"],
+                ),
+            )
+
+        return GenerateLayoutResponse(
+            success=True,
+            candidate_count=len(filtered_candidates),
+            candidates=filtered_candidates,
+            infeasibility_report=None,
+        )
+
     def solve_layout_candidates(
         self,
         floor_plan_id: str,
         room: RoomEntity,
         requested_items: List[Dict[str, Any]],
         requirements_set: Optional[RequirementSet] = None,
-        max_candidates: int = 3,
+        max_candidates: int = 20,
+        selected_region_polygon: Optional[List[Tuple[float, float]]] = None,
     ) -> List[LayoutSuggestion]:
         """
-        Generate 3-5 distinct, geometrically valid layout candidates inside room boundary.
-        Each candidate is rigorously verified by RuleEvaluator against all hard architectural rules.
+        Public solver method returning dynamic 0..N LayoutSuggestion list.
+        Maintains backward compatibility with callers expecting List[LayoutSuggestion].
         """
-        if not HAS_SHAPELY:
-            raise RuntimeError("Shapely is required for DeterministicLayoutSolver.")
-
-        # Compute net usable free space polygon inside room
-        obstacles = self.extract_obstacles(room)
-        usable_geom = FreeSpaceEngine.compute_usable_geometry(
-            room_polygon=room.boundary_polygon,
-            obstacles=obstacles,
-            wall_inset_buffer=0.15,
-            obstacle_clearance_buffer=0.05,
-        )
-
-        if usable_geom.is_empty or usable_geom.area < 0.5:
-            # Cannot fit items if room has 0 usable space
-            return [
-                LayoutSuggestion(
-                    id=f"sug_infeasible_{uuid.uuid4().hex[:6]}",
-                    floor_plan_id=floor_plan_id,
-                    room_id=room.id,
-                    strategy_name="Infeasible Usable Space",
-                    placed_objects=[],
-                    explanation=f"Room '{room.name}' has insufficient usable floor area ({usable_geom.area:.2f} sqm) after subtracting obstacles.",
-                )
-            ]
-
-        # Define candidate placement strategies
-        strategies = [
-            ("Facing Pods Strategy", "FACING_ROWS"),
-            ("Perimeter Alignment Strategy", "PERIMETER"),
-            ("Executive Cluster Strategy", "EXECUTIVE_PODS"),
-            ("Grid Corridor Strategy", "GRID_CORRIDOR"),
-        ]
-
-        valid_candidates: List[LayoutSuggestion] = []
-
-        for strat_label, strat_code in strategies:
-            if len(valid_candidates) >= max_candidates:
-                break
-
-            suggestion = self._generate_strategy_candidate(
-                floor_plan_id=floor_plan_id,
-                room=room,
-                usable_geom=usable_geom,
-                obstacles=obstacles,
-                requested_items=requested_items,
-                strategy_name=strat_label,
-                strategy_code=strat_code,
-            )
-
-            if suggestion and suggestion.placed_objects:
-                # Rigorous 20-rule validation check
-                val_res = self.evaluator.evaluate(suggestion, room, requirements_set)
-                if val_res.is_valid:
-                    suggestion.metrics.rule_compliance_score = val_res.overall_rule_compliance_score
-                    suggestion.metrics.composite_score = round(val_res.overall_rule_compliance_score * 100.0, 1)
-                    valid_candidates.append(suggestion)
-
-        # Fallback: If no candidate passed all 20 rules strictly, attempt robust relaxed grid solver
-        if not valid_candidates:
-            fallback_sug = self._generate_fallback_grid_candidate(
-                floor_plan_id=floor_plan_id,
-                room=room,
-                usable_geom=usable_geom,
-                obstacles=obstacles,
-                requested_items=requested_items,
-            )
-            if fallback_sug and fallback_sug.placed_objects:
-                valid_candidates.append(fallback_sug)
-
-        return valid_candidates
-
-    def _generate_strategy_candidate(
-        self,
-        floor_plan_id: str,
-        room: RoomEntity,
-        usable_geom: Any,
-        obstacles: List[Polygon],
-        requested_items: List[Dict[str, Any]],
-        strategy_name: str,
-        strategy_code: str,
-    ) -> Optional[LayoutSuggestion]:
-        """Generate a single layout candidate proposal following a specific spatial strategy."""
-        placed_objects: List[PlacedObject] = []
-        placed_polys: List[Polygon] = []
-        placed_clearance_polys: List[Polygon] = []
-
-        min_x, min_y, max_x, max_y = usable_geom.bounds
-        center_x = (min_x + max_x) / 2.0
-        center_y = (min_y + max_y) / 2.0
-
-        # Expand requested items into individual item specs
-        item_specs: List[Dict[str, Any]] = []
-        for r_item in requested_items:
-            item_type = r_item.get("item_type", "PROFESSIONAL_DESK")
-            qty = int(r_item.get("quantity", 1))
-            cat_entry = self.get_catalog_entry(item_type)
-            width = float(r_item.get("width_m") or cat_entry["width"])
-            depth = float(r_item.get("depth_m") or cat_entry["depth"])
-            clearance_back = float(cat_entry.get("clearance_back", 0.5))
-
-            for q_idx in range(qty):
-                item_specs.append({
-                    "item_type": item_type,
-                    "catalog_id": r_item.get("catalog_id") or f"cat_{item_type.lower()}",
-                    "width": width,
-                    "depth": depth,
-                    "clearance_back": clearance_back,
-                    "is_manager": "MANAGER" in item_type.upper() or "EXECUTIVE" in item_type.upper(),
-                })
-
-        # Sort: Place manager/executive desks first at anchor positions
-        item_specs.sort(key=lambda s: 0 if s["is_manager"] else 1)
-
-        # Generate candidate grid points in metric world coordinates
-        grid_pts: List[Tuple[float, float]] = []
-        step = 0.6
-        curr_y = min_y + 0.6
-        while curr_y <= max_y - 0.6:
-            curr_x = min_x + 0.6
-            while curr_x <= max_x - 0.6:
-                grid_pts.append((round(curr_x, 3), round(curr_y, 3)))
-                curr_x += step
-            curr_y += step
-
-        # Sort grid points according to strategy
-        if strategy_code == "PERIMETER":
-            # Perimeter points close to walls
-            grid_pts.sort(key=lambda pt: min(pt[0] - min_x, max_x - pt[0], pt[1] - min_y, max_y - pt[1]))
-        elif strategy_code == "EXECUTIVE_PODS":
-            # Points furthest from center first for manager, then clustered
-            grid_pts.sort(key=lambda pt: math.hypot(pt[0] - center_x, pt[1] - center_y), reverse=True)
-        else: # FACING_ROWS or GRID_CORRIDOR
-            # Points starting near centroid
-            grid_pts.sort(key=lambda pt: math.hypot(pt[0] - center_x, pt[1] - center_y))
-
-        from geometry.geo_engine.rules.circulation.clearance_rule import ClearanceRule
-
-        # Place items deterministically
-        for idx, spec in enumerate(item_specs):
-            obj_id = f"gen_obj_{uuid.uuid4().hex[:6]}"
-            w, h = spec["width"], spec["depth"]
-
-            placed = False
-            for g_x, g_y in grid_pts:
-                for rot in [0.0, 90.0, 180.0, 270.0]:
-                    cand_obj = PlacedObject(
-                        id=obj_id,
-                        catalog_item_id=spec["catalog_id"],
-                        item_type=spec["item_type"],
-                        x=g_x,
-                        y=g_y,
-                        rotation_deg=rot,
-                        width=w,
-                        height=h,
-                        clearance_back=spec["clearance_back"],
-                    )
-                    cand_poly = CollisionRule.get_object_polygon(cand_obj)
-                    cand_clearance = ClearanceRule.get_clearance_polygon(cand_obj, {})
-
-                    # 1. Usable room containment check
-                    if not usable_geom.contains(cand_poly):
-                        continue
-
-                    # 2. Architectural obstacle collision check
-                    if any(cand_poly.intersects(obs) for obs in obstacles):
-                        continue
-
-                    # 3. Already-placed furniture collision check
-                    if any(cand_poly.intersects(p_poly) for p_poly in placed_polys):
-                        continue
-
-                    # 4. Clearance zone overlap checks (no item obstructs another's clearance zone)
-                    if any(cand_poly.intersects(p_clr) for p_clr in placed_clearance_polys):
-                        continue
-                    if any(cand_clearance.intersects(p_poly) for p_poly in placed_polys):
-                        continue
-
-                    # Valid position accepted!
-                    placed_objects.append(cand_obj)
-                    placed_polys.append(cand_poly)
-                    placed_clearance_polys.append(cand_clearance)
-                    placed = True
-                    break
-                if placed:
-                    break
-
-        if not placed_objects:
-            return None
-
-        # Build circulation paths
-        circulation_paths = [
-            CirculationPath(
-                id=f"circ_{uuid.uuid4().hex[:4]}",
-                path_type="MAIN_AISLE",
-                path_points=[(center_x, min_y + 0.5), (center_x, max_y - 0.5)],
-                min_width_meters=1.2,
-            )
-        ]
-
-        total_area = sum(o.width * o.height for o in placed_objects)
-        metrics = LayoutMetrics(
-            total_seats=len(placed_objects),
-            used_floor_area_sqm=round(total_area, 2),
-            circulation_area_sqm=round(usable_geom.area * 0.3, 2),
-            circulation_ratio=0.3,
-            power_reach_score=0.9,
-            wall_utilization_score=0.85,
-            rule_compliance_score=1.0,
-            composite_score=95.0,
-        )
-
-        return LayoutSuggestion(
-            id=f"sug_{uuid.uuid4().hex[:6]}",
+        response = self.solve_reconfiguration(
             floor_plan_id=floor_plan_id,
-            room_id=room.id,
-            strategy_name=strategy_name,
-            placed_objects=placed_objects,
-            circulation_paths=circulation_paths,
-            metrics=metrics,
-            explanation=f"Arranged {len(placed_objects)} furniture items inside {room.name} using {strategy_name}.",
+            room=room,
+            requested_items=requested_items,
+            requirements_set=requirements_set,
+            selected_region_polygon=selected_region_polygon,
+            max_candidates=max_candidates,
         )
-
-    def _generate_fallback_grid_candidate(
-        self,
-        floor_plan_id: str,
-        room: RoomEntity,
-        usable_geom: Any,
-        obstacles: List[Polygon],
-        requested_items: List[Dict[str, Any]],
-    ) -> LayoutSuggestion:
-        """Robust fallback layout generator placing furniture on centered grid inside usable region."""
-        placed_objects: List[PlacedObject] = []
-        placed_polys: List[Polygon] = []
-
-        min_x, min_y, max_x, max_y = usable_geom.bounds
-        cx, cy = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
-
-        from geometry.geo_engine.rules.circulation.clearance_rule import ClearanceRule
-        placed_clearance_polys: List[Polygon] = []
-
-        for r_item in requested_items:
-            item_type = r_item.get("item_type", "PROFESSIONAL_DESK")
-            qty = int(r_item.get("quantity", 1))
-            cat_entry = self.get_catalog_entry(item_type)
-            w = float(r_item.get("width_m") or cat_entry["width"])
-            h = float(r_item.get("depth_m") or cat_entry["depth"])
-            clr_back = float(cat_entry.get("clearance_back", 0.5))
-
-            for q_idx in range(qty):
-                obj_id = f"fallback_{uuid.uuid4().hex[:6]}"
-                # Scan from room centroid outward
-                placed = False
-                for r_dist in [0.0, 0.9, 1.8, 2.7, 3.6, 4.5]:
-                    for angle_deg in range(0, 360, 30):
-                        rad = math.radians(angle_deg)
-                        cand_x = round(cx + r_dist * math.cos(rad), 3)
-                        cand_y = round(cy + r_dist * math.sin(rad), 3)
-
-                        for rot in [0.0, 90.0, 180.0, 270.0]:
-                            cand_obj = PlacedObject(
-                                id=obj_id,
-                                catalog_item_id=r_item.get("catalog_id") or f"cat_{item_type.lower()}",
-                                item_type=item_type,
-                                x=cand_x,
-                                y=cand_y,
-                                rotation_deg=rot,
-                                width=w,
-                                height=h,
-                                clearance_back=clr_back,
-                            )
-                            cand_poly = CollisionRule.get_object_polygon(cand_obj)
-                            cand_clearance = ClearanceRule.get_clearance_polygon(cand_obj, {})
-
-                            if usable_geom.contains(cand_poly) and not any(cand_poly.intersects(obs) for obs in obstacles):
-                                if not any(cand_poly.intersects(pp) for pp in placed_polys):
-                                    if not any(cand_poly.intersects(pc) for pc in placed_clearance_polys) and not any(cand_clearance.intersects(pp) for pp in placed_polys):
-                                        placed_objects.append(cand_obj)
-                                        placed_polys.append(cand_poly)
-                                        placed_clearance_polys.append(cand_clearance)
-                                        placed = True
-                                        break
-                        if placed:
-                            break
-                    if placed:
-                        break
-
-        metrics = LayoutMetrics(
-            total_seats=len(placed_objects),
-            used_floor_area_sqm=round(sum(o.width * o.height for o in placed_objects), 2),
-            rule_compliance_score=0.9,
-            composite_score=85.0,
-        )
-
-        return LayoutSuggestion(
-            id=f"sug_fallback_{uuid.uuid4().hex[:6]}",
-            floor_plan_id=floor_plan_id,
-            room_id=room.id,
-            strategy_name="Centroid Grid Fallback Strategy",
-            placed_objects=placed_objects,
-            metrics=metrics,
-            explanation=f"Positioned {len(placed_objects)} items inside usable boundary.",
-        )
+        return response.candidates

@@ -38,4 +38,5 @@ export interface LayoutCanvasProps {
   availableStoreys?: string[];
   activeStorey?: string;
   onSwitchStorey?: (storeyName: string) => void;
+  onRegionChange?: (points: Point2D[] | null) => void;
 }

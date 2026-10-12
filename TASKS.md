@@ -80,13 +80,13 @@
 ### Phase 8.5: Frontend Requirement AI Integration
 - [x] **Task 8.5:** Connect AI requirement workflow to the existing React AI panel and implement clarification/resolution UI. *(Completed: 2026-10-12 12:45:00+05:30)*
 
-### Phase 9: Layout Optimization Engine
-- [ ] **Task 9.1:** Build strategy template generators (perimeter, two-row clusters, manager cabin near entrance/rear, circulation-focused).
-- [ ] **Task 9.2:** Implement OR-Tools CP-SAT exact constraint solver in `geometry/geo_engine/optimizer_cpsat.py`.
-- [ ] **Task 9.3:** Implement heuristic shelf/guillotine packer fallback in `geometry/geo_engine/optimizer_heuristic.py`.
-- [ ] **Task 9.4:** Build circulation graph and egress path checker in `geometry/geo_engine/circulation.py`.
+### Phase 9: Deterministic Layout Reconfiguration & Optimization Engine (0..N Candidates)
+- [x] **Task 9.1:** Build strategy template generators (perimeter, two-row clusters, manager cabin near entrance/rear, circulation-focused) in `geometry/geo_engine/strategies/`. *(Completed: 2026-10-12 16:45:00+05:30)*
+- [x] **Task 9.2:** Implement OR-Tools CP-SAT exact constraint solver in `geometry/geo_engine/optimizer_cpsat.py`. *(Completed: 2026-10-12 17:00:00+05:30)*
+- [x] **Task 9.3:** Implement deterministic heuristic fallback optimizer in `geometry/geo_engine/optimizer_heuristic.py`. *(Completed: 2026-10-12 17:00:00+05:30)*
+- [x] **Task 9.4:** Build geometric circulation and egress validator in `geometry/geo_engine/circulation.py`. *(Completed: 2026-10-12 17:05:00+05:30)*
 
-### Phase 10: AI Candidate Generation (3-5 Suggestions)
+### Phase 10: AI Candidate Ranking, Scoring & Explanation (0..N Candidates)
 - [ ] **Task 10.1:** Implement `PlanningStrategyGenerator` node to select candidate layout strategies.
 - [ ] **Task 10.2:** Build candidate spatial deduplication & scoring engine (seats, circulation ratio, power reach).
 - [ ] **Task 10.3:** Implement `CandidateExplainer` node to generate natural language strategy summaries.
@@ -775,6 +775,48 @@
   - [`backend/app/ai/providers/llm_provider.py`](file:///d:/Layouts%20AI/backend/app/ai/providers/llm_provider.py) (MockLLMProvider multi-item and generic type handling)
   - [`backend/tests/unit/test_requirement_ai.py`](file:///d:/Layouts%20AI/backend/tests/unit/test_requirement_ai.py) (Added 10 targeted test cases; all 35 tests passing)
   - [`TASKS.md`](file:///d:/Layouts%20AI/TASKS.md) (Updated Task 8.6 checklist and execution log)
+
+### [2026-10-12] Phase 9 Execution - Deterministic Layout Reconfiguration & Optimization Engine (Tasks 9.1 - 9.4)
+- **Action:** Implemented Phase 9 deterministic spatial layout reconfiguration and optimization engine supporting dynamic 0..N candidate generation, movability/fixity domain rules, freehand region solving scope, and geometric circulation/egress validation:
+  - **Movability & Fixity Domain Model (`backend/app/domain/geometry/entities.py`, `backend/app/domain/layout/schemas.py`)**: Added `MovabilityStatus` enum (`SOLD_FIXED`, `AVAILABLE_MOVABLE`, `STRUCTURAL_FIXED`, `INTERNAL_WALL_MOVABLE`). Added `movability_status`, `width_m`, `depth_m`, and bidirectional validator `sync_movability_and_keep` to `ExistingFurnitureEntity`. Extended `PlacedObject` with `source_object_id`, `is_relocated`, `is_new`, `movability_status`. Added `InfeasibilityReport` and `GenerateLayoutResponse` schemas.
+  - **Task 9.1 - Strategy Template Generators (`geometry/geo_engine/strategies/`)**: Implemented abstract `StrategyTemplate` interface and concrete strategies: `PerimeterStrategy`, `TwoRowClusterStrategy`, `ManagerCabinEntranceStrategy`, `ManagerCabinRearStrategy`, and `CirculationFocusedStrategy`. Templates produce preferred ordering, orientation, and zone constraints without fabricating final coordinates.
+  - **Task 9.2 - OR-Tools CP-SAT Layout Optimizer (`geometry/geo_engine/optimizer_cpsat.py`)**: Discrete constraint programming model solving placement slot assignments, rotation choices, collision avoidance, boundary containment, and clearance envelopes for requested new items and movable existing items while strictly pinning `SOLD_FIXED` objects.
+  - **Task 9.3 - Deterministic Heuristic Fallback Optimizer (`geometry/geo_engine/optimizer_heuristic.py`)**: Reconfiguration and directional packing algorithm activated when CP-SAT is infeasible or solver options specify HEURISTIC mode. Evaluates Shapely footprint/clearance polygons, boundary containment, and obstacle exclusion.
+  - **Task 9.4 - Geometric Circulation & Egress Engine (`geometry/geo_engine/circulation.py`)**: Replaced generic centerlines with geometric navigability validation. Verifies traversable free space, egress distances to doors, door threshold approach zones, door swing clearances, wheelchair turning circle (1.5m diameter), and generates authoritative `MAIN_AISLE` corridors (width >= 1.2m).
+  - **Solver & Deduplication (`geometry/geo_engine/layout_solver.py`)**: Integrated `solve_reconfiguration` returning dynamic 0..N candidates or explicit `InfeasibilityReport`. Canonical SHA-256 spatial signature hashes normalized coordinates, dimensions, and relocation flags to deduplicate near-identical layouts. Enforced full quantity preservation (rejects partial fulfillment).
+  - **API Contract Refactoring (`backend/app/api/v1/layout.py`)**: Removed prototype 6 desks + 1 cabin fallback. Ingests client furniture with movability flags, validates selected region polygon, and returns either `GenerateLayoutResponse` envelope or candidate list.
+  - **Frontend Integration (`frontend/src/`)**: Wired freehand region coordinates from `LayoutCanvas` to `AppShell`. Updated `AILayoutPanel.tsx` with "Generate Spatial Configurations (Phase 9)" trigger, candidate cards (strategy name, object counts, scores), and structured Infeasibility Report card.
+  - **Unit Testing (`backend/tests/unit/test_layout_reconfiguration.py`)**: Implemented 14 tests covering Tests A through N from prompt section 22. All 14 tests pass.
+- **Status:** `SUCCESS (100% Tests Passed - 14/14 Phase 9 Tests, 242/242 Total Backend Tests Passed)`
+- **Files Created:**
+  - `geometry/geo_engine/strategies/__init__.py`
+  - `geometry/geo_engine/strategies/base_strategy.py`
+  - `geometry/geo_engine/strategies/perimeter.py`
+  - `geometry/geo_engine/strategies/two_row_clusters.py`
+  - `geometry/geo_engine/strategies/manager_entrance.py`
+  - `geometry/geo_engine/strategies/manager_rear.py`
+  - `geometry/geo_engine/strategies/circulation_focused.py`
+  - `geometry/geo_engine/circulation.py`
+  - `geometry/geo_engine/optimizer_cpsat.py`
+  - `geometry/geo_engine/optimizer_heuristic.py`
+  - `backend/tests/unit/test_layout_reconfiguration.py`
+- **Files Modified:**
+  - `backend/app/domain/geometry/entities.py`
+  - `backend/app/domain/layout/schemas.py`
+  - `backend/app/api/v1/layout.py`
+  - `geometry/geo_engine/layout_solver.py`
+  - `geometry/geo_engine/rules/geometry/fixed_object_integrity_rule.py`
+  - `backend/tests/unit/test_layout_solver.py`
+  - `backend/tests/unit/test_main_api.py`
+  - `frontend/src/api/layout.ts`
+  - `frontend/src/editor/canvas/canvasTypes.ts`
+  - `frontend/src/editor/canvas/LayoutCanvas.tsx`
+  - `frontend/src/components/workspace/AppShell.tsx`
+  - `frontend/src/components/workspace/AILayoutPanel.tsx`
+  - `TASKS.md`
+- **Test Execution Results:**
+  - `pytest tests/unit/test_layout_reconfiguration.py -v`: **PASSED (14/14 in 29.45s)**
+  - `pytest tests/unit/ -v`: **PASSED (242/242 in 115.71s)**
 
 ---
 

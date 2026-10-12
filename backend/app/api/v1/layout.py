@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -15,7 +15,7 @@ from app.domain.geometry.region_clipping import (
     clip_region_to_boundary,
     extract_authoritative_boundary_from_report,
 )
-from app.domain.layout.schemas import ActionType, LayoutAction, LayoutSuggestion
+from app.domain.layout.schemas import ActionType, GenerateLayoutResponse, LayoutAction, LayoutSuggestion
 from app.persistence.database import get_db
 from app.persistence.models import FloorPlanSourceVersionModel
 from geometry.geo_engine.layout_solver import DeterministicLayoutSolver
@@ -316,28 +316,43 @@ def _extract_room_entity_from_report(
     )
 
 
-@router.post("/generate", response_model=List[LayoutSuggestion], status_code=status.HTTP_200_OK)
+@router.post(
+    "/generate",
+    response_model=Union[GenerateLayoutResponse, List[LayoutSuggestion]],
+    status_code=status.HTTP_200_OK,
+)
 async def generate_layout_candidates(
     payload: Dict[str, Any],
     db: Session = Depends(get_db),
-) -> List[LayoutSuggestion]:
+) -> Union[GenerateLayoutResponse, List[LayoutSuggestion]]:
     """
-    Generate 3-5 spatial layout candidates using authoritative DeterministicLayoutSolver.
-    All furniture is placed strictly inside real architectural geometry.
+    Generate 0..N deterministic spatial layout candidates using CP-SAT and heuristic optimization.
+    Reconfigures current layout considering authoritative room geometry, selected user region,
+    sold/fixed objects, available movable objects, and finalized user requirements.
     """
     floor_plan_id = payload.get("floor_plan_id")
     if not floor_plan_id:
         raise HTTPException(status_code=400, detail="floor_plan_id is required")
 
-    # Retrieve latest verification report from database
-    record = (
-        db.query(FloorPlanSourceVersionModel)
-        .filter(FloorPlanSourceVersionModel.floor_plan_id == floor_plan_id)
-        .order_by(FloorPlanSourceVersionModel.version_no.desc())
-        .first()
-    )
+    # 1. Retrieve latest verification report from database (safe fallback if DB unconfigured)
+    report_dict = {}
+    try:
+        from app.api.v1.projects import ensure_uuid
+        fp_uuid = ensure_uuid(floor_plan_id)
+        record = (
+            db.query(FloorPlanSourceVersionModel)
+            .filter(
+                (FloorPlanSourceVersionModel.floor_plan_id == floor_plan_id)
+                | (FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
+            )
+            .order_by(FloorPlanSourceVersionModel.version_no.desc())
+            .first()
+        )
+        if record and record.verification_report:
+            report_dict = record.verification_report
+    except Exception:
+        report_dict = {}
 
-    report_dict = record.verification_report if (record and record.verification_report) else {}
     target_storey = payload.get("storey_name") if isinstance(payload, dict) else None
     room_entity = _extract_room_entity_from_report(
         floor_plan_id,
@@ -345,22 +360,105 @@ async def generate_layout_candidates(
         target_storey=str(target_storey) if target_storey else None,
     )
 
-    # Parse requested items or default to 6 Professional Desks + 1 Manager Desk
-    requested_items = payload.get("requirements")
-    if not requested_items or not isinstance(requested_items, list):
-        requested_items = [
-            {"item_type": "PROFESSIONAL_DESK", "quantity": 6},
-            {"item_type": "MANAGER_DESK", "quantity": 1},
-        ]
+    # 2. Ingest existing layout objects from payload if provided by frontend canvas
+    client_furniture = payload.get("existing_furniture")
+    if client_furniture and isinstance(client_furniture, list):
+        from app.domain.geometry.entities import ExistingFurnitureEntity, MovabilityStatus
+        mapped_existing: List[ExistingFurnitureEntity] = []
+        for ef_dict in client_furniture:
+            ef_id = str(ef_dict.get("id", f"ef_{len(mapped_existing) + 1}"))
+            cat_id = str(ef_dict.get("catalog_item_id") or ef_dict.get("catalogItemId") or ef_dict.get("item_type") or "GENERIC")
 
-    candidates = solver.solve_layout_candidates(
+            # Position
+            pos_raw = ef_dict.get("position")
+            if isinstance(pos_raw, dict):
+                pos = (float(pos_raw.get("x", 0.0)), float(pos_raw.get("y", 0.0)))
+            elif isinstance(pos_raw, (list, tuple)) and len(pos_raw) >= 2:
+                pos = (float(pos_raw[0]), float(pos_raw[1]))
+            else:
+                pos = (float(ef_dict.get("x", 0.0)), float(ef_dict.get("y", 0.0)))
+
+            # Movability status
+            m_status_raw = str(ef_dict.get("movability_status") or ef_dict.get("movability") or "").upper()
+            is_locked = bool(ef_dict.get("isLocked") or ef_dict.get("locked") or ef_dict.get("is_sold"))
+            if m_status_raw == "SOLD_FIXED" or is_locked:
+                mov_status = MovabilityStatus.SOLD_FIXED
+            else:
+                mov_status = MovabilityStatus.AVAILABLE_MOVABLE
+
+            rot = float(ef_dict.get("rotation") or ef_dict.get("rotation_deg") or ef_dict.get("rotationDeg") or 0.0)
+            w = float(ef_dict.get("width") or ef_dict.get("widthMeters") or 1.2)
+            d = float(ef_dict.get("height") or ef_dict.get("depth") or ef_dict.get("depthMeters") or 0.6)
+
+            mapped_existing.append(
+                ExistingFurnitureEntity(
+                    id=ef_id,
+                    catalog_item_id=cat_id,
+                    position=pos,
+                    rotation=rot,
+                    keep_flag=(mov_status == MovabilityStatus.SOLD_FIXED),
+                    movability_status=mov_status,
+                    width_m=w,
+                    depth_m=d,
+                )
+            )
+        room_entity.existing_furniture = mapped_existing
+
+    # 3. Parse and validate finalized requirements
+    requested_items: List[Dict[str, Any]] = []
+    if payload.get("requirements") and isinstance(payload["requirements"], list):
+        requested_items = payload["requirements"]
+    elif payload.get("requirement_set") and isinstance(payload["requirement_set"], dict):
+        items = payload["requirement_set"].get("items", [])
+        for it in items:
+            q = int(it.get("quantity", 1))
+            if q > 0:
+                requested_items.append({
+                    "item_type": it.get("semantic_type") or it.get("raw_phrase") or "PROFESSIONAL_DESK",
+                    "quantity": q,
+                    "catalog_id": it.get("catalog_id"),
+                })
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Finalized requirements or requirement_set is required for layout generation.",
+        )
+
+    # 4. Parse validated selected region polygon
+    selected_region_coords: Optional[List[Tuple[float, float]]] = None
+    raw_sel = payload.get("selected_region_polygon") or payload.get("selected_region") or payload.get("clipped_world_points")
+    if raw_sel and isinstance(raw_sel, list) and len(raw_sel) >= 3:
+        parsed_pts: List[Tuple[float, float]] = []
+        for pt in raw_sel:
+            if isinstance(pt, dict) and "x" in pt and "y" in pt:
+                parsed_pts.append((float(pt["x"]), float(pt["y"])))
+            elif isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                parsed_pts.append((float(pt[0]), float(pt[1])))
+        if len(parsed_pts) >= 3:
+            selected_region_coords = parsed_pts
+
+    # 5. Solver options
+    opts = payload.get("options") or {}
+    max_cands = int(opts.get("max_candidates") or payload.get("max_candidates") or 20)
+    solver_mode = str(opts.get("solver_mode") or payload.get("solver_mode") or "AUTO")
+    allow_wall_moves = bool(opts.get("allow_internal_wall_moves") or False)
+
+    # 6. Execute deterministic layout reconfiguration
+    response = solver.solve_reconfiguration(
         floor_plan_id=floor_plan_id,
         room=room_entity,
         requested_items=requested_items,
-        max_candidates=3,
+        selected_region_polygon=selected_region_coords,
+        max_candidates=max_cands,
+        solver_mode=solver_mode,
+        allow_internal_wall_moves=allow_wall_moves,
     )
 
-    return candidates
+    # 7. Return envelope or direct list based on request preference
+    if payload.get("envelope") or payload.get("return_structured_response"):
+        return response
+
+    return response.candidates
 
 
 @router.post("/apply-action", response_model=Dict[str, Any])

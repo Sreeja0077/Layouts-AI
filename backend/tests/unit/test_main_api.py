@@ -112,11 +112,14 @@ def test_list_projects_v1_mounted():
 
 def test_generate_layout_v1_mounted():
     """Verify v1 layouts router response."""
-    response = client.post("/api/v1/layouts/generate", json={"floor_plan_id": "fp_501"})
+    response = client.post("/api/v1/layouts/generate", json={
+        "floor_plan_id": "fp_501",
+        "requirements": [{"item_type": "PROFESSIONAL_DESK", "quantity": 2}],
+    })
     assert response.status_code == 200
     suggestions = response.json()
     assert isinstance(suggestions, list)
-    assert 1 <= len(suggestions) <= 3
+    assert len(suggestions) >= 1
 
 
 if __name__ == "__main__":

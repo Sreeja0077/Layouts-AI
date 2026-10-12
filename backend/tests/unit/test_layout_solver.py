@@ -129,7 +129,7 @@ def test_metric_scale_consistency(solver):
 
 
 def test_impossible_layout_handling(solver):
-    """Test that requesting 500 desks in a small room returns infeasible result cleanly."""
+    """Test that requesting 500 desks in a small room returns infeasible result cleanly with 0 candidates."""
     small_room = RoomEntity(
         id="room_tiny",
         name="Tiny Storage",
@@ -146,6 +146,17 @@ def test_impossible_layout_handling(solver):
         requested_items=reqs,
     )
 
-    assert len(candidates) > 0
-    # Should handle gracefully without throwing error or outputting floating objects
-    assert "Infeasible" in candidates[0].strategy_name or len(candidates[0].placed_objects) < 500
+    # In Phase 9, impossible requests must return 0 partial candidates, not fake ones
+    assert len(candidates) == 0
+
+    # Also verify structured infeasibility response
+    response = solver.solve_reconfiguration(
+        floor_plan_id="fp_tiny",
+        room=small_room,
+        requested_items=reqs,
+    )
+    assert response.success is False
+    assert response.candidate_count == 0
+    assert response.infeasibility_report is not None
+    assert response.infeasibility_report.is_feasible is False
+

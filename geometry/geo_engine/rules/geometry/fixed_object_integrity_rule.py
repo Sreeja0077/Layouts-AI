@@ -30,19 +30,35 @@ class FixedObjectIntegrityRule(BaseRule):
         if not room or not room.existing_furniture:
             return violations
 
-        # Filter retained existing furniture (keep_flag=True)
-        retained_map = {ef.id: ef for ef in room.existing_furniture if getattr(ef, "keep_flag", True)}
-        if not retained_map:
+        # Filter fixed/sold existing furniture (SOLD_FIXED or keep_flag=True when not AVAILABLE_MOVABLE)
+        from app.domain.geometry.entities import MovabilityStatus
+
+        def is_fixed(ef) -> bool:
+            status = getattr(ef, "movability_status", None)
+            if status == MovabilityStatus.SOLD_FIXED or status == "SOLD_FIXED":
+                return True
+            if status == MovabilityStatus.AVAILABLE_MOVABLE or status == "AVAILABLE_MOVABLE":
+                return False
+            # Default fallback: if keep_flag is explicitly set
+            return bool(getattr(ef, "keep_flag", True))
+
+        fixed_map = {ef.id: ef for ef in room.existing_furniture if is_fixed(ef)}
+        if not fixed_map:
             return violations
 
-        placed_map = {obj.id: obj for obj in layout.placed_objects}
+        # Placed map by id or source_object_id
+        placed_map = {}
+        for obj in layout.placed_objects:
+            placed_map[obj.id] = obj
+            if getattr(obj, "source_object_id", None):
+                placed_map[obj.source_object_id] = obj
 
-        for ef_id, ef in retained_map.items():
+        for ef_id, ef in fixed_map.items():
             if ef_id not in placed_map:
                 violations.append(
                     self.create_violation(
                         violation_type=ViolationType.COLLISION,
-                        message=f"Retained existing furniture '{ef_id}' (catalog: '{ef.catalog_item_id}') was missing/removed from layout.",
+                        message=f"Fixed/Sold existing furniture '{ef_id}' (catalog: '{ef.catalog_item_id}') was missing/removed from layout.",
                         affected_object_ids=[ef_id],
                         affected_element_type="EXISTING_FURNITURE",
                     )
@@ -59,7 +75,7 @@ class FixedObjectIntegrityRule(BaseRule):
                     violations.append(
                         self.create_violation(
                             violation_type=ViolationType.COLLISION,
-                            message=f"Retained fixed furniture '{ef_id}' position/rotation was altered from ({orig_x}, {orig_y}, {ef.rotation}°) to ({obj.x}, {obj.y}, {obj.rotation_deg}°).",
+                            message=f"Fixed/Sold furniture '{ef_id}' position/rotation was altered from ({orig_x}, {orig_y}, {ef.rotation}°) to ({obj.x}, {obj.y}, {obj.rotation_deg}°).",
                             affected_object_ids=[obj.id],
                             affected_element_type="EXISTING_FURNITURE",
                         )
