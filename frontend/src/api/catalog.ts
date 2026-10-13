@@ -63,13 +63,17 @@ export interface UnregisteredAsset {
   file_size_bytes: number;
   status: string;
   reason: string;
+  missing_fields?: string[];
 }
 
 export interface UnregisteredAssetsResponse {
   total_rfa_files_found: number;
   registered_items_count: number;
   unregistered_rfa_count: number;
+  pending_count?: number;
+  invalid_count?: number;
   unregistered_assets: UnregisteredAsset[];
+  diagnostic?: Record<string, any>;
 }
 
 /**

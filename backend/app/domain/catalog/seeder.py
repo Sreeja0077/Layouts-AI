@@ -1,7 +1,7 @@
 """
 Authoritative Furniture Catalog Seeder (Phase 7 Task 7.1).
 Idempotently synchronizes verified catalog items and bundles into PostgreSQL.
-Never fabricates unverified physical dimensions.
+Never fabricates unverified physical dimensions or inserts pending assets into the verified catalog.
 """
 
 import logging
@@ -17,10 +17,12 @@ logger = logging.getLogger(__name__)
 def seed_catalog(db: Session, manifest_path: Optional[Any] = None) -> Dict[str, Any]:
     """
     Idempotent catalog seeder.
-    1. Scans assets directory and loads verified items from the authoritative manifest.
-    2. Persists verified items into furniture_catalog_items table.
-    3. Persists verified composite bundles into furniture_bundles table.
-    4. Rejects incomplete/unverified assets and tracks them for audit reporting.
+    1. Discovers all RFAs on disk and matches authoritative metadata.
+    2. Validates metadata (Pydantic FurnitureCatalogItem).
+    3. Upserts verified items into furniture_catalog_items table.
+    4. Upserts verified composite bundles into furniture_bundles table.
+    5. Excludes pending and invalid assets from the verified catalog table.
+    6. Distinguishes discovered, verified, inserted, updated, pending, and invalid counts.
     """
     report: AssetDiscoveryReport = scan_revit_assets(manifest_path=manifest_path)
     
@@ -29,8 +31,16 @@ def seed_catalog(db: Session, manifest_path: Optional[Any] = None) -> Dict[str, 
     seeded_bundles_count = 0
     updated_bundles_count = 0
 
-    # 1. Upsert verified catalog items
+    # 1. Upsert strictly verified catalog items
     for item in report.verified_catalog_items:
+        # Extra safety guard: never insert items with non-positive dimensions
+        if item.width_m <= 0 or item.depth_m <= 0:
+            logger.error(
+                "Skipping item %s with non-positive dimensions: %f x %f",
+                item.catalog_item_id, item.width_m, item.depth_m
+            )
+            continue
+
         existing = db.query(FurnitureCatalogItemModel).filter(FurnitureCatalogItemModel.id == item.catalog_item_id).first()
         
         clearance_dict = item.clearance.model_dump() if item.clearance else {}
@@ -76,7 +86,7 @@ def seed_catalog(db: Session, manifest_path: Optional[Any] = None) -> Dict[str, 
             existing.metadata_json = item.metadata or {}
             updated_items_count += 1
 
-    # 2. Upsert verified bundles
+    # 2. Upsert verified composite bundles
     for bundle in report.bundles:
         existing_bundle = db.query(FurnitureBundleModel).filter(FurnitureBundleModel.id == bundle.bundle_id).first()
         comps_list = [c.model_dump() for c in bundle.components]
@@ -111,13 +121,37 @@ def seed_catalog(db: Session, manifest_path: Optional[Any] = None) -> Dict[str, 
 
     db.commit()
 
-    return {
+    pending_count = len([a for a in report.unregistered_assets if a.status == "PENDING_VERIFIED_METADATA"])
+    invalid_count = len([a for a in report.unregistered_assets if a.status == "INVALID_METADATA"])
+
+    result_summary = {
         "status": "SUCCESS",
+        "discovered": report.total_rfa_files_found,
+        "verified": len(report.verified_catalog_items),
+        "inserted": seeded_items_count,
+        "updated": updated_items_count,
+        "pending": pending_count,
+        "invalid": invalid_count,
+        "bundles_seeded": seeded_bundles_count,
+        "bundles_updated": updated_bundles_count,
+        "diagnostic": report.diagnostic,
+        # Backward compatibility aliases
         "total_rfa_discovered": report.total_rfa_files_found,
         "items_seeded": seeded_items_count,
         "items_updated": updated_items_count,
-        "bundles_seeded": seeded_bundles_count,
-        "bundles_updated": updated_bundles_count,
         "unregistered_rfa_count": report.unregistered_rfa_count,
-        "unregistered_assets": [a.model_dump() for a in report.unregistered_assets],
+        "unregistered_assets": [a.model_dump(mode="json") for a in report.unregistered_assets],
     }
+
+    logger.info(
+        "Seeder complete: Discovered=%d, Verified=%d (Inserted=%d, Updated=%d), Pending=%d, Invalid=%d, Bundles=%d",
+        report.total_rfa_files_found,
+        len(report.verified_catalog_items),
+        seeded_items_count,
+        updated_items_count,
+        pending_count,
+        invalid_count,
+        seeded_bundles_count + updated_bundles_count,
+    )
+
+    return result_summary

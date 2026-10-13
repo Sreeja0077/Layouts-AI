@@ -97,11 +97,16 @@ def get_unregistered_revit_assets() -> Dict[str, Any]:
     that lack verified physical metadata in the catalog manifest.
     """
     report: AssetDiscoveryReport = scan_revit_assets()
+    pending_assets = [a for a in report.unregistered_assets if a.status == "PENDING_VERIFIED_METADATA"]
+    invalid_assets = [a for a in report.unregistered_assets if a.status == "INVALID_METADATA"]
     return {
         "total_rfa_files_found": report.total_rfa_files_found,
         "registered_items_count": report.registered_items_count,
         "unregistered_rfa_count": report.unregistered_rfa_count,
+        "pending_count": len(pending_assets),
+        "invalid_count": len(invalid_assets),
         "unregistered_assets": [a.model_dump(mode="json") for a in report.unregistered_assets],
+        "diagnostic": report.diagnostic,
     }
 
 

@@ -849,7 +849,12 @@
   - **REST API Endpoints (`backend/app/api/v1/catalog.py`, `backend/app/api/v1/__init__.py`)**: Implemented `GET /api/v1/catalog/furniture`, `GET /api/v1/catalog/furniture/{catalog_item_id}`, `GET /api/v1/catalog/bundles`, `GET /api/v1/catalog/bundles/{bundle_id}`, and `GET /api/v1/catalog/unregistered-assets`.
   - **Frontend Catalog UI & 2D Footprint Preview (`frontend/src/api/catalog.ts`, `frontend/src/components/catalog/FurnitureCatalogPanel.tsx`, `frontend/src/components/catalog/FurnitureFootprintPreview.tsx`, `frontend/src/components/workspace/TopNav.tsx`, `frontend/src/components/workspace/AppShell.tsx`)**: Created dark CAD drawer for furniture catalog with category filters, verified dimension pills, Revit family/type specs, 2D metric CAD footprint preview with dimension ticks, composite bundles tab, unverified RFA audit tab, and development "Add to 2D Canvas" action.
   - **Automated Testing (`backend/tests/unit/test_furniture_catalog.py`, `frontend/src/catalog/catalog.test.ts`, `frontend/src/editor/runTests.ts`)**: Built 13 comprehensive unit/integration tests verifying dimension validation, missing metadata rejection, asset discovery, seeder idempotency, API serialization, and real RFA reference to 2D footprint conversion.
-- **Status:** `SUCCESS (13/13 New Unit & Integration Tests Passed, 10/10 Regression Tests Passed)`
+- **Status:** `SUCCESS (15/15 Unit & Integration Tests Passed, 10/10 Regression Tests Passed)`
+- **Fix Applied [2026-10-13 17:40:00+05:30]:** Resolved 2 vs 29 RFA catalog registration state:
+  - Canonicalized authoritative manifest strictly to `assets/catalog/catalog_manifest.json` and removed all deprecated `assests/` fallbacks.
+  - Resolved Windows drive-letter casing mismatch (`D:\` vs `d:\`) in `_canonical_repo_rel_path`, which previously caused discovered RFAs to miss manifest references and get dumped into `unregistered_assets`.
+  - Exactly 29 RFAs discovered: 2 verified (`Furniture_Desk.rfa` -> `rfa_autodesk_desk_standard_1500`, `Cabinet-File 2 Drawer.rfa` -> `rfa_autodesk_file_cabinet_2drawer`), 27 pending audit (`PENDING_VERIFIED_METADATA`), 0 invalid, 1 bundle (`EXECUTIVE_DESK_BUNDLE`).
+  - Redesigned `FurnitureCatalogPanel.tsx` into a professional BIM CAD asset browser showing live runtime counts (`29 discovered · 2 verified · 27 pending`), compact 2D metric footprint cards, and expandable BIM technical details.
 - **Files Created:**
   - `backend/app/domain/catalog/models.py`
   - `backend/app/domain/catalog/__init__.py`
@@ -874,8 +879,8 @@
   - `frontend/src/editor/runTests.ts`
   - `TASKS.md`
 - **Test Execution Results:**
-  - `pytest tests/unit/test_furniture_catalog.py -v`: **PASSED (13/13 in 11.99s)**
-  - `pytest tests/unit/test_db_schema.py tests/unit/test_layout_solver.py tests/unit/test_domain_schemas.py -v`: **PASSED (10/10 in 19.04s)**
+  - `pytest tests/unit/test_furniture_catalog.py -v`: **PASSED (15/15)**
+  - `pytest tests/unit/test_db_schema.py tests/unit/test_layout_solver.py tests/unit/test_domain_schemas.py -v`: **PASSED (10/10)**
 
 ---
 

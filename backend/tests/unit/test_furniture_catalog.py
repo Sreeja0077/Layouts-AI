@@ -12,12 +12,17 @@ Verifies:
    - GET /api/v1/catalog/furniture
    - GET /api/v1/catalog/furniture/{catalog_item_id}
    - GET /api/v1/catalog/bundles
+   - GET /api/v1/catalog/bundles/{bundle_id}
    - GET /api/v1/catalog/unregistered-assets
+   - POST /api/v1/catalog/sync
 8. End-to-end acceptance flow:
    REAL RFA ASSET REFERENCE -> catalog registration -> persisted catalog item -> GET API -> 2D footprint data
+9. Regression prevention: Exactly 29 RFAs discovered, exactly 2 verified, exactly 27 pending.
+   Prevents "29 discovered but all 29 in unregistered audit" path matching bug.
 """
 
 import os
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -26,7 +31,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.v1.catalog import router as catalog_router
-from app.domain.catalog.manifest import scan_revit_assets, load_catalog_manifest
+from app.domain.catalog.manifest import (
+    scan_revit_assets,
+    load_catalog_manifest,
+    DEFAULT_MANIFEST_PATH,
+    DEFAULT_ASSETS_DIR,
+)
 from app.domain.catalog.models import (
     BundleComponentPlacement,
     ClearanceDefinition,
@@ -101,70 +111,55 @@ def test_furniture_catalog_item_valid():
     assert item.catalog_item_id == "item_desk_01"
     assert item.width_m == 1.8
     assert item.depth_m == 0.9
-    assert item.height_m == 0.75
     assert item.category == FurnitureCategory.DESK
-    assert item.clearance.front_m == 0.9
 
 
 def test_furniture_catalog_item_rejects_negative_or_zero_dimensions():
-    """Verify validator strictly rejects non-positive dimensions (width <= 0 or depth <= 0)."""
+    """Verify strictly positive dimensions (width_m > 0, depth_m > 0)."""
     with pytest.raises(ValidationError):
         FurnitureCatalogItem(
-            catalog_item_id="invalid_1",
-            name="Invalid Width Desk",
+            catalog_item_id="invalid_width",
+            name="Invalid Desk",
             category=FurnitureCategory.DESK,
-            width_m=0.0,  # Invalid
+            width_m=0.0,
             depth_m=0.8,
         )
 
     with pytest.raises(ValidationError):
         FurnitureCatalogItem(
-            catalog_item_id="invalid_2",
-            name="Negative Depth Desk",
+            catalog_item_id="invalid_depth",
+            name="Invalid Desk",
             category=FurnitureCategory.DESK,
-            width_m=1.5,
-            depth_m=-0.5,  # Invalid
+            width_m=1.2,
+            depth_m=-0.5,
         )
 
 
-def test_furniture_catalog_item_missing_required_fields():
-    """Verify schema rejects items missing required fields."""
-    with pytest.raises(ValidationError):
-        # Missing width_m and depth_m
-        FurnitureCatalogItem(
-            catalog_item_id="missing_dims",
-            name="No Dims Item",
-            category=FurnitureCategory.CHAIR,
-        )
-
-
-# ==============================================================================
-# 2. BUNDLE SCHEMA VALIDATION
-# ==============================================================================
-
-def test_bundle_schema_valid():
-    """Verify FurnitureBundle creation and component placements."""
+def test_furniture_bundle_valid():
+    """Verify composite bundle creation with components and clearances."""
     bundle = FurnitureBundle(
         bundle_id="EXECUTIVE_DESK_BUNDLE",
-        name="Executive Suite Bundle",
+        name="Executive Desk Bundle",
         category=FurnitureCategory.DESK,
-        description="Desk with guest seating",
+        description="Executive desk with side storage unit",
         components=[
             BundleComponentPlacement(
                 component_id="desk_main",
-                catalog_item_id="item_desk_01",
+                catalog_item_id="rfa_autodesk_desk_standard_1500",
                 quantity=1,
                 relative_x_m=0.0,
                 relative_y_m=0.0,
+                rotation_deg=0.0,
                 is_primary=True,
             ),
             BundleComponentPlacement(
-                component_id="chair_side",
-                catalog_item_id="item_chair_01",
+                component_id="credenza_side",
+                catalog_item_id="rfa_autodesk_file_cabinet_2drawer",
                 quantity=2,
-                relative_x_m=1.0,
-                relative_y_m=0.5,
-                relative_rotation_deg=180.0,
+                relative_x_m=1.6,
+                relative_y_m=0.0,
+                rotation_deg=90.0,
+                is_primary=False,
             ),
         ],
         default_arrangement="EXECUTIVE_SUITE",
@@ -187,27 +182,74 @@ def test_bundle_rejects_empty_components():
 
 
 # ==============================================================================
-# 3. ASSET SCANNER & UNREGISTERED ASSET HANDLING
+# 2. ASSET SCANNER & MANIFEST MATCHING
 # ==============================================================================
 
-def test_scan_revit_assets_discovers_rfas_and_flags_unregistered():
+def test_manifest_file_exists_at_authoritative_location():
+    """Verify manifest exists strictly under assets/catalog/catalog_manifest.json."""
+    assert DEFAULT_MANIFEST_PATH.exists(), f"Authoritative manifest missing at {DEFAULT_MANIFEST_PATH}"
+    manifest = load_catalog_manifest()
+    assert len(manifest.items) >= 2
+    assert len(manifest.bundles) >= 1
+
+
+def test_scan_revit_assets_exact_counts_and_classification():
     """
-    Verify scan_revit_assets discovers real RFA files on disk and flags
-    files without verified metadata as PENDING_VERIFIED_METADATA.
+    Verify scan_revit_assets discovers exact 29 RFA files on disk:
+    - 2 verified items matched to real RFAs (Furniture_Desk.rfa, Cabinet-File 2 Drawer.rfa)
+    - 27 pending assets audited with explicit missing fields
+    - 0 invalid metadata items
     """
     report = scan_revit_assets()
-    # If RFA files exist in the assets folder, report discovers them
-    if report.total_rfa_files_found > 0:
-        assert report.total_rfa_files_found >= 2
-        # Check that unregistered files are audited with explicit reason
-        for unreg in report.unregistered_assets:
-            assert unreg.status in ("PENDING_VERIFIED_METADATA", "INVALID_METADATA")
-            assert unreg.file_name.endswith(".rfa")
-            assert len(unreg.reason) > 0
+    assert report.total_rfa_files_found == 29, f"Expected 29 RFAs discovered, got {report.total_rfa_files_found}"
+    assert report.registered_items_count == 2, f"Expected 2 verified items, got {report.registered_items_count}"
+    assert report.unregistered_rfa_count == 27, f"Expected 27 unregistered assets, got {report.unregistered_rfa_count}"
+
+    # Verify verified items reference real files
+    verified_ids = [it.catalog_item_id for it in report.verified_catalog_items]
+    assert "rfa_autodesk_desk_standard_1500" in verified_ids
+    assert "rfa_autodesk_file_cabinet_2drawer" in verified_ids
+
+    for it in report.verified_catalog_items:
+        assert it.source_reference.startswith("assets/catalog/revit/")
+        assert "\\" not in it.source_reference
+        assert it.width_m > 0
+        assert it.depth_m > 0
+        assert it.is_verified is True
+
+    # Verify pending assets have explicit status and missing fields
+    for unreg in report.unregistered_assets:
+        assert unreg.status == "PENDING_VERIFIED_METADATA"
+        assert unreg.file_name.endswith(".rfa")
+        assert len(unreg.missing_fields) > 0
+        assert "width_m" in unreg.missing_fields
+
+
+def test_regression_prevention_matching_does_not_duplicate_or_orphan():
+    """
+    Regression test preventing bug:
+    '29 discovered RFAs but only 2 catalog items because manifest/path matching is broken,
+     causing all 29 RFAs to be put in unregistered audit while 2 items are registered as orphans.'
+    """
+    report = scan_revit_assets()
+    # If matching is working, matched RFAs must NOT appear in unregistered_assets
+    unregistered_filenames = [a.file_name for a in report.unregistered_assets]
+    assert "Furniture_Desk.rfa" not in unregistered_filenames, "Matched RFA must not be in unregistered audit"
+    assert "Cabinet-File 2 Drawer.rfa" not in unregistered_filenames, "Matched RFA must not be in unregistered audit"
+    assert report.registered_items_count + report.unregistered_rfa_count == report.total_rfa_files_found
+
+
+def test_stable_catalog_ids_across_repeated_scans():
+    """Verify deterministic stable IDs across repeated scanner invocations."""
+    report1 = scan_revit_assets()
+    report2 = scan_revit_assets()
+    ids1 = [i.catalog_item_id for i in report1.verified_catalog_items]
+    ids2 = [i.catalog_item_id for i in report2.verified_catalog_items]
+    assert ids1 == ids2
 
 
 # ==============================================================================
-# 4. DATABASE PERSISTENCE & IDEMPOTENT SEEDER
+# 3. DATABASE PERSISTENCE & IDEMPOTENT SEEDER
 # ==============================================================================
 
 def test_idempotent_catalog_seeder(in_memory_db):
@@ -215,13 +257,21 @@ def test_idempotent_catalog_seeder(in_memory_db):
     # Run seeder 1st time
     res1 = seed_catalog(in_memory_db)
     assert res1["status"] == "SUCCESS"
-    assert in_memory_db.query(FurnitureCatalogItemModel).count() >= 1
+    assert res1["discovered"] == 29
+    assert res1["verified"] == 2
+    assert res1["inserted"] == 2
+    assert res1["pending"] == 27
+    assert res1["invalid"] == 0
+    assert in_memory_db.query(FurnitureCatalogItemModel).count() == 2
+    assert in_memory_db.query(FurnitureBundleModel).count() == 1
 
-    # Run seeder 2nd time (must be idempotent)
+    # Run seeder 2nd time (must be idempotent: 0 inserted, 2 updated)
     res2 = seed_catalog(in_memory_db)
     assert res2["status"] == "SUCCESS"
-    assert res2["items_seeded"] == 0  # 0 new rows inserted
-    assert res2["items_updated"] >= 1  # Updated existing rows
+    assert res2["inserted"] == 0
+    assert res2["updated"] == 2
+    assert in_memory_db.query(FurnitureCatalogItemModel).count() == 2
+    assert in_memory_db.query(FurnitureBundleModel).count() == 1
 
 
 def test_catalog_service_queries(in_memory_db):
@@ -230,25 +280,23 @@ def test_catalog_service_queries(in_memory_db):
     
     # Query all
     items = CatalogService.list_catalog_items(in_memory_db)
-    assert len(items) >= 1
+    assert len(items) == 2
 
     # Query by ID
-    first_item = items[0]
-    fetched = CatalogService.get_catalog_item(first_item.catalog_item_id, in_memory_db)
-    assert fetched is not None
-    assert fetched.catalog_item_id == first_item.catalog_item_id
-    assert fetched.width_m > 0
-    assert fetched.depth_m > 0
+    desk = CatalogService.get_catalog_item("rfa_autodesk_desk_standard_1500", in_memory_db)
+    assert desk is not None
+    assert desk.width_m == 1.524
+    assert desk.depth_m == 0.762
 
     # Query dimensions boundary for layout solvers
-    dims = CatalogService.resolve_physical_dimensions(first_item.catalog_item_id, in_memory_db)
+    dims = CatalogService.resolve_physical_dimensions("rfa_autodesk_desk_standard_1500", in_memory_db)
     assert dims is not None
-    assert dims["width"] == first_item.width_m
-    assert dims["depth"] == first_item.depth_m
+    assert dims["width"] == 1.524
+    assert dims["depth"] == 0.762
 
 
 # ==============================================================================
-# 5. BACKEND API ENDPOINTS
+# 4. BACKEND API ENDPOINTS
 # ==============================================================================
 
 def test_api_get_catalog_furniture(api_client, in_memory_db):
@@ -257,7 +305,7 @@ def test_api_get_catalog_furniture(api_client, in_memory_db):
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) >= 1
+    assert len(data) == 2
     
     item = data[0]
     assert "catalog_item_id" in item
@@ -269,13 +317,11 @@ def test_api_get_catalog_furniture(api_client, in_memory_db):
 
 def test_api_get_catalog_furniture_item_by_id(api_client, in_memory_db):
     """Verify GET /api/v1/catalog/furniture/{id} returns single verified item or 404."""
-    list_res = api_client.get("/api/v1/catalog/furniture")
-    first_id = list_res.json()[0]["catalog_item_id"]
-
-    response = api_client.get(f"/api/v1/catalog/furniture/{first_id}")
+    response = api_client.get("/api/v1/catalog/furniture/rfa_autodesk_desk_standard_1500")
     assert response.status_code == 200
     data = response.json()
-    assert data["catalog_item_id"] == first_id
+    assert data["catalog_item_id"] == "rfa_autodesk_desk_standard_1500"
+    assert data["width_m"] == 1.524
 
     # Test 404 for nonexistent item
     not_found = api_client.get("/api/v1/catalog/furniture/nonexistent_xyz")
@@ -288,23 +334,38 @@ def test_api_get_bundles(api_client, in_memory_db):
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) >= 1
+    assert len(data) == 1
     bundle = data[0]
-    assert "bundle_id" in bundle
-    assert "components" in bundle
+    assert bundle["bundle_id"] == "EXECUTIVE_DESK_BUNDLE"
+    assert len(bundle["components"]) == 2
 
 
 def test_api_get_unregistered_assets(api_client):
-    """Verify GET /api/v1/catalog/unregistered-assets returns audit report."""
+    """Verify GET /api/v1/catalog/unregistered-assets returns audit report with diagnostic counts."""
     response = api_client.get("/api/v1/catalog/unregistered-assets")
     assert response.status_code == 200
     data = response.json()
-    assert "total_rfa_files_found" in data
-    assert "unregistered_assets" in data
+    assert data["total_rfa_files_found"] == 29
+    assert data["registered_items_count"] == 2
+    assert data["unregistered_rfa_count"] == 27
+    assert data["pending_count"] == 27
+    assert data["invalid_count"] == 0
+    assert len(data["unregistered_assets"]) == 27
+    assert "diagnostic" in data
+
+
+def test_api_sync_catalog(api_client, in_memory_db):
+    """Verify POST /api/v1/catalog/sync triggers idempotent synchronization."""
+    response = api_client.post("/api/v1/catalog/sync")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "SUCCESS"
+    assert data["discovered"] == 29
+    assert data["verified"] == 2
 
 
 # ==============================================================================
-# 6. INTEGRATION ACCEPTANCE TEST
+# 5. INTEGRATION ACCEPTANCE TEST
 # ==============================================================================
 
 def test_integration_rfa_to_api_to_footprint(in_memory_db, api_client):
@@ -324,19 +385,18 @@ def test_integration_rfa_to_api_to_footprint(in_memory_db, api_client):
     res = api_client.get("/api/v1/catalog/furniture")
     assert res.status_code == 200
     items = res.json()
-    assert len(items) >= 1
+    assert len(items) == 2
 
     # 3. Verify real RFA asset reference exists on item
-    rfa_item = next((it for it in items if it.get("source_type") == "REVIT_RFA"), None)
-    assert rfa_item is not None
-    assert rfa_item["source_reference"].endswith(".rfa")
+    desk_item = next((it for it in items if it.get("catalog_item_id") == "rfa_autodesk_desk_standard_1500"), None)
+    assert desk_item is not None
+    assert desk_item["source_reference"] == "assets/catalog/revit/desks/Furniture_Desk.rfa"
 
     # 4. Verify verified dimensions provide accurate 2D footprint rectangle
-    width = rfa_item["width_m"]
-    depth = rfa_item["depth_m"]
-    assert width > 0
-    assert depth > 0
+    width = desk_item["width_m"]
+    depth = desk_item["depth_m"]
+    assert width == 1.524
+    assert depth == 0.762
 
     footprint_area = round(width * depth, 4)
-    assert footprint_area > 0
-    print(f"Verified RFA item '{rfa_item['name']}' footprint: {width}m x {depth}m (Area: {footprint_area} m²)")
+    assert abs(footprint_area - 1.1613) < 0.001

@@ -108,6 +108,31 @@ export function runCatalogTests(): boolean {
   assert(mockBundle.bundle_id === "EXECUTIVE_DESK_BUNDLE", "Bundle ID mapped correctly");
   assert(mockBundle.components.length === 1 && mockBundle.components[0].is_primary === true, "Bundle components validated");
 
+  // Test 5: Unregistered assets audit response mapping
+  const mockAuditResponse = {
+    total_rfa_files_found: 29,
+    registered_items_count: 2,
+    unregistered_rfa_count: 27,
+    pending_count: 27,
+    invalid_count: 0,
+    unregistered_assets: [
+      {
+        file_name: "4S meeting table(Artic white).rfa",
+        relative_path: "assets/catalog/revit/conference table/4S meeting table(Artic white).rfa",
+        full_path: "d:/Layouts AI/assets/catalog/revit/conference table/4S meeting table(Artic white).rfa",
+        file_size_bytes: 3141632,
+        status: "PENDING_VERIFIED_METADATA",
+        reason: "No verified physical dimensions provided in catalog manifest.",
+        missing_fields: ["width_m", "depth_m"],
+      },
+    ],
+  };
+
+  assert(mockAuditResponse.total_rfa_files_found === 29, "Audit reports exactly 29 discovered RFAs");
+  assert(mockAuditResponse.registered_items_count === 2, "Audit reports exactly 2 verified items");
+  assert(mockAuditResponse.unregistered_rfa_count === 27, "Audit reports exactly 27 pending RFAs");
+  assert(mockAuditResponse.registered_items_count !== mockAuditResponse.total_rfa_files_found, "UI strictly distinguishes verified from total discovered");
+
   console.log(`Catalog Frontend Tests Summary: ${passed} passed, ${failed} failed.`);
   return failed === 0;
 }

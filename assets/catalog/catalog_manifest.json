@@ -1,0 +1,128 @@
+{
+  "version": "1.0.0",
+  "description": "Authoritative Revit Furniture Catalog & Bundles Manifest",
+  "items": [
+    {
+      "catalog_item_id": "rfa_autodesk_desk_standard_1500",
+      "name": "Standard Office Workstation Desk",
+      "category": "DESK",
+      "subtype": "PROFESSIONAL_DESK",
+      "family_name": "Furniture_Desk",
+      "family_type_name": "1525 x 762mm",
+      "source_type": "REVIT_RFA",
+      "source_reference": "assets/catalog/revit/desks/Furniture_Desk.rfa",
+      "width_m": 1.524,
+      "depth_m": 0.762,
+      "height_m": 0.762,
+      "clearance": {
+        "front_m": 0.8,
+        "back_m": 0.2,
+        "left_m": 0.2,
+        "right_m": 0.2
+      },
+      "footprint_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-0.762, -0.381],
+            [0.762, -0.381],
+            [0.762, 0.381],
+            [-0.762, 0.381],
+            [-0.762, -0.381]
+          ]
+        ]
+      },
+      "is_active": true,
+      "is_verified": true,
+      "metadata": {
+        "manufacturer": "Autodesk Standard Library",
+        "revit_version": "2024",
+        "rfa_file_name": "Furniture_Desk.rfa",
+        "verification_notes": "Authoritative dimensions verified from standard 1525x762mm Revit furniture family type."
+      }
+    },
+    {
+      "catalog_item_id": "rfa_autodesk_file_cabinet_2drawer",
+      "name": "Standard 2-Drawer File Cabinet",
+      "category": "STORAGE",
+      "subtype": "FILE_CABINET",
+      "family_name": "Cabinet-File 2 Drawer",
+      "family_type_name": "381 x 635mm",
+      "source_type": "REVIT_RFA",
+      "source_reference": "assets/catalog/revit/cabinet/Cabinet-File 2 Drawer.rfa",
+      "width_m": 0.381,
+      "depth_m": 0.635,
+      "height_m": 0.711,
+      "clearance": {
+        "front_m": 0.6,
+        "back_m": 0.05,
+        "left_m": 0.05,
+        "right_m": 0.05
+      },
+      "footprint_geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-0.1905, -0.3175],
+            [0.1905, -0.3175],
+            [0.1905, 0.3175],
+            [-0.1905, 0.3175],
+            [-0.1905, -0.3175]
+          ]
+        ]
+      },
+      "is_active": true,
+      "is_verified": true,
+      "metadata": {
+        "manufacturer": "Autodesk Standard Library",
+        "revit_version": "2024",
+        "rfa_file_name": "Cabinet-File 2 Drawer.rfa",
+        "verification_notes": "Authoritative dimensions verified from standard 381x635mm Revit cabinet family type."
+      }
+    }
+  ],
+  "bundles": [
+    {
+      "bundle_id": "EXECUTIVE_DESK_BUNDLE",
+      "name": "Executive Desk Suite Bundle",
+      "category": "DESK",
+      "description": "L-shaped executive workstation bundle combining standard desk with storage file cabinet",
+      "default_arrangement": "L_SHAPE_EXECUTIVE",
+      "is_active": true,
+      "components": [
+        {
+          "component_id": "comp_desk",
+          "catalog_item_id": "rfa_autodesk_desk_standard_1500",
+          "quantity": 1,
+          "relative_x_m": 0.0,
+          "relative_y_m": 0.0,
+          "rotation_deg": 0.0,
+          "is_primary": true
+        },
+        {
+          "component_id": "comp_credenza",
+          "catalog_item_id": "rfa_autodesk_file_cabinet_2drawer",
+          "quantity": 1,
+          "relative_x_m": 1.524,
+          "relative_y_m": 0.0,
+          "rotation_deg": 90.0,
+          "is_primary": false
+        }
+      ],
+      "clearance_requirements": {
+        "front_m": 1.0,
+        "back_m": 0.5,
+        "left_m": 0.5,
+        "right_m": 0.5
+      },
+      "orientation_rules": {
+        "facing": "FRONT",
+        "wall_alignment": "BACK"
+      },
+      "metadata": {
+        "intended_room_types": ["EXECUTIVE_CABIN", "MANAGER_OFFICE"],
+        "bundle_type": "EXECUTIVE_WORKSTATION"
+      }
+    }
+  ]
+}
