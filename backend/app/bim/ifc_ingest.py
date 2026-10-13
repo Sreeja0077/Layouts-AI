@@ -180,6 +180,7 @@ def project_shape_to_2d_footprint(
         return None, None, [], GeometryStatus.FAILED, "IFC_SHAPE_EMPTY_FACES: No face indices returned by geometry engine"
 
     triangles = []
+    seen_canonical_triangles: set[tuple] = set()
     num_verts = len(verts) // 3
     num_faces = len(faces)
 
@@ -206,6 +207,16 @@ def project_shape_to_2d_footprint(
         if area_2d_approx < 1e-7:
             # Skip degenerate projected triangles (e.g. vertical wall side faces)
             continue
+
+        # Deduplicate coplanar duplicate triangles (e.g. identical top and bottom box faces)
+        canon_tri = tuple(sorted([
+            (round(x0, decimals), round(y0, decimals)),
+            (round(x1, decimals), round(y1, decimals)),
+            (round(x2, decimals), round(y2, decimals)),
+        ]))
+        if canon_tri in seen_canonical_triangles:
+            continue
+        seen_canonical_triangles.add(canon_tri)
 
         try:
             poly = Polygon([(x0, y0), (x1, y1), (x2, y2)])
@@ -449,17 +460,57 @@ class IFCIngestor:
                 dedup_furn.append(f)
 
         storey_index = self._build_storey_index(ifc_file, scale_to_meters)
-        walls = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in dedup_walls]
-        doors = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in door_entities]
-        windows = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in window_entities]
-        columns = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in column_entities]
-        spaces = [self._convert_ifc_entity(e, scale_to_meters, geom_settings, warnings, file_name, storey_index) for e in space_entities]
-        furniture = [
-            self._convert_ifc_entity(
-                e, scale_to_meters, geom_settings, warnings, file_name, storey_index
+
+        # Parallelize 2D projection and element extraction across CPU cores
+        from concurrent.futures import ThreadPoolExecutor
+
+        max_workers = min(6, os.cpu_count() or 4)
+
+        tagged_entities = (
+            [("wall", e) for e in dedup_walls] +
+            [("door", e) for e in door_entities] +
+            [("window", e) for e in window_entities] +
+            [("column", e) for e in column_entities] +
+            [("space", e) for e in space_entities] +
+            [("furniture", e) for e in dedup_furn]
+        )
+
+        def _worker(item: Tuple[str, Any]) -> Tuple[str, ExtractedElement, List[str]]:
+            tag, ent = item
+            local_warns: List[str] = []
+            elem = self._convert_ifc_entity(
+                ent, scale_to_meters, geom_settings, local_warns, file_name, storey_index
             )
-            for e in dedup_furn
-        ]
+            return tag, elem, local_warns
+
+        if len(tagged_entities) <= 4 or max_workers <= 1:
+            converted_results = [_worker(item) for item in tagged_entities]
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                converted_results = list(pool.map(_worker, tagged_entities))
+
+        walls: List[ExtractedElement] = []
+        doors: List[ExtractedElement] = []
+        windows: List[ExtractedElement] = []
+        columns: List[ExtractedElement] = []
+        spaces: List[ExtractedElement] = []
+        furniture: List[ExtractedElement] = []
+
+        for tag, elem, elem_warns in converted_results:
+            if elem_warns:
+                warnings.extend(elem_warns)
+            if tag == "wall":
+                walls.append(elem)
+            elif tag == "door":
+                doors.append(elem)
+            elif tag == "window":
+                windows.append(elem)
+            elif tag == "column":
+                columns.append(elem)
+            elif tag == "space":
+                spaces.append(elem)
+            elif tag == "furniture":
+                furniture.append(elem)
 
         all_elements = walls + doors + windows + columns + spaces + furniture
 

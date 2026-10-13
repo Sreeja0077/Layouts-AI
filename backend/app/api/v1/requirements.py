@@ -29,6 +29,7 @@ class CreateRequirementRequest(BaseModel):
     project_id: Optional[str] = Field("proj_default", description="Associated project ID")
     floor_plan_id: Optional[str] = Field("fp_default", description="Target floor plan ID")
     region_id: Optional[str] = Field(None, description="Optional target region ID from Task 6.3")
+    architectural_context: Optional[Dict[str, Any]] = Field(None, description="Physical element counts or context")
 
 
 class ClarifyRequirementRequest(BaseModel):
@@ -80,11 +81,36 @@ async def create_requirement_set(
     workflow = get_requirement_workflow()
     config = {"configurable": {"thread_id": req_id}}
 
+    arch_ctx = dict(payload.architectural_context or {})
+    # If architectural_context does not specify windows_count, look up active floor plan verification report
+    if "windows_count" not in arch_ctx and payload.floor_plan_id:
+        try:
+            from app.api.v1.projects import ensure_uuid
+            fp_uuid = ensure_uuid(payload.floor_plan_id)
+            record = (
+                db.query(FloorPlanSourceVersionModel)
+                .filter(
+                    (FloorPlanSourceVersionModel.floor_plan_id == payload.floor_plan_id)
+                    | (FloorPlanSourceVersionModel.floor_plan_id == fp_uuid)
+                )
+                .order_by(FloorPlanSourceVersionModel.version_no.desc())
+                .first()
+            )
+            if record and record.verification_report:
+                elems = record.verification_report.get("all_elements_geometry") or []
+                arch_ctx["windows_count"] = sum(1 for e in elems if "WINDOW" in (e.get("category") or "").upper())
+                arch_ctx["doors_count"] = sum(1 for e in elems if "DOOR" in (e.get("category") or "").upper())
+                arch_ctx["walls_count"] = sum(1 for e in elems if "WALL" in (e.get("category") or "").upper())
+                arch_ctx["columns_count"] = sum(1 for e in elems if "COLUMN" in (e.get("category") or "").upper())
+        except Exception:
+            pass
+
     state_input = {
         "project_id": payload.project_id or "proj_default",
         "floor_plan_id": payload.floor_plan_id or "fp_default",
         "region_id": payload.region_id,
         "raw_text": payload.raw_text.strip(),
+        "architectural_context": arch_ctx,
     }
 
     try:

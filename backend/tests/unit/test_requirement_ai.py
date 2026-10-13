@@ -919,5 +919,75 @@ def test_target_fix_10_no_semantic_specificity_hallucination(parser):
     assert res_table.items[0].semantic_type != "CONFERENCE_TABLE"
 
 
+def test_missing_window_spatial_clarification(parser):
+    """
+    Test that requesting 'near the window' when architectural_context has windows_count=0
+    triggers clarification asking where to position the items instead.
+    """
+    from app.domain.requirements.completeness import evaluate_requirement_completeness
+    req_set = parser.parse(raw_text="6 Professional Desks + 1 Manager Cabin near the window")
+    
+    # 1. When windows exist (e.g. windows_count=3), requirement is complete
+    is_complete, questions, reasoning = evaluate_requirement_completeness(
+        req_set,
+        architectural_context={"windows_count": 3},
+    )
+    assert is_complete is True
+    assert len(questions) == 0
+
+    # 2. When 0 windows exist (windows_count=0), triggers clarification
+    is_complete_0, questions_0, reasoning_0 = evaluate_requirement_completeness(
+        req_set,
+        architectural_context={"windows_count": 0},
+    )
+    assert is_complete_0 is False
+    assert len(questions_0) == 1
+    assert questions_0[0].slot == "missing_window_alternative"
+    assert "no windows" in questions_0[0].question_text.lower()
+    assert "Near Entrance" in questions_0[0].suggested_options
+
+
+def test_missing_window_clarification_resume_workflow(mock_provider):
+    """
+    Test full LangGraph pause and resume when window is missing,
+    clarifying with 'Near Entrance' replaces the preference.
+    """
+    import uuid
+    from app.ai.graph.requirement_workflow import get_requirement_workflow
+    workflow = get_requirement_workflow(provider=mock_provider)
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Initial state with windows_count=0
+    state_1 = workflow.invoke(
+        {
+            "raw_text": "6 Professional Desks and 1 Manager Cabin near the window",
+            "floor_plan_id": "fp_nowindows",
+            "architectural_context": {"windows_count": 0},
+        },
+        config=config,
+    )
+    assert state_1["needs_clarification"] is True
+    assert len(state_1["questions"]) == 1
+    target_qid = state_1["questions"][0]["question_id"]
+    assert state_1["questions"][0]["slot"] == "missing_window_alternative"
+
+    # User answers 'Near Entrance'
+    state_2 = workflow.invoke(
+        {
+            "user_answer": "Near Entrance",
+            "answered_question_id": target_qid,
+            "architectural_context": {"windows_count": 0},
+        },
+        config=config,
+    )
+    assert state_2["needs_clarification"] is False
+    req = state_2["requirement_set"]
+    # Verify preference was updated away from window to entrance
+    assert any("entrance" in (p.get("target_zone") or "").lower() for p in req.get("preferences", []))
+    assert not any("window" in (p.get("target_zone") or "").lower() for p in req.get("preferences", []))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

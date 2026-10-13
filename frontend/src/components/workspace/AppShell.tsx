@@ -94,6 +94,13 @@ export const AppShell: React.FC<AppShellProps> = ({
         raw_text: promptInput.trim(),
         project_id: targetProjId,
         floor_plan_id: targetFpId,
+        architectural_context: {
+          windows_count: renderModel?.windows?.length ?? 0,
+          doors_count: renderModel?.doors?.length ?? 0,
+          walls_count: renderModel?.walls?.length ?? 0,
+          columns_count: renderModel?.columns?.length ?? 0,
+          room_name: renderModel?.name,
+        },
       });
       setAnalysisResult(res);
     } catch (err: any) {

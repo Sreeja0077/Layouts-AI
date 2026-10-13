@@ -31,6 +31,7 @@ class RequirementWorkflowState(TypedDict, total=False):
     reasoning: str
     user_answer: Optional[str]
     answered_question_id: Optional[str]
+    architectural_context: Optional[Dict[str, Any]]
     status: str
 
 
@@ -154,6 +155,47 @@ def merge_clarification_answer(
                             break
             req_set.notes = f"{req_set.notes or ''} [Clarified quantity: {val}]"
 
+    # 7. Window Alternative answer (slot='missing_window_alternative' or 'window' in slot)
+    elif "window" in slot or slot == "missing_window_alternative":
+        ans_lower = answer_clean.lower()
+        new_target = "entrance"
+        new_type = "NEAR_ENTRANCE"
+        if "entrance" in ans_lower or "door" in ans_lower:
+            new_target = "entrance"
+            new_type = "NEAR_ENTRANCE"
+        elif "wall" in ans_lower or "interior" in ans_lower:
+            new_target = "wall"
+            new_type = "ALONG_WALL"
+        elif "corner" in ans_lower:
+            new_target = "corner"
+            new_type = "IN_CORNER"
+        elif "no" in ans_lower and "pref" in ans_lower:
+            new_target = None
+            new_type = None
+
+        from app.domain.requirements.schemas import SpatialPreference
+        updated_prefs = []
+        for pref in (req_set.preferences or []):
+            if "window" in (pref.target_zone or "").lower() or "WINDOW" in (pref.preference_type or "").upper():
+                if new_target:
+                    pref.target_zone = new_target
+                    pref.preference_type = new_type
+                    updated_prefs.append(pref)
+            else:
+                updated_prefs.append(pref)
+
+        if new_target and not any(p.target_zone == new_target for p in updated_prefs):
+            item_ids = [target_item.id] if target_item else [it.id for it in req_set.items if "CABIN" in (it.semantic_type or "").upper()]
+            updated_prefs.append(SpatialPreference(
+                target_zone=new_target,
+                item_ids_or_tags=item_ids or ["manager_cabin"],
+                preference_type=new_type,
+                importance="HIGH",
+            ))
+
+        req_set.preferences = updated_prefs
+        req_set.notes = f"{req_set.notes or ''} [Clarified window alternative: {answer_clean}]"
+
     # General fallback
     else:
         num = _extract_first_int(answer_clean)
@@ -240,7 +282,11 @@ def build_requirement_workflow(
                 target_item_id=target_item_id,
             )
 
-        is_complete, questions, reasoning = evaluate_requirement_completeness(req_set)
+        arch_ctx = state.get("architectural_context") or {}
+        is_complete, questions, reasoning = evaluate_requirement_completeness(
+            req_set,
+            architectural_context=arch_ctx,
+        )
 
         if not is_complete:
             req_set.status = RequirementStatus.CLARIFICATION_REQUIRED

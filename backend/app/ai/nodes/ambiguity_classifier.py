@@ -21,12 +21,12 @@ class AmbiguityClassifier:
     def __init__(self, provider: Optional[LLMProvider] = None):
         self.provider = provider or get_llm_provider("llm_fast")
 
-    def evaluate(self, req_set: RequirementSet) -> ClarificationRequest:
+    def evaluate(self, req_set: RequirementSet, architectural_context: Optional[dict] = None) -> ClarificationRequest:
         """
         Evaluate requirement set for completeness and ambiguity.
         """
         # Step 1: Deterministic rules first (ground truth)
-        det_result = classify_ambiguity_and_completeness(req_set)
+        det_result = classify_ambiguity_and_completeness(req_set, architectural_context=architectural_context)
         if det_result.needs_clarification:
             return det_result
 
@@ -44,12 +44,12 @@ class AmbiguityClassifier:
             logger.error(f"Failed to validate LLM output for ambiguity classification: {e}")
             raise ValueError(f"Malformed LLM structured output for ambiguity classification: {e}") from e
 
-    async def aevaluate(self, req_set: RequirementSet) -> ClarificationRequest:
+    async def aevaluate(self, req_set: RequirementSet, architectural_context: Optional[dict] = None) -> ClarificationRequest:
         """
         Async evaluation.
         """
         # Step 1: Deterministic rules first (ground truth)
-        det_result = classify_ambiguity_and_completeness(req_set)
+        det_result = classify_ambiguity_and_completeness(req_set, architectural_context=architectural_context)
         if det_result.needs_clarification:
             return det_result
 

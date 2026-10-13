@@ -32,6 +32,7 @@ GENERIC_DESK_TYPES = {
 def evaluate_requirement_completeness(
     req_set: RequirementSet,
     options_config: Optional[dict] = None,
+    architectural_context: Optional[dict] = None,
 ) -> Tuple[bool, List[ClarificationQuestion], str]:
     """
     Deterministic rule-based completeness checklist.
@@ -179,6 +180,47 @@ def evaluate_requirement_completeness(
                 questions.append(q)
                 reasons.append("Room type is unspecified.")
 
+    # Rule 3: Spatial Preferences vs Physical Architectural Context
+    arch_ctx = architectural_context or {}
+    windows_count = arch_ctx.get("windows_count", None)
+
+    # Detect if user requested placement near/along windows when physical space has 0 windows
+    if windows_count is not None and windows_count == 0:
+        already_clarified = "clarified window alternative" in (req_set.notes or "").lower()
+        if not already_clarified:
+            has_window_pref = any(
+                "window" in (p.target_zone or "").lower() or "WINDOW" in (p.preference_type or "").upper()
+                for p in (req_set.preferences or [])
+            )
+            has_window_item = any("window" in it.raw_phrase.lower() for it in req_set.items)
+
+            if has_window_pref or has_window_item:
+                # Identify target item (e.g. Manager Cabin)
+                assoc_item = None
+                for it in req_set.items:
+                    if any(k in (it.semantic_type or "").upper() for k in ("CABIN", "MANAGER", "DESK")):
+                        assoc_item = it
+                        break
+                if not assoc_item and req_set.items:
+                    assoc_item = req_set.items[0]
+
+                item_label = (
+                    assoc_item.semantic_type.replace("_", " ").title()
+                    if assoc_item and assoc_item.semantic_type
+                    else "this element"
+                )
+                slot_name = "missing_window_alternative"
+                q = ClarificationQuestion(
+                    question_id=f"q_{uuid.uuid4().hex[:8]}",
+                    slot=slot_name,
+                    item_id=assoc_item.id if assoc_item else None,
+                    question_text=f"No windows are present in this space. Where would you like to position the {item_label} instead?",
+                    suggested_options=["Near Entrance", "Along Interior Wall", "In Corner", "No Specific Preference"],
+                    default_fallback_value="Near Entrance",
+                )
+                questions.append(q)
+                reasons.append("Requested spatial preference 'near window' cannot be satisfied because 0 windows are present in the architectural model.")
+
     is_complete = len(questions) == 0
     reasoning_summary = "; ".join(reasons) if reasons else "Requirement is semantically complete."
     return is_complete, questions, reasoning_summary
@@ -187,11 +229,16 @@ def evaluate_requirement_completeness(
 def classify_ambiguity_and_completeness(
     req_set: RequirementSet,
     options_config: Optional[dict] = None,
+    architectural_context: Optional[dict] = None,
 ) -> ClarificationRequest:
     """
     Wraps deterministic completeness evaluation into a ClarificationRequest structure.
     """
-    is_complete, questions, reasoning = evaluate_requirement_completeness(req_set, options_config=options_config)
+    is_complete, questions, reasoning = evaluate_requirement_completeness(
+        req_set,
+        options_config=options_config,
+        architectural_context=architectural_context,
+    )
     return ClarificationRequest(
         needs_clarification=not is_complete,
         questions=questions,

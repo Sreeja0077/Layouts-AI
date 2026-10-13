@@ -818,6 +818,27 @@
   - `pytest tests/unit/test_layout_reconfiguration.py -v`: **PASSED (14/14 in 29.45s)**
   - `pytest tests/unit/ -v`: **PASSED (242/242 in 115.71s)**
 
+### [2026-10-12] Phase 8 Targeted Fix: Architectural Ground-Truth Context Reconciliation for Spatial Preferences (Task 8.7)
+- **Action:** Reconciled semantic spatial preferences against physical architectural context:
+  - **Architectural Context Transmission (`frontend/src/api/requirements.ts`, `frontend/src/components/workspace/AppShell.tsx`)**: Extended `SubmitRequirementRequest` with `architectural_context` (`windows_count`, `doors_count`, `walls_count`, `columns_count`, `room_name`). `AppShell.tsx` injects live element counts from the active `renderModel`.
+  - **API Ingestion & Verification Fallback (`backend/app/api/v1/requirements.py`)**: Added `architectural_context` to `CreateRequirementRequest`. If omitted by client, queries active `FloorPlanSourceVersionModel.verification_report` in database to populate authoritative element counts.
+  - **Physical Feasibility Validation (`backend/app/domain/requirements/completeness.py`)**: Added Rule 3 to `evaluate_requirement_completeness`. Detects spatial preferences targeting physical elements absent from the space (e.g. `NEAR_WINDOW` when `windows_count == 0`). Pauses workflow and issues a targeted `ClarificationQuestion` (`missing_window_alternative`) presenting realistic spatial alternatives ("Near Entrance", "Along Interior Wall", "In Corner", "No Specific Preference").
+  - **Clarification Answer Merging & Workflow Resume (`backend/app/ai/graph/requirement_workflow.py`)**: Added window alternative answer handler in `merge_clarification_answer`. Replaces invalid window spatial preferences with the user's chosen physical anchor (e.g. `NEAR_ENTRANCE` or `ALONG_WALL`) and marks the requirement complete without looping.
+  - **Unit Testing (`backend/tests/unit/test_requirement_ai.py`)**: Added `test_missing_window_spatial_clarification` and `test_missing_window_clarification_resume_workflow`. All 37 tests passing.
+- **Status:** `SUCCESS (37/37 Unit Tests Passed)`
+- **Files Modified:**
+  - `frontend/src/api/requirements.ts`
+  - `frontend/src/components/workspace/AppShell.tsx`
+  - `backend/app/api/v1/requirements.py`
+  - `backend/app/domain/requirements/completeness.py`
+  - `backend/app/ai/graph/requirement_workflow.py`
+  - `backend/app/ai/nodes/ambiguity_classifier.py`
+  - `backend/tests/unit/test_requirement_ai.py`
+  - `TASKS.md`
+- **Test Execution Results:**
+  - `pytest tests/unit/test_requirement_ai.py -v`: **PASSED (37/37 in 23.16s)**
+  - `pytest tests/unit/test_layout_reconfiguration.py tests/unit/test_layout_solver.py -v`: **PASSED (19/19 in 40.74s)**
+
 ---
 
 *Maintained continuously across all development steps.*

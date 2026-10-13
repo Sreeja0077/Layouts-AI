@@ -56,11 +56,20 @@ export interface RequirementAnalysisResponse {
   requirement_set: RequirementSetPayload;
 }
 
+export interface ArchitecturalContextPayload {
+  windows_count?: number;
+  doors_count?: number;
+  walls_count?: number;
+  columns_count?: number;
+  room_name?: string;
+}
+
 export interface SubmitRequirementRequest {
   raw_text: string;
   project_id?: string;
   floor_plan_id?: string;
   region_id?: string;
+  architectural_context?: ArchitecturalContextPayload;
 }
 
 export async function submitRequirement(

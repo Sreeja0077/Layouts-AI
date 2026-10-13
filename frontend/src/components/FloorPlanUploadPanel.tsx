@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   uploadFloorPlanFile,
+  fetchIngestionStatus,
   listProjects,
   listFloorPlans,
   ProjectItem,
@@ -141,7 +142,7 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
     setErrorMessage(null);
 
     try {
-      const result = await uploadFloorPlanFile(
+      let result = await uploadFloorPlanFile(
         {
           projectId: selectedProjectId,
           file: selectedFile,
@@ -154,6 +155,36 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
           }
         }
       );
+
+      // Support asynchronous background ingestion for large files
+      if (result.status === "INGESTING" && result.floor_plan_id) {
+        setUploadState("INGESTING");
+        let attempts = 0;
+        const maxAttempts = 120; // 4 minutes max polling
+        while (attempts < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const statusRes = await fetchIngestionStatus(selectedProjectId, result.floor_plan_id);
+            if (statusRes.status === "READY" || statusRes.status === "VERIFIED") {
+              result = statusRes;
+              break;
+            } else if (statusRes.status === "FAILED") {
+              const errDetail =
+                (statusRes.verification_report as any)?.error ||
+                "BIM/DXF ingestion failed during multi-threaded processing.";
+              throw new Error(errDetail);
+            }
+          } catch (pollErr: any) {
+            if (pollErr.message && pollErr.message.includes("failed")) {
+              throw pollErr;
+            }
+          }
+          attempts++;
+        }
+        if (attempts >= maxAttempts) {
+          throw new Error("Ingestion timed out while processing large floor plan.");
+        }
+      }
 
       setUploadState("READY");
       setIngestionResult(result);
@@ -404,22 +435,26 @@ export const FloorPlanUploadPanel: React.FC<FloorPlanUploadPanelProps> = ({
                 <span>{progressPercent >= 100 ? "✓" : "•"}</span> Format & syntax verified
               </div>
               <div style={{ color: uploadState === "INGESTING" ? "#38bdf8" : "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
-                <span>{uploadState === "INGESTING" ? "⚙" : "•"}</span> Extracting walls, doors, windows & columns (IfcOpenShell/DXF)
+                <span>{uploadState === "INGESTING" ? "⚙" : "•"}</span> Multi-core geometry extraction across CPU cores (OpenCASCADE & Shapely)
+              </div>
+              <div style={{ color: uploadState === "INGESTING" ? "#38bdf8" : "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
+                <span>{uploadState === "INGESTING" ? "⚙" : "•"}</span> Filtering coplanar duplicates & normalizing coordinates to meters
               </div>
               <div style={{ color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
-                <span>•</span> Normalizing coordinates to world meters
-              </div>
-              <div style={{ color: "#64748b", display: "flex", alignItems: "center", gap: "10px" }}>
-                <span>•</span> Building canonical floor plan model
+                <span>•</span> Assembling canonical floor plan model
               </div>
             </div>
 
             <div style={{ height: "10px", backgroundColor: "#1e293b", borderRadius: "5px", overflow: "hidden" }}>
               <div
                 style={{
-                  width: `${progressPercent}%`,
+                  width: uploadState === "INGESTING" ? "100%" : `${progressPercent}%`,
                   height: "100%",
                   backgroundColor: "#0284c7",
+                  backgroundImage: uploadState === "INGESTING"
+                    ? "linear-gradient(45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent)"
+                    : "none",
+                  backgroundSize: "1rem 1rem",
                   transition: "width 0.3s ease",
                 }}
               />
