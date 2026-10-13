@@ -345,3 +345,12 @@ body {
   justify-content: flex-end;
   gap: 12px;
 }
+
+@keyframes layoutsAiSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

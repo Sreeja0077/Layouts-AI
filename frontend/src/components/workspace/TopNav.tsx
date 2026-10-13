@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   FolderOpen,
+  Boxes,
 } from "lucide-react";
 
 export interface TopNavProps {
@@ -32,6 +33,8 @@ export interface TopNavProps {
   onOpenUpload: () => void;
   onTriggerAI?: () => void;
   isAiActive?: boolean;
+  onTriggerCatalog?: () => void;
+  isCatalogActive?: boolean;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -51,6 +54,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenUpload,
   onTriggerAI,
   isAiActive = false,
+  onTriggerCatalog,
+  isCatalogActive = false,
 }) => {
   const currentProjectName =
     projectName ||
@@ -374,6 +379,34 @@ export const TopNav: React.FC<TopNavProps> = ({
           >
             <Sparkles size={13} color={isAiActive ? "#FFFFFF" : "#7C3AED"} />
             <span>AI Space Planner</span>
+          </button>
+        )}
+
+        {/* Furniture Catalog Action Button */}
+        {onTriggerCatalog && (
+          <button
+            onClick={onTriggerCatalog}
+            style={{
+              height: "30px",
+              backgroundColor: isCatalogActive ? "#0284C7" : "#F0F9FF",
+              color: isCatalogActive ? "#FFFFFF" : "#0284C7",
+              border: `1px solid ${isCatalogActive ? "#0284C7" : "#BAE6FD"}`,
+              borderRadius: "5px",
+              padding: "0 10px",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              transition: "all 0.15s ease",
+              boxSizing: "border-box",
+            }}
+          >
+            <Boxes size={13} color={isCatalogActive ? "#FFFFFF" : "#0284C7"} />
+            <span>Furniture Catalog</span>
           </button>
         )}
 

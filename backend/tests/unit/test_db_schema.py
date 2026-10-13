@@ -41,6 +41,7 @@ def test_db_models_metadata():
         "floor_plan_source_versions",
         "regions",
         "furniture_catalog_items",
+        "furniture_bundles",
         "requirement_sets",
         "clarification_questions",
         "layout_suggestions",

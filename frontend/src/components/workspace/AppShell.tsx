@@ -8,8 +8,10 @@ import { TopNav } from "./TopNav";
 import { ProjectNavigator } from "./ProjectNavigator";
 import { AILayoutPanel } from "./AILayoutPanel";
 import { StatusBar } from "./StatusBar";
+import { FurnitureCatalogPanel } from "../catalog/FurnitureCatalogPanel";
+import { CatalogFurnitureItem } from "../../api/catalog";
 import { LayoutCanvas } from "../../editor/canvas/LayoutCanvas";
-import { FloorPlanRenderModel } from "../../editor/renderer/renderTypes";
+import { FloorPlanRenderModel, RenderFurniture } from "../../editor/renderer/renderTypes";
 import {
   generateLayoutCandidates,
   applySuggestionToRenderModel,
@@ -38,6 +40,8 @@ export interface AppShellProps {
   activeTab: "workspace" | "editor" | "diagnostics";
   onTabChange: (tab: "workspace" | "editor" | "diagnostics") => void;
   isVerified?: boolean;
+  isLoading?: boolean;
+  loadingMessage?: string;
 }
 
 export const AppShell: React.FC<AppShellProps> = ({
@@ -56,9 +60,12 @@ export const AppShell: React.FC<AppShellProps> = ({
   activeTab,
   onTabChange,
   isVerified = true,
+  isLoading = false,
+  loadingMessage,
 }) => {
   const [isNavCollapsed, setIsNavCollapsed] = useState<boolean>(false);
   const [isAiPanelOpen, setIsAiPanelOpen] = useState<boolean>(false);
+  const [isCatalogOpen, setIsCatalogOpen] = useState<boolean>(false);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
 
   // Active floor plan render model (preserves updates when candidate layout is previewed)
@@ -68,6 +75,43 @@ export const AppShell: React.FC<AppShellProps> = ({
   React.useEffect(() => {
     setActiveModel(renderModel);
   }, [renderModel]);
+
+  const handleAddCatalogItemToCanvas = (item: CatalogFurnitureItem) => {
+    const base = activeModel || renderModel;
+    if (!base) return;
+
+    let placeX = 4.0;
+    let placeY = 3.5;
+    if (base.boundary && base.boundary.length >= 3) {
+      const xs = base.boundary.map((p) => p.x);
+      const ys = base.boundary.map((p) => p.y);
+      placeX = Number(((Math.min(...xs) + Math.max(...xs)) / 2).toFixed(2));
+      placeY = Number(((Math.min(...ys) + Math.max(...ys)) / 2).toFixed(2));
+    }
+
+    const newObj: RenderFurniture = {
+      id: `placed_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      catalogItemId: item.catalog_item_id,
+      itemType: item.subtype || item.category,
+      category: item.category,
+      name: item.name,
+      position: { x: placeX, y: placeY },
+      widthMeters: item.width_m,
+      depthMeters: item.depth_m,
+      rotationDeg: 0,
+      isLocked: false,
+      properties: {
+        family_name: item.family_name,
+        family_type_name: item.family_type_name,
+        source_reference: item.source_reference,
+      },
+    };
+
+    setActiveModel({
+      ...base,
+      furniture: [...(base.furniture || []), newObj],
+    });
+  };
 
   // Phase 8.5 Requirement AI State
   const [promptInput, setPromptInput] = useState<string>("6 Professional Desks + 1 Manager Cabin near the window");
@@ -82,6 +126,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [activeCandidateIdx, setActiveCandidateIdx] = useState<number>(0);
   const [infeasibilityReport, setInfeasibilityReport] = useState<InfeasibilityReportPayload | null>(null);
   const [selectedRegionPoints, setSelectedRegionPoints] = useState<Array<{ x: number; y: number }> | null>(null);
+  const [isLayoutTransitioning, setIsLayoutTransitioning] = useState<boolean>(false);
+  const [transitionMessage, setTransitionMessage] = useState<string>("");
 
   const handleAnalyzeRequirement = async () => {
     if (!promptInput.trim() || isAnalyzing) return;
@@ -204,10 +250,15 @@ export const AppShell: React.FC<AppShellProps> = ({
   const handleSelectCandidate = (idx: number) => {
     setActiveCandidateIdx(idx);
     if (candidates[idx]) {
-      const base = renderModel || activeModel;
-      if (base) {
-        setActiveModel(applySuggestionToRenderModel(base, candidates[idx]));
-      }
+      setIsLayoutTransitioning(true);
+      setTransitionMessage(`Applying AI Layout Candidate #${idx + 1}...`);
+      setTimeout(() => {
+        const base = renderModel || activeModel;
+        if (base) {
+          setActiveModel(applySuggestionToRenderModel(base, candidates[idx]));
+        }
+        setIsLayoutTransitioning(false);
+      }, 80);
     }
   };
 
@@ -247,8 +298,16 @@ export const AppShell: React.FC<AppShellProps> = ({
         onTabChange={onTabChange}
         isVerified={isVerified}
         onOpenUpload={onGoToUpload}
-        onTriggerAI={() => setIsAiPanelOpen((prev) => !prev)}
+        onTriggerAI={() => {
+          setIsAiPanelOpen((prev) => !prev);
+          if (!isAiPanelOpen) setIsCatalogOpen(false);
+        }}
         isAiActive={isAiPanelOpen}
+        onTriggerCatalog={() => {
+          setIsCatalogOpen((prev) => !prev);
+          if (!isCatalogOpen) setIsAiPanelOpen(false);
+        }}
+        isCatalogActive={isCatalogOpen}
       />
 
       {/* 2. MAIN WORKSPACE BODY */}
@@ -278,6 +337,14 @@ export const AppShell: React.FC<AppShellProps> = ({
             onSwitchStorey={onSwitchStorey}
             onGoToUpload={onGoToUpload}
             onRegionChange={setSelectedRegionPoints}
+            isLoading={isLoading || isGenerating || isLayoutTransitioning}
+            loadingMessage={
+              isGenerating
+                ? "Solving Spatial Constraints & Generating AI Layouts..."
+                : isLayoutTransitioning
+                ? transitionMessage
+                : loadingMessage || "Loading Floor Plan & Map..."
+            }
           />
         </main>
 
@@ -299,6 +366,15 @@ export const AppShell: React.FC<AppShellProps> = ({
             activeCandidateIdx={activeCandidateIdx}
             onSelectCandidate={handleSelectCandidate}
             onClose={() => setIsAiPanelOpen(false)}
+          />
+        )}
+
+        {/* RIGHT FURNITURE CATALOG PANEL (SLIDE IN) */}
+        {isCatalogOpen && (
+          <FurnitureCatalogPanel
+            isOpen={isCatalogOpen}
+            onClose={() => setIsCatalogOpen(false)}
+            onAddToCanvas={handleAddCatalogItemToCanvas}
           />
         )}
       </div>

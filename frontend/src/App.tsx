@@ -89,7 +89,11 @@ export const App: React.FC<AppProps> = ({
   const handleStoreyChange = (storeyName: string) => {
     setActiveStorey(storeyName);
     if (report) {
-      setEditorRenderModel(reportToRenderModel(report, storeyName));
+      setLoading(true);
+      setTimeout(() => {
+        setEditorRenderModel(reportToRenderModel(report, storeyName));
+        setLoading(false);
+      }, 60);
     }
   };
 
@@ -352,6 +356,8 @@ export const App: React.FC<AppProps> = ({
           activeTab={activeTab}
           onTabChange={setActiveTab}
           isVerified={Boolean(report?.verification_status === "VERIFIED")}
+          isLoading={loading}
+          loadingMessage="Loading Floor Plan Geometry & Map..."
         />
       )}
 

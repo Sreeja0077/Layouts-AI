@@ -79,6 +79,8 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
   activeStorey,
   onSwitchStorey,
   onRegionChange,
+  isLoading = false,
+  loadingMessage,
 }) => {
   const initialModel = renderModel || demoModel || SAMPLE_FLOOR_PLAN_RENDER_MODEL;
   const [activeModel, setActiveModel] = useState<FloorPlanRenderModel>(initialModel);
@@ -286,6 +288,45 @@ export const LayoutCanvas: React.FC<LayoutCanvasProps> = ({
 
       {/* Konva Stage Container */}
       <div style={{ flex: 1, position: "relative", backgroundColor: "#FAFAF8" }}>
+        {isLoading && (
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(15, 23, 42, 0.72)",
+              backdropFilter: "blur(4px)",
+              WebkitBackdropFilter: "blur(4px)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 999,
+              gap: "16px",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                border: "4px solid rgba(56, 189, 248, 0.2)",
+                borderTopColor: "#38bdf8",
+                animation: "layoutsAiSpin 0.8s linear infinite",
+              }}
+            />
+            <div style={{ textAlign: "center" }}>
+              <div style={{ color: "#ffffff", fontSize: "1.05rem", fontWeight: 700, letterSpacing: "-0.01em" }}>
+                {loadingMessage || "Loading Layout & Map..."}
+              </div>
+              <div style={{ color: "#94a3b8", fontSize: "0.825rem", marginTop: "4px" }}>
+                Rendering architectural BIM geometry & floor plan layers
+              </div>
+            </div>
+          </div>
+        )}
         <CanvasStage
           viewport={viewport}
           onViewportChange={setViewport}

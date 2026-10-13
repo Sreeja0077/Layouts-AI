@@ -143,10 +143,37 @@ class FurnitureCatalogItemModel(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
+    subtype: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    family_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    family_type_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_type: Mapped[str] = mapped_column(String(50), default="REVIT_RFA")
+    source_reference: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     width_m: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False)
+    depth_m: Mapped[Optional[float]] = mapped_column(Numeric(6, 3), nullable=True)
     height_m: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False)
     clearance_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    footprint_geometry_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
     aliases: Mapped[List[Any]] = mapped_column(JSONType, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=True)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class FurnitureBundleModel(Base):
+    __tablename__ = "furniture_bundles"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    components_json: Mapped[List[Dict[str, Any]]] = mapped_column(JSONType, default=list)
+    default_arrangement: Mapped[str] = mapped_column(String(100), default="STANDARD")
+    orientation_rules_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    clearance_requirements_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    metadata_json: Mapped[Dict[str, Any]] = mapped_column(JSONType, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

@@ -21,6 +21,36 @@ DATABASE_URL = os.getenv(
 DATABASE_FALLBACK_URL = os.getenv("DATABASE_FALLBACK_URL", "sqlite:///./layouts_ai.db")
 
 
+def _ensure_sqlite_columns(engine):
+    """Ensure newly added columns exist in SQLite tables when running in fallback mode."""
+    if not str(engine.url).startswith("sqlite"):
+        return
+    try:
+        with engine.connect() as conn:
+            cursor = conn.execute(text("PRAGMA table_info(furniture_catalog_items)"))
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            if existing_cols:
+                new_cols = [
+                    ("subtype", "VARCHAR(100)"),
+                    ("family_name", "VARCHAR(255)"),
+                    ("family_type_name", "VARCHAR(255)"),
+                    ("source_type", "VARCHAR(50) DEFAULT 'REVIT_RFA'"),
+                    ("source_reference", "VARCHAR(500)"),
+                    ("depth_m", "NUMERIC(6, 3)"),
+                    ("footprint_geometry_json", "JSON DEFAULT '{}'"),
+                    ("is_active", "BOOLEAN DEFAULT 1"),
+                    ("is_verified", "BOOLEAN DEFAULT 1"),
+                    ("metadata_json", "JSON DEFAULT '{}'"),
+                    ("updated_at", "DATETIME"),
+                ]
+                for col_name, col_type in new_cols:
+                    if col_name not in existing_cols:
+                        conn.execute(text(f"ALTER TABLE furniture_catalog_items ADD COLUMN {col_name} {col_type}"))
+                conn.commit()
+    except Exception as exc:
+        logger.warning("Notice: SQLite column migration check: %s", exc)
+
+
 def init_database_engine():
     """
     Initialize SQLAlchemy engine.
@@ -42,6 +72,7 @@ def init_database_engine():
             poolclass=StaticPool if primary_url == "sqlite:///:memory:" else None,
         )
         Base.metadata.create_all(bind=engine)
+        _ensure_sqlite_columns(engine)
         return engine
 
     # Authoritative PostgreSQL engine with reachability check
@@ -79,6 +110,7 @@ def init_database_engine():
             poolclass=StaticPool if fallback_url == "sqlite:///:memory:" else None,
         )
         Base.metadata.create_all(bind=engine)
+        _ensure_sqlite_columns(engine)
         return engine
 
 

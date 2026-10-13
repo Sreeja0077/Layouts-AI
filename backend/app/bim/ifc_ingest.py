@@ -11,6 +11,7 @@ boundaries with explicit error/warning statuses instead of mock rectangles or co
 import math
 import os
 import sys
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -39,6 +40,9 @@ try:
     HAS_SHAPELY = True
 except ImportError:
     HAS_SHAPELY = False
+
+
+_shape_lock = threading.Lock()
 
 
 def _safe_by_type(ifc_file: Any, type_name: str) -> List[Any]:
@@ -822,19 +826,20 @@ class IFCIngestor:
         # Primary shape geometry extraction via IfcOpenShell shape engine & 3D face projection
         if geom_settings is not None and HAS_IFCOPENSHELL_GEOM and ifcopenshell_geom is not None:
             try:
-                shape = ifcopenshell_geom.create_shape(geom_settings, entity)
-                raw_verts = shape.geometry.verts
-                use_world = False
-                if geom_settings is not None:
-                    try:
-                        use_world = bool(geom_settings.get(geom_settings.USE_WORLD_COORDINATES))
-                    except Exception:
-                        pass
-                if use_world:
-                    verts = list(raw_verts)
-                else:
-                    verts = transform_shape_verts(raw_verts, shape)
-                faces = shape.geometry.faces
+                with _shape_lock:
+                    shape = ifcopenshell_geom.create_shape(geom_settings, entity)
+                    raw_verts = list(shape.geometry.verts)
+                    faces = list(shape.geometry.faces)
+                    use_world = False
+                    if geom_settings is not None:
+                        try:
+                            use_world = bool(geom_settings.get(geom_settings.USE_WORLD_COORDINATES))
+                        except Exception:
+                            pass
+                    if use_world:
+                        verts = raw_verts
+                    else:
+                        verts = transform_shape_verts(raw_verts, shape)
 
                 g_type, g_coords, b_verts, g_status, g_err = project_shape_to_2d_footprint(
                     verts=verts,

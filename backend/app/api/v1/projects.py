@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -112,43 +113,25 @@ def _get_latest_source_version(db: Session, floor_plan_id: str) -> Optional[Floo
 
 def _is_report_structurally_incomplete(report_dict: Dict[str, Any], source_path: Optional[Path] = None) -> bool:
     """
-    Determine whether a persisted IFC verification report is structurally stale and
-    must be refreshed from the immutable source IFC via the current authoritative pipeline.
+    Determine whether a persisted IFC verification report is completely missing or empty.
+    Never triggers repeated 30s re-parsing if geometry elements are already extracted.
     """
     if not report_dict:
         return True
 
+    if report_dict.get("_refreshed") or report_dict.get("pipeline_version") == "v2":
+        return False
+
     elements = report_dict.get("all_elements_geometry") or []
+    # If elements are already extracted and present, never re-parse on GET requests
+    if len(elements) > 0:
+        return False
 
-    # Trigger 1: Missing available_storeys or storey metadata on valid geometry
-    if not bool(report_dict.get("available_storeys")) and report_dict.get("is_geometry_valid", False):
-        return True
-
-    has_element_storey = any(
-        e.get("storey_name") or (e.get("properties") or {}).get("storey_name")
-        for e in elements
-        if isinstance(e, dict)
-    )
-    if not has_element_storey and report_dict.get("is_geometry_valid", False):
-        return True
-
-    # Trigger 2: Furniture entries present in geometry but missing from elements_summary
-    furniture_geom_count = sum(
-        1 for e in elements
-        if isinstance(e, dict) and "FURNITURE" in str(e.get("category", "")).upper()
-    )
-    summary_furniture = (
-        report_dict.get("elements_summary") or {}
-    ).get("furniture_items", None)
-    if furniture_geom_count > 0 and (summary_furniture is None or summary_furniture == 0):
-        return True
-
-    # Trigger 3: is_geometry_valid but all_elements_geometry is empty
+    # Only re-parse if claimed valid but elements array is empty
     if report_dict.get("is_geometry_valid") and len(elements) == 0:
         return True
 
     return False
-
 
 
 def _refresh_legacy_ifc_report(
@@ -156,18 +139,8 @@ def _refresh_legacy_ifc_report(
     db: Session,
 ) -> Dict[str, Any]:
     """
-    Refresh a persisted IFC verification report whenever it is structurally incomplete
-    relative to what the current authoritative IFC pipeline can produce.
-    The immutable source IFC remains the single source of truth.
-
-    Completeness checks (see _is_report_structurally_incomplete):
-    - missing available_storeys
-    - missing furniture_items in elements_summary
-    - no FURNITURE_ITEM entries in all_elements_geometry when the summary is stale
-    - empty all_elements_geometry on a report that claims is_geometry_valid
-
-    Human workflow state (verification_status, reviewer, verified_at, rejection_reason)
-    is always preserved from the previous persisted report.
+    Refresh a persisted IFC verification report only if empty/incomplete.
+    Marks refreshed reports so they are never repeatedly re-parsed on subsequent GET requests.
     """
     report_dict = record.verification_report or {}
     if str(record.source_type).upper() != "IFC":
@@ -184,8 +157,6 @@ def _refresh_legacy_ifc_report(
         parsed_ifc = IFCIngestor().parse_file(str(source_path))
         refreshed = reconciler.reconcile_ifc(parsed_ifc)
 
-        # Preserve human workflow state from the previously persisted report.
-        # Never replace reviewer identity, timestamps, or rejection reasons with defaults.
         previous = report_dict
         previous_status = previous.get("verification_status")
         if previous_status in {s.value for s in VerificationStatus}:
@@ -195,6 +166,8 @@ def _refresh_legacy_ifc_report(
         refreshed.rejection_reason = previous.get("rejection_reason")
 
         refreshed_dict = refreshed.model_dump(mode="json")
+        refreshed_dict["_refreshed"] = True
+        refreshed_dict["pipeline_version"] = "v2"
         record.verification_report = refreshed_dict
         record.ifc_export_metadata = getattr(refreshed, "source_metadata", None) or {}
         db.commit()
@@ -415,17 +388,21 @@ async def upload_floor_plan(
     with open(saved_path, "wb") as f:
         f.write(contents)
 
-    # Run Ingestion using authoritative parsers
+    # Run Ingestion offloaded to a worker thread pool so the asyncio event loop remains 100% responsive
     source_type = "DXF" if ext == ".dxf" else "IFC"
-    try:
+
+    def _execute_ingestion() -> GeometryVerificationReport:
         if ext == ".dxf":
             dxf_ingestor = DXFIngestor()
             parsed_dxf = dxf_ingestor.parse_file(str(saved_path))
-            report = reconciler.reconcile_dxf(parsed_dxf)
+            return reconciler.reconcile_dxf(parsed_dxf)
         else:
             ifc_ingestor = IFCIngestor()
             parsed_ifc = ifc_ingestor.parse_file(str(saved_path))
-            report = reconciler.reconcile_ifc(parsed_ifc)
+            return reconciler.reconcile_ifc(parsed_ifc)
+
+    try:
+        report = await run_in_threadpool(_execute_ingestion)
     except Exception as exc:
         source_version = FloorPlanSourceVersionModel(
             id=str(uuid.uuid4()),

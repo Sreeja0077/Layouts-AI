@@ -56,6 +56,12 @@ from geometry.geo_engine.rules.rule_evaluator import RuleEvaluator
 from geometry.geo_engine.strategies import ALL_STRATEGIES, StrategyTemplate, get_all_strategies, get_strategy
 
 
+# ==============================================================================
+# TEMPORARY TEST / PROTOTYPE DEFAULTS ONLY (Deprecated).
+# NOT authoritative production truth.
+# Authoritative physical catalog definitions are owned by PostgreSQL and accessed via:
+# app.domain.catalog.catalog_service.CatalogService
+# ==============================================================================
 DEFAULT_FURNITURE_CATALOG: Dict[str, Dict[str, Any]] = {
     "PROFESSIONAL_DESK": {"width": 1.5, "depth": 0.75, "clearance_back": 0.8, "item_type": "PROFESSIONAL_DESK"},
     "EXECUTIVE_DESK": {"width": 1.8, "depth": 0.9, "clearance_back": 0.9, "item_type": "EXECUTIVE_DESK"},
@@ -105,8 +111,30 @@ class DeterministicLayoutSolver:
     Deterministic Spatial Layout Reconfiguration & Optimization Solver.
     """
 
-    def __init__(self, catalog: Optional[Dict[str, Dict[str, Any]]] = None):
-        self.catalog = {**DEFAULT_FURNITURE_CATALOG, **(catalog or {})}
+    def __init__(
+        self,
+        catalog: Optional[Dict[str, Dict[str, Any]]] = None,
+        db_session: Optional[Any] = None,
+    ):
+        # Incorporate authoritative catalog definitions if db_session is provided
+        authoritative_specs: Dict[str, Dict[str, Any]] = {}
+        if db_session is not None:
+            try:
+                from app.domain.catalog.catalog_service import CatalogService
+                items = CatalogService.list_catalog_items(db_session)
+                for it in items:
+                    key = (it.subtype or it.name or it.catalog_item_id).upper().replace(" ", "_")
+                    authoritative_specs[key] = {
+                        "width": it.width_m,
+                        "depth": it.depth_m,
+                        "clearance_back": it.clearance.back_m if it.clearance else 0.5,
+                        "item_type": it.subtype or it.category.value if hasattr(it.category, "value") else str(it.category),
+                        "catalog_item_id": it.catalog_item_id,
+                    }
+            except Exception:
+                pass
+
+        self.catalog = {**DEFAULT_FURNITURE_CATALOG, **authoritative_specs, **(catalog or {})}
         self.evaluator = RuleEvaluator()
         self.cpsat_optimizer = CPSATLayoutOptimizer(self.catalog)
         self.heuristic_optimizer = HeuristicLayoutOptimizer(self.catalog)

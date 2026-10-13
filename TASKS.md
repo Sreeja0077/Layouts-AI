@@ -65,7 +65,7 @@
 
 
 ### Phase 7: Furniture Catalog & Semantic-to-Physical Mapping
-- [ ] **Task 7.1:** Create furniture catalog and bundle schema definitions (`EXECUTIVE_DESK_BUNDLE`, etc.).
+- [x] **Task 7.1:** Create furniture catalog and bundle schema definitions (`EXECUTIVE_DESK_BUNDLE`, etc.). *(Completed: 2026-10-13 16:48:00+05:30)*
 - [ ] **Task 7.2:** Build exact alias lookup table for domain shorthand phrasing.
 - [ ] **Task 7.3:** Implement pgvector embedding similarity fallback resolver.
 - [ ] **Task 7.4:** Implement confidence threshold gate for clarification fallback.
@@ -838,6 +838,44 @@
 - **Test Execution Results:**
   - `pytest tests/unit/test_requirement_ai.py -v`: **PASSED (37/37 in 23.16s)**
   - `pytest tests/unit/test_layout_reconfiguration.py tests/unit/test_layout_solver.py -v`: **PASSED (19/19 in 40.74s)**
+
+### [2026-10-13] Phase 7 Task 7.1: Authoritative Furniture Catalog & Composite Bundle Schema Definitions
+- **Action:** Established authoritative physical furniture catalog and bundle schema architecture:
+  - **Domain Models (`backend/app/domain/catalog/models.py`, `__init__.py`)**: Implemented typed Pydantic v2 domain schemas (`FurnitureCatalogItem`, `FurnitureBundle`, `BundleComponentPlacement`, `ClearanceDefinition`, `FootprintGeometry`, `SourceAssetType`, `FurnitureCategory`). Strictly separates width, depth, and height in meters. Validates strictly positive physical dimensions (`width_m > 0`, `depth_m > 0`).
+  - **Revit Asset Scanner & Authoritative Manifest (`backend/app/domain/catalog/manifest.py`, `assets/catalog/catalog_manifest.json`)**: Built deterministic discovery scanner reading local `.rfa` files under `assets/catalog/revit/`. Matches against verified `catalog_manifest.json`. RFA files lacking verified metadata are rejected/flagged as `PENDING_VERIFIED_METADATA` rather than inventing or fabricating fake physical dimensions.
+  - **Database Persistence & Alembic Migration (`backend/app/persistence/models.py`, `backend/alembic/versions/004_furniture_catalog_phase7.py`)**: Extended existing `FurnitureCatalogItemModel` with verified Phase 7 fields (`subtype`, `family_name`, `family_type_name`, `source_type`, `source_reference`, `depth_m`, `footprint_geometry_json`, `is_active`, `is_verified`, `metadata_json`, `updated_at`). Added `FurnitureBundleModel` for composite bundles. Added clean Alembic migration `004_furniture_catalog_phase7`.
+  - **Authoritative Catalog Boundary (`backend/app/domain/catalog/catalog_service.py`, `geometry/geo_engine/layout_solver.py`)**: Built `CatalogService` boundary for spatial solvers. Documented prototype defaults in `layout_solver.py` as deprecated test-only defaults and connected `DeterministicLayoutSolver` to consume authoritative catalog items from database.
+  - **Idempotent Seeder (`backend/app/domain/catalog/seeder.py`)**: Built `seed_catalog(db)` ensuring repeatable, deterministic synchronization of manifest items and bundles without duplicating database records.
+  - **REST API Endpoints (`backend/app/api/v1/catalog.py`, `backend/app/api/v1/__init__.py`)**: Implemented `GET /api/v1/catalog/furniture`, `GET /api/v1/catalog/furniture/{catalog_item_id}`, `GET /api/v1/catalog/bundles`, `GET /api/v1/catalog/bundles/{bundle_id}`, and `GET /api/v1/catalog/unregistered-assets`.
+  - **Frontend Catalog UI & 2D Footprint Preview (`frontend/src/api/catalog.ts`, `frontend/src/components/catalog/FurnitureCatalogPanel.tsx`, `frontend/src/components/catalog/FurnitureFootprintPreview.tsx`, `frontend/src/components/workspace/TopNav.tsx`, `frontend/src/components/workspace/AppShell.tsx`)**: Created dark CAD drawer for furniture catalog with category filters, verified dimension pills, Revit family/type specs, 2D metric CAD footprint preview with dimension ticks, composite bundles tab, unverified RFA audit tab, and development "Add to 2D Canvas" action.
+  - **Automated Testing (`backend/tests/unit/test_furniture_catalog.py`, `frontend/src/catalog/catalog.test.ts`, `frontend/src/editor/runTests.ts`)**: Built 13 comprehensive unit/integration tests verifying dimension validation, missing metadata rejection, asset discovery, seeder idempotency, API serialization, and real RFA reference to 2D footprint conversion.
+- **Status:** `SUCCESS (13/13 New Unit & Integration Tests Passed, 10/10 Regression Tests Passed)`
+- **Files Created:**
+  - `backend/app/domain/catalog/models.py`
+  - `backend/app/domain/catalog/__init__.py`
+  - `backend/app/domain/catalog/manifest.py`
+  - `backend/app/domain/catalog/seeder.py`
+  - `backend/app/domain/catalog/catalog_service.py`
+  - `backend/app/api/v1/catalog.py`
+  - `backend/alembic/versions/004_furniture_catalog_phase7.py`
+  - `assets/catalog/catalog_manifest.json`
+  - `backend/tests/unit/test_furniture_catalog.py`
+  - `frontend/src/api/catalog.ts`
+  - `frontend/src/components/catalog/FurnitureFootprintPreview.tsx`
+  - `frontend/src/components/catalog/FurnitureCatalogPanel.tsx`
+  - `frontend/src/catalog/catalog.test.ts`
+- **Files Modified:**
+  - `backend/app/persistence/models.py`
+  - `backend/app/api/v1/__init__.py`
+  - `geometry/geo_engine/layout_solver.py`
+  - `backend/tests/unit/test_db_schema.py`
+  - `frontend/src/components/workspace/TopNav.tsx`
+  - `frontend/src/components/workspace/AppShell.tsx`
+  - `frontend/src/editor/runTests.ts`
+  - `TASKS.md`
+- **Test Execution Results:**
+  - `pytest tests/unit/test_furniture_catalog.py -v`: **PASSED (13/13 in 11.99s)**
+  - `pytest tests/unit/test_db_schema.py tests/unit/test_layout_solver.py tests/unit/test_domain_schemas.py -v`: **PASSED (10/10 in 19.04s)**
 
 ---
 
